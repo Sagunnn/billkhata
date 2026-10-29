@@ -1,7 +1,7 @@
 // The editable verification form for a bill. Used after a scan and when editing.
 import { useEffect, useState } from 'react';
 import { ImagePlus, Trash, ZoomIn } from 'lucide-react';
-import { CATEGORIES, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
+import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { Field, Toggle } from './ui.jsx';
 import { EligibilityPanel } from './Ird.jsx';
@@ -80,9 +80,9 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Paid by" htmlFor="f-pay">
+          <Field label="Paid by" htmlFor="f-pay" hint={e.paymentMethod === PAYMENT.DIGITAL ? 'Fonepay, eSewa, Khalti, mobile banking QR or card: entered in the IRD draw automatically.' : ''}>
             <select id="f-pay" className="input" value={e.paymentMethod} onChange={set('paymentMethod')}>
-              {PAYMENT_METHODS.map((p) => <option key={p}>{p}</option>)}
+              {PAYMENT_METHODS.map((p) => <option key={p} value={p}>{p === PAYMENT.DIGITAL ? 'Digital QR / Card (Fonepay, eSewa…)' : p}</option>)}
             </select>
           </Field>
           <Field label="Category" htmlFor="f-cat">

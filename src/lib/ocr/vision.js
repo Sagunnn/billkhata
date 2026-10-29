@@ -6,12 +6,12 @@ const PROMPT = `You are reading a photo of a shop bill or receipt, usually from 
 Extract these fields. Use an empty string or 0 when a field is not on the bill; do not guess.
 - merchantName: the seller / shop name as printed.
 - sellerPan: the seller's 9-digit PAN or VAT number (near "PAN", "VAT", "प्यान", "स्थायी लेखा नम्बर"). Digits only.
-- invoiceNumber: bill / invoice number ("Bill No", "Inv No", "बिल नं").
+- invoiceNumber: bill / invoice number ("Bill No", "Inv No", "Invoice #", "बिल नं", "बिजक नं"), exactly as printed but with Devanagari digits converted.
 - billDateAD: the bill date in the Gregorian calendar as YYYY-MM-DD, only if the bill shows an AD date.
 - billDateBS: the bill date in Bikram Sambat as YYYY-MM-DD (years around 2080), only if the bill shows a BS date.
 - totalAmount: the final amount payable (grand total), a number.
 - vatAmount: the 13% VAT amount if shown, a number.
-- paymentMethod: "${PAYMENT_METHODS[1]}" if the bill shows QR, card, Fonepay, eSewa, Khalti or similar; otherwise "${PAYMENT_METHODS[0]}".
+- paymentMethod: "${PAYMENT_METHODS[1]}" if the bill shows it was paid by Fonepay, QR, eSewa, Khalti, mobile banking, connectIPS or a card; otherwise "${PAYMENT_METHODS[0]}".
 - category: the best fit from the list.
 - isNepalBill: true if this is a Nepali bill (NPR, रु, Nepali PAN/VAT, Nepali address).
 Convert Devanagari digits (०-९) to 0-9.`;

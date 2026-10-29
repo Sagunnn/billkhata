@@ -38,7 +38,7 @@ export function normalizeExtraction(raw = {}) {
   return {
     merchantName: String(raw.merchantName ?? '').trim().slice(0, 120),
     sellerPan: pan.length === 9 ? pan : '',
-    invoiceNumber: String(raw.invoiceNumber ?? '').trim().slice(0, 40),
+    invoiceNumber: toAsciiDigits(String(raw.invoiceNumber ?? '')).trim().slice(0, 40),
     billDateAD: ad,
     billDateBS: bs,
     totalAmount: num(raw.totalAmount),

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReceiptText } from '../src/lib/ocr/parse.js';
-import { checkEligibility, getIrdStatus, buildFillScript } from '../src/lib/ird.js';
+import { checkEligibility, getIrdStatus } from '../src/lib/ird.js';
 
 const SAMPLE = `ANNAPURNA KIRANA PASAL
 Baneshwor, Kathmandu
@@ -45,6 +45,7 @@ test('eligibility rules', () => {
   assert.equal(getIrdStatus(base, opts), 'Not Applied');
   assert.equal(getIrdStatus({ ...base, irdCoupon: '208307004512' }, opts), 'Applied - Coupon Saved');
   assert.equal(getIrdStatus({ ...base, paymentMethod: 'Digital QR / Card' }, opts), 'Auto-Entered via QR');
+  assert.equal(getIrdStatus({ ...base, paymentMethod: 'Digital QR / Card', irdCoupon: '208307004512' }, opts), 'Applied - Coupon Saved');
   assert.equal(getIrdStatus({ ...base, totalAmount: 100 }, opts), 'Not Applied'); // portal: at least 100
   assert.equal(getIrdStatus({ ...base, totalAmount: 99.5 }, opts), 'Ineligible');
   assert.equal(getIrdStatus({ ...base, sellerPan: '' }, opts), 'Ineligible');
@@ -55,8 +56,15 @@ test('eligibility rules', () => {
   assert.match(old.warnings.join(), /outside the current draw window/);
 });
 
-test('fill script is valid JavaScript and skips the honeypot', () => {
-  const src = buildFillScript(base, { fullName: 'A "B" C', phone: '9800000000', address: 'Ktm' });
-  assert.doesNotThrow(() => new Function(src));
-  assert.doesNotMatch(src, /company_website/);
+test('detects Fonepay / wallet payments, not a bare POS or QR', () => {
+  assert.equal(parseReceiptText('Total 500\nPaid by: Fonepay QR').paymentMethod, 'Digital QR / Card');
+  assert.equal(parseReceiptText('Total 500\nPayment mode: eSewa').paymentMethod, 'Digital QR / Card');
+  assert.equal(parseReceiptText('POS Terminal 2\nScan QR to rate us\nTotal 500\nCash').paymentMethod, undefined);
+});
+
+test('more bill number styles', () => {
+  assert.equal(parseReceiptText('Inv. No.: KTM/0091\nTotal 300').invoiceNumber, 'KTM/0091');
+  assert.equal(parseReceiptText('बिजक नं: ४५७\nजम्मा 300').invoiceNumber, '457');
+  assert.equal(parseReceiptText('No. 8812\nTotal 300').invoiceNumber, '8812');
+  assert.equal(parseReceiptText('No. of items 3\nTotal 300').invoiceNumber, '');
 });

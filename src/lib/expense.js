@@ -1,7 +1,7 @@
 // The expense record: creation, cleanup, summaries and filters.
 import { CATEGORIES, IRD_STATUS, PAYMENT, PAYMENT_METHODS, REGIONS } from './constants.js';
 import { getIrdStatus } from './ird.js';
-import { addDaysAD, adToBs, parseYmd, todayAD, todayBS } from './nepaliDate.js';
+import { addDaysAD, adToBs, parseYmd, toAsciiDigits, todayAD, todayBS } from './nepaliDate.js';
 import { newId } from './db.js';
 
 export function blankExpense(region = REGIONS.NEPAL) {
@@ -35,8 +35,8 @@ export function finalizeExpense(e) {
   const out = {
     ...e,
     merchantName: String(e.merchantName || '').trim(),
-    sellerPan: String(e.sellerPan || '').replace(/\D/g, ''),
-    invoiceNumber: String(e.invoiceNumber || '').trim(),
+    sellerPan: toAsciiDigits(e.sellerPan || '').replace(/\D/g, ''),
+    invoiceNumber: toAsciiDigits(e.invoiceNumber || '').trim(),
     totalAmount: Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0,
     vatAmount: e.vatAmount === '' || e.vatAmount == null || !Number.isFinite(vat) ? null : Math.round(vat * 100) / 100,
     paymentMethod: PAYMENT_METHODS.includes(e.paymentMethod) ? e.paymentMethod : PAYMENT.CASH,

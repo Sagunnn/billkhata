@@ -2,7 +2,7 @@ import { CalendarDays, ChevronRight, Hourglass, ScanLine, Ticket, UserRound, Wal
 import { REGIONS } from '../lib/constants.js';
 import { byCategory, filterExpenses, summarize } from '../lib/expense.js';
 import { money } from '../lib/format.js';
-import { needsManualEntry } from '../lib/ird.js';
+import { needsCouponOnly, needsManualEntry } from '../lib/ird.js';
 import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { ExpenseList } from '../components/ExpenseList.jsx';
@@ -57,6 +57,9 @@ export default function Dashboard() {
   const tBs = todayBS();
   const win = drawWindowFor(tBs);
   const pending = filterExpenses(expenses.filter((e) => needsManualEntry(e)), { range: 'all' });
+  // Fonepay / QR bills are already entered; they only need their coupon number saved.
+  const couponOnly = filterExpenses(expenses.filter((e) => needsCouponOnly(e)), { range: 'all' });
+  const actions = [...pending, ...couponOnly];
   // Nepal users count months in BS; everyone else in AD.
   const monthList = isNepal
     ? expenses.filter((e) => tBs && (e.billDateBS || '').slice(0, 7) === tBs.slice(0, 7))
@@ -101,23 +104,23 @@ export default function Dashboard() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <h2 className="font-bold">Needs IRD entry</h2>
-            <span className="text-xs font-semibold text-slate-500">{pending.length} bill{pending.length === 1 ? '' : 's'}</span>
+            <h2 className="font-bold">Needs IRD action</h2>
+            <span className="text-xs font-semibold text-slate-500">{pending.length} to enroll · {couponOnly.length} coupon{couponOnly.length === 1 ? '' : 's'} to save</span>
           </div>
-          {pending.length ? (
+          {actions.length ? (
             <ul className="divide-y divide-slate-100">
-              {pending.slice(0, 5).map((e) => (
+              {actions.slice(0, 6).map((e) => (
                 <li key={e.id} className="flex flex-col items-start gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-semibold">{e.merchantName}</div>
                     <div className="text-xs text-slate-500">{formatBS(e.billDateBS) || formatAD(e.billDateAD)} · Bill {e.invoiceNumber || '—'} · <span className="num">{money(e.totalAmount, region)}</span></div>
                   </div>
-                  <IrdAction expense={e} />
+                  <IrdAction expense={e} compact={needsCouponOnly(e)} />
                 </li>
               ))}
             </ul>
           ) : (
-            <EmptyState icon={Ticket} title="All caught up">Eligible cash bills you scan will show up here, ready to enter in the IRD draw.</EmptyState>
+            <EmptyState icon={Ticket} title="All caught up">Eligible cash bills to enter, and Fonepay/QR bills whose coupon isn’t saved yet, show up here.</EmptyState>
           )}
         </Card>
 

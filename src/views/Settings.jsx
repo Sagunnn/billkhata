@@ -9,6 +9,7 @@ import { validateProfile } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, Field, Modal, PageHeader, Segmented, Toggle } from '../components/ui.jsx';
+import { HelperSetup } from '../components/Ird.jsx';
 
 function ProfileSection() {
   const { profile, setProfile } = useStore();
@@ -228,6 +229,11 @@ export default function Settings() {
         {/* Re-mount when a restore replaces the profile. */}
         <ProfileSection key={JSON.stringify(profile)} />
         <OcrSection />
+        <Card className="p-4 md:p-5">
+          <h2 className="mb-1 text-lg font-bold">IRD portal auto-fill</h2>
+          <p className="mb-4 text-sm text-slate-600">Lets one click on prize.ird.gov.np fill a cash bill’s 8 fields and save the coupon back here.</p>
+          <HelperSetup defaultOpen />
+        </Card>
         <DataSection />
         <p className="px-1 text-xs text-slate-500">
           BillKhata is an independent helper and is not affiliated with Nepal’s Inland Revenue Department. Always check your entry on prize.ird.gov.np.

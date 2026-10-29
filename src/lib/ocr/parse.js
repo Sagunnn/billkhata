@@ -1,10 +1,15 @@
 // Turns raw OCR text from a Nepali (or any) bill into the editable bill fields.
 // Every field is a best guess; the user confirms everything in the form.
-import { CATEGORIES } from '../constants.js';
+import { CATEGORIES, PAYMENT } from '../constants.js';
 import { adToBs, bsToAd, isValidAD, isValidBS, toAsciiDigits, ymd } from '../nepaliDate.js';
 
 const PAN_KEYWORDS = /(pan|vat|p\.a\.n|प्यान|पान|स्थायी\s*लेखा\s*(नम्बर|नं)|स्था\.?\s*ले\.?\s*नं|भ्याट)/i;
-const INVOICE_RE = /(?:bill|invoice|inv|receipt|बिल|बीजक|रसिद)\s*(?:no\.?|number|num|#|नं\.?|नम्बर)\s*[:.\-#]?\s*([A-Za-z0-9][A-Za-z0-9/._-]{0,39})/i;
+const INVOICE_RE = /(?:bill|invoice|inv|receipt|ref|बिल|बीजक|बिजक|रसिद)\.?\s*(?:no\.?|number|num|#|नं\.?|नम्बर)\s*[:.\-#]?\s*([A-Za-z0-9][A-Za-z0-9/._-]{0,39})/i;
+// A line that is just "No. 1234" (the value must contain a digit, so "No. of items" is skipped).
+const INVOICE_FALLBACK_RE = /(?:^|\n)\s*(?:no|नं)\.?\s*[:.#-]?\s*([A-Za-z/._-]{0,10}\d[A-Za-z0-9/._-]{0,29})/i;
+// Fonepay, wallets, QR and cards are entered in the IRD draw by the payment provider.
+// Plain "QR", "card" or "POS" also show up on cash bills, so they need payment wording around them.
+const DIGITAL_PAY_RE = /(fone\s*pay|e-?sewa|khalti|ime\s*pay|connect\s*ips|mobile\s*banking|(?:paid|payment|pay)\s*(?:by|via|mode|method)?\s*[:-]?\s*(?:qr|card)|qr\s*pay|(?:credit|debit)\s*card|visa|master\s*card|union\s*pay)/i;
 const TOTAL_RE = /(grand\s*total|net\s*(?:total|amount|payable)|total\s*(?:amount|payable)?|amount\s*payable|जम्मा|कुल|रकम)/i;
 const NOT_TOTAL_RE = /(sub\s*-?\s*total|total\s*qty|items?|discount|taxable|before\s*vat|tender|change|cash\s*received|paid)/i;
 const VAT_LINE_RE = /(vat|भ्याट|मू\.?\s*अ\.?\s*कर|मूल्य\s*अभिवृद्धि)/i;
@@ -109,7 +114,8 @@ export function parseReceiptText(raw) {
   return {
     merchantName: findMerchant(lines),
     sellerPan,
-    invoiceNumber: text.match(INVOICE_RE)?.[1] || '',
+    invoiceNumber: text.match(INVOICE_RE)?.[1] || text.match(INVOICE_FALLBACK_RE)?.[1] || '',
+    paymentMethod: DIGITAL_PAY_RE.test(text) ? PAYMENT.DIGITAL : undefined,
     billDateAD: dates.ad,
     billDateBS: dates.bs,
     totalAmount,

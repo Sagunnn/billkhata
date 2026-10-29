@@ -2,14 +2,14 @@
 // Rules mirror what prize.ird.gov.np itself enforces, plus the program's published
 // list of ineligible bills.
 import {
-  EXCLUDED_CATEGORIES, IRD_MIN_AMOUNT, IRD_STATUS, PAYMENT,
+  EXCLUDED_CATEGORIES, IRD_MIN_AMOUNT, IRD_PORTAL_URL, IRD_STATUS, PAYMENT,
 } from './constants.js';
-import { drawWindowFor, formatAD, formatBS, todayAD, todayBS } from './nepaliDate.js';
+import { drawWindowFor, todayAD, todayBS } from './nepaliDate.js';
 
 export const PAN_RE = /^\d{9}$/;
 export const COUPON_RE = /^\d{12}$/;
 
-/** Card/QR payments are reported by the bank or wallet and enrolled automatically. */
+/** Fonepay / QR / card payments are reported by the bank or wallet and enrolled automatically. */
 export const isAutoEnrolled = (e) => e.paymentMethod === PAYMENT.DIGITAL;
 
 /**
@@ -36,8 +36,8 @@ export function checkEligibility(e, { today = todayAD(), todayBs = todayBS() } =
   if (e.billDateAD && e.billDateAD > today) {
     reasons.push('Bill date is in the future.');
   }
-  if (!String(e.invoiceNumber || '').trim()) {
-    warnings.push('Add the bill / invoice number — the portal requires it.');
+  if (!cleanBillNumber(e.invoiceNumber)) {
+    warnings.push('Add the bill / invoice number (letters and digits) — the portal requires it.');
   }
 
   const window = drawWindowFor(todayBs);
@@ -50,56 +50,67 @@ export function checkEligibility(e, { today = todayAD(), todayBs = todayBS() } =
 
 export function getIrdStatus(e, opts) {
   if (!checkEligibility(e, opts).eligible) return IRD_STATUS.INELIGIBLE;
+  const hasCoupon = COUPON_RE.test(String(e.irdCoupon || ''));
+  if (hasCoupon) return IRD_STATUS.APPLIED;
+  // Fonepay / QR / card bills are entered by the bank or wallet; only the coupon is left to save.
   if (isAutoEnrolled(e)) return IRD_STATUS.AUTO;
-  if (COUPON_RE.test(String(e.irdCoupon || ''))) return IRD_STATUS.APPLIED;
   return IRD_STATUS.NOT_APPLIED;
 }
 
 /** Eligible bills the user still has to enroll by hand. */
 export const needsManualEntry = (e, opts) => getIrdStatus(e, opts) === IRD_STATUS.NOT_APPLIED;
 
+/** QR/card bills already in the draw whose coupon number is not saved yet. */
+export const needsCouponOnly = (e, opts) => getIrdStatus(e, opts) === IRD_STATUS.AUTO;
+
+const toAscii = (v) => String(v ?? '').replace(/[\u0966-\u096F]/g, (c) => String(c.charCodeAt(0) - 0x0966));
+
+/**
+ * The portal keeps only letters, digits and . / _ - in a bill number (max 40, upper case),
+ * so "बिल नं ४५७" or "AKP 0457" would otherwise arrive empty or changed.
+ */
+export function cleanBillNumber(v) {
+  return toAscii(v).replace(/[^0-9A-Za-z./_-]/g, '').slice(0, 40).toUpperCase();
+}
+
 /** The values the portal's "enroll a cash bill" form asks for, keyed by its input names. */
 export function portalFields(e, profile) {
   return {
-    bill_number: String(e.invoiceNumber || '').trim(),
-    seller_pan_no: String(e.sellerPan || '').trim(),
+    bill_number: cleanBillNumber(e.invoiceNumber),
+    seller_pan_no: toAscii(e.sellerPan).replace(/\D/g, '').slice(0, 9),
     billed_total_amount: Number(e.totalAmount || 0).toFixed(2),
     name: String(profile?.fullName || '').trim(),
-    mobile_number: String(profile?.phone || '').trim(),
+    mobile_number: toAscii(profile?.phone).replace(/\D/g, ''),
     address: String(profile?.address || '').trim(),
   };
 }
 
-/**
- * Builds a script that fills the portal form in the user's own browser tab.
- * It only types into the visible fields: it never touches the hidden
- * honeypot field, the security check or the submit button.
- */
-export function buildFillScript(e, profile) {
-  const data = {
-    fields: portalFields(e, profile),
-    dateBS: e.billDateBS ? `${e.billDateBS} (${formatBS(e.billDateBS)})` : '',
-    dateAD: e.billDateAD ? `${e.billDateAD} (${formatAD(e.billDateAD)})` : '',
+/** Everything the portal helper needs for one bill. */
+export function portalPayload(e, profile, app) {
+  return {
+    v: 1,
+    id: e.id,
+    app,
+    merchant: e.merchantName || '',
+    pay: isAutoEnrolled(e) ? 'digital' : 'cash',
+    bs: e.billDateBS || '',
+    ad: e.billDateAD || '',
+    ...portalFields(e, profile),
   };
-  // Kept ES5-ish and self-contained so it runs as a bookmarklet.
-  return `(function(){
-var d=${JSON.stringify(data)};
-if(!/(^|\\.)prize\\.ird\\.gov\\.np$/.test(location.hostname)){alert('BillKhata: open https://prize.ird.gov.np first, then run this again.');return;}
-function setVal(el,v){var p=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
-var cash=[].slice.call(document.querySelectorAll('[role=radio]')).filter(function(b){return /cash|नगद/i.test(b.textContent);})[0];
-if(cash&&cash.getAttribute('aria-checked')!=='true'){cash.click();}
-setTimeout(function(){
-var done=[],miss=[];
-Object.keys(d.fields).forEach(function(n){var el=document.querySelector('form input[name="'+n+'"]:not([type=hidden]), form textarea[name="'+n+'"]');if(el&&d.fields[n]){setVal(el,d.fields[n]);done.push(n);}else{miss.push(n);}});
-var msg='BillKhata filled '+done.length+' field(s).';
-if(miss.length){msg+='\\nNot found or empty: '+miss.join(', ')+'.';}
-msg+='\\n\\nNow pick the bill date in the calendar:\\n  BS '+d.dateBS+'\\n  AD '+d.dateAD+'\\nThen complete the security check and press Generate Prize Coupon.';
-alert(msg);
-},400);
-})();`;
 }
 
-export function buildBookmarklet(e, profile) {
-  const code = buildFillScript(e, profile).replace(/\n/g, '');
-  return `javascript:${encodeURIComponent(code)}`;
+/** UTF-8 safe base64url, so Nepali names survive the trip in the URL fragment. */
+export function encodePayload(p) {
+  const bytes = new TextEncoder().encode(JSON.stringify(p));
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Portal link carrying the bill in the #fragment. Browsers never send the fragment to the
+ * server, and the helper removes it from the address bar as soon as the page loads.
+ */
+export function portalLink(e, profile, app) {
+  return `${IRD_PORTAL_URL}/#billkhata=${encodePayload(portalPayload(e, profile, app))}`;
 }

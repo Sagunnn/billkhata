@@ -7,6 +7,7 @@ import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
 import Reports from './views/Reports.jsx';
 import Settings from './views/Settings.jsx';
+import CouponImport from './views/CouponImport.jsx';
 
 const ROUTES = [
   { path: '', label: 'Dashboard', icon: LayoutDashboard, view: Dashboard },
@@ -96,7 +97,11 @@ function BottomNav({ route }) {
 export default function App() {
   const route = useHashRoute();
   const { ready, loadError } = useStore();
-  const current = ROUTES.find((r) => r.path === route) || ROUTES[0];
+  // #/coupon/<billId>/<code> comes back from the portal helper.
+  const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);
+  const current = couponMatch
+    ? { path: 'coupon', label: 'Save coupon', view: CouponImport }
+    : ROUTES.find((r) => r.path === route) || ROUTES[0];
   const View = current.view;
 
   useEffect(() => {
@@ -116,7 +121,7 @@ export default function App() {
               Could not open local storage: {loadError} Bills will not be saved in this window.
             </div>
           )}
-          {ready ? <View /> : <div className="py-20 text-center text-slate-500">Loading your bills…</div>}
+          {ready ? <View {...(couponMatch ? { billId: decodeURIComponent(couponMatch[1]), code: couponMatch[2] } : {})} /> : <div className="py-20 text-center text-slate-500">Loading your bills…</div>}
         </div>
       </main>
       <BottomNav route={current.path} />

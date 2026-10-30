@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, Crop, ImagePlus, QrCode, Smartphone, Trash } from 'lucide-react';
 import { fileToDataUrl, validateImageFile } from '../lib/image.js';
-import { compressQrCanvas, decodeQrFromImage, loadImage, paymentQrInfo, qrSvg } from '../lib/qr.js';
+import { compressQrCanvas, decodeQrFromImage, loadImage, paymentQrInfo, qrKind, qrSvg } from '../lib/qr.js';
 import { loadPaymentQr, savePaymentQr } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
@@ -27,6 +27,23 @@ export function QrBox({ text, image, label, size = 200 }) {
       </div>
       {label && <figcaption className="text-center text-sm font-semibold text-slate-700">{label}</figcaption>}
     </figure>
+  );
+}
+
+/** Whether the saved QR can carry an amount (EMVCo tag 54 / eSewa "amount"). */
+const KIND_NOTES = {
+  emv: [true, 'NepalQR / EMVCo code read. Each person’s QR will have their amount filled in (tag 54). Test-scan one with your banking app before relying on it.'],
+  'emv-invalid': [false, 'This looks like a NepalQR code but its checksum is wrong, so it may have been misread. Amounts won’t be added. Try a sharper, tighter crop.'],
+  esewa: [true, 'eSewa QR read. An "amount" will be added for each person; check with the eSewa app that it’s pre-filled.'],
+  other: [false, 'QR read, but it isn’t a NepalQR / eSewa code, so friends will type the amount themselves.'],
+  '': [false, 'This QR couldn’t be read, so amounts can’t be filled in (the image still shows). Try a sharper, tighter crop.'],
+};
+function QrKindNote({ text }) {
+  const [ok, note] = KIND_NOTES[qrKind(text || '')] || KIND_NOTES.other;
+  return (
+    <p className={`flex gap-1.5 text-sm ${ok ? 'text-emerald-800' : 'text-amber-900'}`}>
+      {ok ? <CircleCheck className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}{note}
+    </p>
   );
 }
 
@@ -130,7 +147,7 @@ export function PaymentQrSettings() {
       const text = (await decodeQrFromImage(canvas)) || (await decodeQrFromImage(image));
       save({ mode: 'image', image, text, label: config.label || '' });
       setCropSrc('');
-      toast(text ? 'QR saved and read. Split links will carry it.' : 'QR image saved, but it couldn’t be read. It will show in summary images only.', text ? 'success' : 'error');
+      toast(text ? 'QR saved and read.' : 'QR image saved, but it couldn’t be read, so amounts can’t be filled in.', text ? 'success' : 'error');
     } finally {
       setBusy(false);
     }
@@ -139,7 +156,7 @@ export function PaymentQrSettings() {
   return (
     <Card className="p-4 md:p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><QrCode className="size-5" />Receive payments (Split Khata)</h2>
-      <p className="mb-4 text-sm text-slate-600">The QR friends scan to pay you back. Shown on split summaries and split links. Stored only in this browser.</p>
+      <p className="mb-4 text-sm text-slate-600">The QR friends scan to pay you back. Shown in the split screen and on the summary image, with each person’s amount filled in where your QR supports it. Stored only in this browser.</p>
       <Segmented
         value={config.mode || ''}
         onChange={(mode) => save({ ...config, mode })}
@@ -178,16 +195,11 @@ export function PaymentQrSettings() {
                 <Field label="Label under the QR" htmlFor="qr-label" hint="e.g. “NIC Asia · Sagun Pradhan” or “Khalti 98…”">
                   <input id="qr-label" className="input" value={config.label || ''} onChange={(e) => save({ ...config, label: e.target.value.slice(0, 60) })} />
                 </Field>
-                {config.image && (
-                  <p className={`flex gap-1.5 text-sm ${config.text ? 'text-emerald-800' : 'text-amber-900'}`}>
-                    {config.text ? <CircleCheck className="mt-0.5 size-4 shrink-0" /> : <CircleAlert className="mt-0.5 size-4 shrink-0" />}
-                    {config.text ? 'QR read successfully: split links will show a scannable copy.' : 'This QR couldn’t be read, so split links won’t include it (summary images still will). Try a sharper, tighter crop.'}
-                  </p>
-                )}
+                {config.image && <QrKindNote text={config.text} />}
               </>
             )
           )}
-          {!config.mode && <p className="text-sm text-slate-600">Turn on a payment QR to show it on split summaries and links.</p>}
+          {!config.mode && <p className="text-sm text-slate-600">Turn on a payment QR to show it in splits and on summary images.</p>}
           {busy && <p className="text-sm text-slate-500">Reading the QR…</p>}
         </div>
         {info && !cropSrc && <QrBox text={info.text} image={info.image} label={info.label} size={180} />}

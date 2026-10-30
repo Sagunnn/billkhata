@@ -1,22 +1,23 @@
 // Split Khata: hub (#/split), editor (#/split-bill/<billId>) and read-only shared view (#/split/<token>).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Beer, CircleCheck, ClipboardPaste, Divide, Drumstick, HandCoins, ImageDown, Leaf, Link2, LoaderCircle, Minus, Plus,
-  QrCode, ReceiptText, ScanText, Share2, Split as SplitIcon, Trash, UserPlus, Users, UsersRound,
+  Beer, CircleCheck, ClipboardPaste, Divide, Drumstick, HandCoins, ImageDown, Leaf, LoaderCircle, Minus, Plus,
+  QrCode, ReceiptText, ScanText, Share2, ShieldAlert, Split as SplitIcon, Trash, UserPlus, Users, UsersRound,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
-import { money, copyText, downloadBlob } from '../lib/format.js';
+import { money, downloadBlob } from '../lib/format.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { deleteGroup, forgetFriend, loadFriends, loadGroups, rememberFriends, saveGroup } from '../lib/profile.js';
 import {
-  autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, decodeSplit, encodeSplit, makeItem, makeMember,
-  newSplitForExpense, outstanding, parseLineItemsFromText, sharePayload, splitFromPayload, TAG_LABELS, TAGS, weightOf,
+  autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember,
+  newSplitForExpense, outstanding, parseLineItemsFromText, TAG_LABELS, TAGS, weightOf,
 } from '../lib/splitter.js';
+import { amountQrText } from '../lib/qr.js';
 import { drawSplitSummary } from '../lib/splitImage.js';
 import { useStore } from '../store.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, EmptyState, Field, PageHeader, Segmented } from '../components/ui.jsx';
+import { Button, Card, CopyButton, EmptyState, PageHeader, Segmented } from '../components/ui.jsx';
 
 const TAG_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -278,8 +279,30 @@ function Matrix({ split, update }) {
   );
 }
 
+/** This person's QR with their amount filled in (EMVCo tag 54 / eSewa "amount"), plus a copy chip. */
+function MemberPayQr({ payer, amount, name, region }) {
+  let dyn = null;
+  try { dyn = payer?.text ? amountQrText(payer.text, amount) : null; } catch { dyn = null; }
+  const plain = !dyn;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 p-3">
+      <QrBox text={dyn || payer.text} image={dyn || payer.text ? '' : payer.image} label={dyn ? `${name} · ${money(amount, region)}` : payer.label} size={176} />
+      <div className="min-w-[160px] flex-1 space-y-2 text-sm text-slate-700">
+        <p>
+          {plain
+            ? <>This QR can’t carry an amount, so {name || 'they'} type <b>{money(amount, region)}</b> after scanning.</>
+            : <>Scanning fills in <b>{money(amount, region)}</b> in banking and wallet apps that support it; others just ask for the amount.</>}
+        </p>
+        <CopyButton value={Number(amount).toFixed(2)} label={`Copy ${Number(amount).toFixed(2)}`} />
+        <p className="text-xs text-slate-500">Show this screen to {name || 'them'}, or send the summary image. It stays on this device.</p>
+      </div>
+    </div>
+  );
+}
+
 function Shares({ split, result, update, region, payer }) {
   const [open, setOpen] = useState('');
+  const [qrFor, setQrFor] = useState('');
   return (
     <Card className="p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -310,12 +333,18 @@ function Shares({ split, result, update, region, payer }) {
               </button>
               <span className="num text-lg font-extrabold">{money(r.share, region)}</span>
               {r.out && <span className="text-xs font-semibold text-slate-500">Left out</span>}
+              {payer && !r.isPayer && !r.out && r.share > 0 && (
+                <button type="button" aria-expanded={qrFor === r.id} onClick={() => setQrFor(qrFor === r.id ? '' : r.id)} className={`inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold ring-1 ring-inset ${qrFor === r.id ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-300'}`} title={`QR for ${r.name}'s amount`}>
+                  <QrCode className="size-3.5" />QR
+                </button>
+              )}
               {!r.isPayer && !r.out && (
                 <button type="button" aria-pressed={Boolean(split.paid?.[r.id])} onClick={() => update({ ...split, paid: { ...split.paid, [r.id]: !split.paid?.[r.id] } })} className={`inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold ring-1 ring-inset ${split.paid?.[r.id] ? 'bg-emerald-50 text-emerald-800 ring-emerald-300' : 'bg-white text-slate-600 ring-slate-300'}`}>
                   <CircleCheck className="size-3.5" />{split.paid?.[r.id] ? 'Paid' : 'Mark paid'}
                 </button>
               )}
             </div>
+            {qrFor === r.id && payer && <MemberPayQr payer={payer} amount={r.share} name={r.name} region={region} />}
             {open === r.id && (
               <ul className="mt-2 space-y-0.5 pl-3 text-sm text-slate-600">
                 {r.lines.map((l) => <li key={l.itemId} className="flex justify-between gap-2"><span>{l.name}{l.of > 1 || l.weight > 1 ? ` (${l.weight}/${l.of})` : ''}</span><span className="num">{money(l.amount, region)}</span></li>)}
@@ -352,14 +381,6 @@ function ShareBar({ split, result, payerInfo }) {
       await navigator.share({ files: [file], title: `${split.title} split` });
     } catch (e) { if (e.name !== 'AbortError') toast('Sharing isn’t available here. Download the image instead.', 'error'); } finally { setBusy(''); }
   }
-  async function link() {
-    setBusy('link');
-    try {
-      const token = await encodeSplit(sharePayload(split, { payerName: payer.name, qrText: payer.qrText, qrLabel: payer.qrLabel }));
-      const url = `${window.location.origin}${window.location.pathname}#/split/${token}`;
-      if (await copyText(url)) toast(`Split link copied (${url.length} characters). Paste it in your group chat.`);
-    } catch (e) { toast(`Couldn’t make the link: ${e.message}`, 'error'); } finally { setBusy(''); }
-  }
   const canShareFiles = typeof navigator !== 'undefined' && navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] });
 
   return (
@@ -368,11 +389,9 @@ function ShareBar({ split, result, payerInfo }) {
       <div className="flex flex-wrap gap-2">
         <Button variant="primary" icon={busy === 'image' ? LoaderCircle : ImageDown} disabled={!!busy} onClick={image}>Download Split Summary Image (PNG)</Button>
         {canShareFiles && <Button icon={Share2} disabled={!!busy} onClick={shareImage}>Share image</Button>}
-        <Button variant="dark" icon={busy === 'link' ? LoaderCircle : Link2} disabled={!!busy} onClick={link}>Copy Interactive Split Link</Button>
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        The link holds the whole split inside it (items, names, shares{payer.qrText ? ' and your payment QR' : ''}). Friends open it read-only on their own phones; nothing is uploaded.
-        {payer.qrImage && !payer.qrText ? ' Your uploaded QR couldn’t be read, so only the image includes it.' : ''}
+        The image shows everyone’s items and share{payer.qrText || payer.qrImage ? ', with a QR for each person’s exact amount where your QR supports it' : ''}. It’s made on this device and only goes where you send it.
       </p>
     </Card>
   );
@@ -451,75 +470,20 @@ export function SplitEditor({ billId }) {
   );
 }
 
-/* ---------------- shared, read-only ---------------- */
+/* ---------------- shared links (turned off) ---------------- */
 
-export function SplitShare({ token }) {
-  const [state, setState] = useState({ loading: true });
-  const [me, setMe] = useState('');
-  useEffect(() => {
-    let live = true;
-    decodeSplit(token)
-      .then((p) => live && setState({ ...splitFromPayload(p), loading: false }))
-      .catch(() => live && setState({ error: 'This split link is incomplete or damaged. Ask for it to be sent again.', loading: false }));
-    return () => { live = false; };
-  }, [token]);
-
-  if (state.loading) return <div className="py-20 text-center text-slate-500">Opening the split…</div>;
-  if (state.error) return <Card><EmptyState icon={SplitIcon} title="Can’t open this split">{state.error}</EmptyState></Card>;
-
-  const { split, payer } = state;
-  const result = computeSplit(split);
-  const mine = result.members.find((m) => m.id === me);
-
+/**
+ * Split links (#/split/<token>) are switched off: a page on this domain would show whatever
+ * payment QR a link carries, so anyone could craft one with their own QR. Old or forged links
+ * land here and show nothing from the link.
+ */
+export function SplitShare() {
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <PageHeader title={split.title} subtitle={<>{formatAD(split.dateAD)}{split.dateBS ? ` · ${formatBS(split.dateBS)} BS` : ''} · bill {money(result.total)} · split by {payer.name || 'a friend'} with BillKhata</>} />
-      <Card className="p-4">
-        <Field label="Who are you?" htmlFor="who">
-          <select id="who" className="input" value={me} onChange={(e) => setMe(e.target.value)}>
-            <option value="">Choose your name</option>
-            {result.members.filter((m) => !m.isPayer && !m.out).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </Field>
-        {mine && (
-          <div className="mt-4 rounded-xl bg-slate-900 p-5 text-center text-white">
-            <div className="text-sm opacity-80">{mine.name}, you owe {payer.name || 'the payer'}</div>
-            <div className="num mt-1 text-4xl font-extrabold">{money(mine.share)}</div>
-          </div>
-        )}
-        {(payer.qrText) ? (
-          <div className="mt-4 flex flex-col items-center gap-1">
-            <QrBox text={payer.qrText} label={payer.qrLabel || `Pay ${payer.name}`} size={220} />
-            <p className="text-xs text-slate-500">{/^eSewa/.test(payer.qrLabel) ? 'Scan with the eSewa app.' : 'Scan with your banking or wallet app.'}</p>
-          </div>
-        ) : <p className="mt-3 text-sm text-slate-600">Ask {payer.name || 'the payer'} for their payment QR.</p>}
-      </Card>
-      <Card className="p-4">
-        <h2 className="mb-2 font-bold">Everyone’s share</h2>
-        <ul className="divide-y divide-slate-100">
-          {result.members.filter((r) => !r.out).map((r) => (
-            <li key={r.id} className={`py-2.5 ${r.id === me ? 'rounded-lg bg-amber-50 px-2' : ''}`}>
-              <div className="flex justify-between gap-3 font-semibold"><span>{r.name}{r.isPayer ? ' (paid the bill)' : ''}</span><span className="num">{money(r.share)}</span></div>
-              <ul className="mt-1 space-y-0.5 text-sm text-slate-600">
-                {r.lines.map((l) => <li key={l.itemId} className="flex justify-between gap-2"><span><TagDot tag={l.tag} />{l.name}{l.of > 1 || l.weight > 1 ? ` (${l.weight}/${l.of})` : ''}</span><span className="num">{money(l.amount)}</span></li>)}
-                {r.lines.length > 0 && Math.abs(r.extra) >= 0.01 && <li className="flex justify-between gap-2 text-slate-500"><span>{r.extra > 0 ? 'VAT / service charge' : 'Discount'}</span><span className="num">{r.extra > 0 ? '+' : '−'}{money(Math.abs(r.extra))}</span></li>}
-              </ul>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-3 text-xs text-slate-500">
-          {split.mode === 'equal'
-            ? `Split equally between ${result.members.filter((r) => !r.out).length} people.`
-            : `Items ${money(result.itemsSubtotal)}${Math.abs(result.extra) >= 0.01 ? ` · ${result.extra > 0 ? 'VAT/service charge' : 'discount'} ${(result.extraPct * 100).toFixed(1)}% ${split.taxMode === 'equal' ? 'split equally' : 'shared in proportion'}` : ''}.`}
-          This page is read-only; everything comes from the link, nothing is stored.
-        </p>
-      </Card>
-    </div>
+    <Card>
+      <EmptyState icon={ShieldAlert} title="Split links are turned off">
+        BillKhata no longer opens shared split links, because a link can’t prove who made it and could carry someone else’s payment QR.
+        Ask the person who paid to send you the split summary image instead, and only pay a QR you trust.
+      </EmptyState>
+    </Card>
   );
 }
-
-function TagDot({ tag }) {
-  const color = { veg: 'bg-emerald-600', 'non-veg': 'bg-red-600', alcohol: 'bg-amber-500', shared: 'bg-slate-400' }[tag] || 'bg-slate-400';
-  return <span className={`mr-1.5 inline-block size-2 rounded-full align-middle ${color}`} aria-label={TAG_LABELS[tag]} />;
-}
-

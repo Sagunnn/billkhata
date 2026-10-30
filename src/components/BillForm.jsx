@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ImagePlus, ListPlus, Store, Trash, ZoomIn } from 'lucide-react';
 import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
-import { findDuplicateBill } from '../lib/ird.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
 import { makeItem } from '../lib/splitter.js';
 import { assignBillCode } from '../lib/billCode.js';
@@ -11,7 +10,8 @@ import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '..
 import { useStore } from '../store.jsx';
 import { Field, Toggle } from './ui.jsx';
 import { EligibilityPanel } from './Ird.jsx';
-import { DuplicateBanner } from './DuplicateBanner.jsx';
+import { CrossReferenceCard } from './CrossReference.jsx';
+import { crossReferenceBill } from '../lib/dedupe.js';
 
 const DEFAULT_CATEGORY = CATEGORIES.at(-1);
 
@@ -74,13 +74,14 @@ function LineItems({ items = [], onChange }) {
   );
 }
 
-export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto }) {
+export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel }) {
   const { expenses, trips, openEditor } = useStore();
   const saved = expenses.some((x) => x.id === e.id);
   const code = assignBillCode(e, expenses, trips);
   const set = (k) => (ev) => onChange({ [k]: ev.target.value });
   const isNepal = region === REGIONS.NEPAL;
-  const duplicate = findDuplicateBill(e, expenses);
+  // Live cross-reference against saved bills: bill number, item sequence and photo.
+  const matches = useMemo(() => crossReferenceBill(e, expenses), [e, expenses]);
   const shops = useMemo(() => merchantDirectory(expenses.filter((b) => b.id !== e.id)), [expenses, e.id]);
   const memory = lookupMerchant(e, expenses);
   const memoryDiffers = memory && (memory.merchantName !== e.merchantName || memory.category !== e.category || (memory.sellerPan && memory.sellerPan !== e.sellerPan));
@@ -110,7 +111,16 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
 
   return (
     <div className="space-y-4">
-    <DuplicateBanner duplicate={duplicate} onOpen={openEditor} region={region} />
+    <CrossReferenceCard
+      matches={matches}
+      bill={e}
+      region={region}
+      codeForThis={code}
+      onView={openEditor}
+      onDiscard={onDiscard}
+      discardLabel={discardLabel}
+      onOverride={(id, on) => onChange({ duplicateOverride: on ? [...new Set([...(e.duplicateOverride || []), id])] : (e.duplicateOverride || []).filter((x) => x !== id) })}
+    />
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono font-bold tracking-wide text-white" title="Voucher code">{code}</span>
       <span className="text-xs text-slate-500">

@@ -4,12 +4,32 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import * as db from './lib/db.js';
 import { finalizeExpense } from './lib/expense.js';
 import { assignBillCode, ensureBillCodes, tripInitials } from './lib/billCode.js';
+import { imageHash } from './lib/image.js';
 import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 
 const StoreContext = createContext(null);
 
 /** Gives every stored bill a valid, unique voucher code; saves only the ones that changed. */
+async function deleteSampleBills() {
+  const ids = (await db.getAllExpenses()).filter((e) => e.isSample).map((e) => e.id);
+  if (ids.length) await db.deleteMany(ids);
+  return ids.length;
+}
+
+/** Photo hashes for bills saved before duplicate checks existed. Returns the new list, or null. */
+async function backfillImageHashes() {
+  try {
+    const missing = (await db.getAllExpenses()).filter((e) => e.receiptImage && !e.imageHash);
+    if (!missing.length) return null;
+    for (const e of missing) e.imageHash = await imageHash(e.receiptImage).catch(() => '');
+    await db.putMany(missing.filter((e) => e.imageHash));
+    return db.getAllExpenses();
+  } catch {
+    return null;
+  }
+}
+
 async function syncBillCodes() {
   const changed = ensureBillCodes(await db.getAllExpenses(), await db.getAllTrips());
   if (changed.length) await db.putMany(changed);
@@ -41,8 +61,11 @@ export function StoreProvider({ children }) {
             setProfileState(loadProfile());
           }
         }
+        // Real details saved: the demo bills have done their job (unless loaded again on purpose).
+        if (hasProfile() && !isDemoProfile(loadProfile()) && !flag('keepSamples')) await deleteSampleBills();
         setExpenses(await syncBillCodes()); // backfills codes for bills saved before codes existed
         setTrips(await db.getAllTrips());
+        backfillImageHashes().then((list) => list && setExpenses(list));
       } catch (err) {
         setLoadError(err?.message || 'This browser blocked local storage (private mode?).');
       } finally {
@@ -54,6 +77,9 @@ export function StoreProvider({ children }) {
   const saveExpense = useCallback(async (e) => {
     const clean = finalizeExpense(e);
     clean.billCode = assignBillCode(clean, await db.getAllExpenses(), await db.getAllTrips());
+    // Perceptual photo hash for duplicate checks (cleared when the photo is removed or replaced).
+    if (!clean.receiptImage) clean.imageHash = '';
+    else if (!clean.imageHash) clean.imageHash = await imageHash(clean.receiptImage).catch(() => '');
     await db.putExpense(clean);
     setExpenses((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
     return clean;
@@ -80,13 +106,14 @@ export function StoreProvider({ children }) {
   }, []);
 
   const removeSamples = useCallback(async () => {
-    const ids = (await db.getAllExpenses()).filter((e) => e.isSample).map((e) => e.id);
-    await db.deleteMany(ids);
+    flag('keepSamples', false);
+    const n = await deleteSampleBills();
     setExpenses(await db.getAllExpenses());
-    return ids.length;
+    return n;
   }, []);
 
   const loadSamples = useCallback(async () => {
+    flag('keepSamples', true); // loaded on purpose: don't remove them automatically
     await db.putMany(await buildSampleExpenses());
     setExpenses(await syncBillCodes());
   }, []);
@@ -123,9 +150,14 @@ export function StoreProvider({ children }) {
     return fresh.length;
   }, []);
 
-  const setProfile = useCallback((p) => {
+  /** Saves the profile. Real details replace the demo profile, so the sample bills go too. Returns how many were removed. */
+  const setProfile = useCallback(async (p) => {
     saveProfile(p);
     setProfileState(loadProfile());
+    if (isDemoProfile(p) || flag('keepSamples')) return 0;
+    const n = await deleteSampleBills();
+    if (n) setExpenses(await db.getAllExpenses());
+    return n;
   }, []);
 
   const setSettings = useCallback((s) => {

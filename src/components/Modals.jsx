@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Divide, Save, Ticket, Trash } from 'lucide-react';
 import { validateExpense } from '../lib/expense.js';
-import { compressImage, fileToDataUrl, validateImageFile } from '../lib/image.js';
+import { compressImage, fileToDataUrl, imageHash, validateImageFile } from '../lib/image.js';
+import { crossReferenceBill } from '../lib/dedupe.js';
+import { unresolvedMatches } from './CrossReference.jsx';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { money } from '../lib/format.js';
 import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
@@ -20,6 +22,17 @@ export async function photoFromFile(file) {
   return dataUrl;
 }
 
+/** The fields to set on a bill for a new photo: the image and its perceptual hash. */
+export async function photoFieldsFromFile(file) {
+  const receiptImage = await photoFromFile(file);
+  return { receiptImage, imageHash: await imageHash(receiptImage) };
+}
+
+/** Saving is held back while the bill copies an earlier one and the user hasn't chosen "Save anyway". */
+export function duplicateHold(draft, expenses) {
+  return unresolvedMatches(crossReferenceBill(draft, expenses), draft);
+}
+
 export function BillEditor({ expense, onClose }) {
   const { saveExpense, removeExpense, profile, openIrd, expenses } = useStore();
   const toast = useToast();
@@ -32,6 +45,10 @@ export function BillEditor({ expense, onClose }) {
     const errs = validateExpense(draft);
     setErrors(errs);
     if (Object.keys(errs).length) return;
+    if (duplicateHold(draft, expenses).length) {
+      toast('This looks like a bill you already saved. Use “Delete this copy”, or “Save Anyway (Override)” if it really is a different bill.', 'error');
+      return;
+    }
     setBusy(true);
     try {
       const saved = await saveExpense(draft);
@@ -54,6 +71,7 @@ export function BillEditor({ expense, onClose }) {
   }
 
   const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED && !findDuplicateBill(draft, expenses);
+  const isSaved = expenses.some((x) => x.id === draft.id);
 
   return (
     <>
@@ -79,14 +97,16 @@ export function BillEditor({ expense, onClose }) {
         onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
         onPhoto={async (file) => {
           try {
-            const img = await photoFromFile(file);
-            setDraft((d) => ({ ...d, receiptImage: img }));
+            const fields = await photoFieldsFromFile(file);
+            setDraft((d) => ({ ...d, ...fields }));
           } catch (e) {
             toast(e.message, 'error');
           }
         }}
-        onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null }))}
+        onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null, imageHash: '' }))}
         onViewPhoto={() => setViewPhoto(true)}
+        onDiscard={isSaved ? remove : onClose}
+        discardLabel={isSaved ? 'Delete this copy' : 'Discard this bill'}
       />
     </Modal>
     {viewPhoto && <PhotoViewer expense={draft} onClose={() => setViewPhoto(false)} />}

@@ -16,7 +16,9 @@ npm run build     # writes dist/
 ```
 
 The first visit loads seven sample bills (one is an eligible cash bill ready for
-"Apply to IRD Lucky Draw") and a demo profile. Settings → Backup & restore removes them.
+"Apply to IRD Lucky Draw") and a demo profile. Saving your own details in Settings removes the
+sample bills (and a real profile saved earlier triggers the same clean-up on the next load).
+Settings → Backup & restore can load them again on purpose; they're then kept.
 
 ## Layout
 
@@ -74,14 +76,36 @@ receipt appendix on:
 - Standard PDF fonts have no arrow glyphs, so references use `->` and the card header reads
   "Table ref" instead of `↑`.
 
-## Duplicate bill guard
+## Duplicate & cross-reference engine
 
-A bill may enter the draw only once (Section 4(6)); a second entry can void the coupon.
-`findDuplicateBill(candidate, bills)` in `src/lib/ird.js` matches another saved bill with the same
-9-digit seller PAN and the same bill number after `normalizeInvoiceNumber` (Nepali digits to ASCII,
-upper case, only `A-Z 0-9 . / _ -`, the way the portal stores it). The bill form shows a banner
-with **Open that bill**, and the Quick-Apply modal blocks **Open portal & auto-fill** (and the
-console script) for the copy. Saving is still allowed so nothing is lost.
+`src/lib/dedupe.js` (tests in `src/lib/dedupe.test.js`) checks each bill against every saved bill
+in three independent layers, so a torn, cropped or misread scan is still caught:
+
+1. **Bill number.** `normalizeInvoiceStrict` (Nepali digits → ASCII, prefixes like `Bill No` /
+   `INV` / `#` removed, separators dropped, leading zeros removed: `00452`, `INV-452` and `०४५२`
+   are all `452`). Same number + same seller PAN, or same number + same total when a PAN is
+   missing, is an **exact duplicate**. `normalizeInvoiceOCRCanonical` folds OCR look-alikes
+   (O/Q/D→0, I/L/|→1, Z→2, S→5, B→8). A look-alike or a one-character difference on the same PAN
+   and total is an **OCR look-alike**; the one-character case also needs the same date, because
+   consecutive bills from one shop differ by one character too.
+2. **Ordered line items** (`buildItemSequenceFingerprints`, 2+ items): the same names and amounts
+   top to bottom (`I:momo:180>chilly:250>…`), or the same price sequence (`P:180>250>65>420`)
+   with the same total, even when the bill number and PAN are missing.
+3. **Photo** (`imageHash` in `image.js`): a 64-bit dHash from a 9 × 8 grayscale grid, compared by
+   Hamming distance (≤ 4). Receipts look alike at that size (2 of 78 pairs of *different* test
+   receipts were within 4 bits), so a photo match only counts with the same total. Hashes are
+   computed on scan and save, and backfilled for older photos.
+
+`crossReferenceBill` returns every match, strongest first. The bill form shows a
+**Cross-Reference Alert Card** ("Already logged as [KT1-07] on 2083-07-13", the reasons, a
+side-by-side comparison with both photos) with **View existing bill**, **Discard duplicate scan**
+and **Save Anyway (Override)**. Saving is held back until one is chosen; an override is stored on
+the bill (`duplicateOverride`). Only the *later* copy is flagged as a copy; from the original, the
+card just notes the later copy.
+
+The program allows each bill into the draw once (Operating Procedure 2083, Section 4(6)), so
+`findDuplicateBill` (an earlier bill with the same PAN + bill number) keeps IRD auto-fill and
+"Save & apply" blocked for the copy, even after an override. The original stays enterable.
 
 ## Winning coupons and the 15-day claim
 

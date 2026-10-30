@@ -5,6 +5,7 @@ import {
   EXCLUDED_CATEGORIES, IRD_MIN_AMOUNT, IRD_PORTAL_URL, IRD_STATUS, PAYMENT,
 } from './constants.js';
 import { drawWindowFor, todayAD, todayBS } from './nepaliDate.js';
+import { findEarlierInvoiceDuplicate } from './dedupe.js';
 
 export const PAN_RE = /^\d{9}$/;
 export const COUPON_RE = /^\d{12}$/;
@@ -88,17 +89,11 @@ export function normalizeCouponCode(raw = '') {
 export const formatCoupon = (code) => normalizeCouponCode(code).replace(/(\d{3})(?=\d)/g, '$1 ');
 
 /**
- * Another saved bill with the same seller PAN and bill number. The program allows each bill
- * into the draw once (Operating Procedure 2083, Section 4(6)); entering it twice can void it.
+ * An earlier saved bill with the same seller PAN and bill number (Nepali digits, prefixes like
+ * "INV-" and leading zeros ignored). The program allows each bill into the draw once (Operating
+ * Procedure 2083, Section 4(6)), so the later copy is blocked; the original stays enterable.
  */
-export function findDuplicateBill(candidate, existingBills = []) {
-  const pan = toAscii(candidate?.sellerPan).replace(/\D/g, '');
-  const inv = normalizeInvoiceNumber(candidate?.invoiceNumber);
-  if (!PAN_RE.test(pan) || !inv) return null;
-  return existingBills.find((b) => b.id !== candidate.id
-    && toAscii(b.sellerPan).replace(/\D/g, '') === pan
-    && normalizeInvoiceNumber(b.invoiceNumber) === inv) || null;
-}
+export const findDuplicateBill = findEarlierInvoiceDuplicate;
 
 /* ---------- winners ---------- */
 

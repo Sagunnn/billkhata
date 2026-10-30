@@ -23,8 +23,8 @@ function ProfileSection() {
     const errs = validateProfile(p);
     setErrors(errs);
     if (Object.keys(errs).length) return;
-    setProfile({ ...p, fullName: p.fullName.trim(), address: p.address.trim(), phone: p.phone.trim(), pan: (p.pan || '').trim() });
-    toast('Profile saved.');
+    setProfile({ ...p, fullName: p.fullName.trim(), address: p.address.trim(), phone: p.phone.trim(), pan: (p.pan || '').trim() })
+      .then((removed) => toast(removed ? `Profile saved. The ${removed} sample bills were removed.` : 'Profile saved.'));
   }
 
   return (

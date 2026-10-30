@@ -123,3 +123,32 @@ export function validateImageFile(file) {
   if (file.size > 25 * 1024 * 1024) return 'That image is over 25 MB.';
   return '';
 }
+
+/**
+ * 64-bit difference hash from a 9 × 8 grayscale grid (row by row): each bit says whether a pixel
+ * is brighter than its right neighbour. Returned as 16 hex characters.
+ */
+export function dHashFromGray(gray) {
+  let hex = '';
+  for (let y = 0; y < 8; y++) {
+    let byte = 0;
+    for (let x = 0; x < 8; x++) byte = (byte << 1) | (gray[y * 9 + x] > gray[y * 9 + x + 1] ? 1 : 0);
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+/** Perceptual hash of a receipt photo, for spotting the same photo added twice. */
+export async function imageHash(src) {
+  const img = await loadImage(src);
+  const c = document.createElement('canvas');
+  c.width = 9;
+  c.height = 8;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(img, 0, 0, 9, 8);
+  const { data } = g.getImageData(0, 0, 9, 8);
+  const gray = new Array(72);
+  for (let i = 0; i < 72; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  return dHashFromGray(gray);
+}

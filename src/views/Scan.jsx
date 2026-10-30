@@ -3,14 +3,14 @@ import { useState } from 'react';
 import { Camera, Divide, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
-import { compressImage, fileToDataUrl, prepareForOcr, validateImageFile } from '../lib/image.js';
+import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
 import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
 import { extractBill, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
-import { photoFromFile, PhotoViewer } from '../components/Modals.jsx';
+import { duplicateHold, photoFieldsFromFile, PhotoViewer } from '../components/Modals.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, PageHeader } from '../components/ui.jsx';
 
@@ -64,7 +64,7 @@ export default function Scan() {
       }
       // Shops seen before: fill a missing name/PAN and reuse the category picked last time.
       fields = applyMerchantMemory(fields, expenses).fields;
-      setDraft({ ...base, ...fields, receiptImage: stored.dataUrl, ocrEngine: engine });
+      setDraft({ ...base, ...fields, receiptImage: stored.dataUrl, imageHash: await imageHash(stored.dataUrl), ocrEngine: engine });
       setErrors({});
       setStep('review');
     } catch (err) {
@@ -102,6 +102,11 @@ export default function Scan() {
     setErrors(errs);
     if (Object.keys(errs).length) {
       toast('Check the highlighted fields.', 'error');
+      return;
+    }
+    if (duplicateHold(draft, expenses).length) {
+      toast('This looks like a bill you already saved. Discard the scan, or choose “Save Anyway (Override)” if it really is a different bill.', 'error');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     setSaving(true);
@@ -182,14 +187,16 @@ export default function Scan() {
             onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
             onPhoto={async (file) => {
               try {
-                const img = await photoFromFile(file);
-                setDraft((d) => ({ ...d, receiptImage: img }));
+                const fields = await photoFieldsFromFile(file);
+                setDraft((d) => ({ ...d, ...fields }));
               } catch (e) {
                 toast(e.message, 'error');
               }
             }}
-            onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null }))}
+            onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null, imageHash: '' }))}
             onViewPhoto={() => setViewPhoto(true)}
+            onDiscard={() => { reset(); toast('Duplicate scan discarded.'); }}
+            discardLabel="Discard Duplicate Scan"
           />
           {rawText && (
             <details className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">

@@ -3,6 +3,7 @@
 import { CATEGORIES, OCR_ENGINES, PAYMENT_METHODS, REGIONS } from '../constants.js';
 import { adToBs, bsToAd, isValidAD, isValidBS, toAsciiDigits } from '../nepaliDate.js';
 import { parseReceiptText } from './parse.js';
+import { makeItem, parseLineItemsFromText } from '../splitter.js';
 
 let tesseractWorker = null;
 let tesseractLangs = '';
@@ -63,6 +64,12 @@ export function normalizeExtraction(raw = {}) {
     paymentMethod: PAYMENT_METHODS.includes(raw.paymentMethod) ? raw.paymentMethod : undefined,
     category: CATEGORIES.includes(raw.category) ? raw.category : undefined,
     looksNepali: Boolean(raw.isNepalBill) || pan.length === 9,
+    lineItems: Array.isArray(raw.lineItems)
+      ? raw.lineItems
+        .map((it) => ({ ...it, name: String(it?.name ?? '').trim(), amount: num(it?.amount) ?? (num(it?.qty) || 1) * (num(it?.price) || 0) }))
+        .filter((it) => it.name && it.amount > 0)
+        .map((it) => makeItem({ name: it.name, qty: num(it.qty) || 1, price: num(it.price) || undefined, amount: it.amount }))
+      : [],
   };
 }
 
@@ -90,11 +97,11 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     engine = `${provider}:${settings.models?.[provider]}`;
   } else {
     ({ text: rawText, confidence } = await runTesseract(enhanced, { nepali: settings.tesseractNepali, onProgress }));
-    fields = parseReceiptText(rawText);
+    fields = { ...parseReceiptText(rawText), lineItems: parseLineItemsFromText(rawText) };
   }
 
   const { looksNepali, ...rest } = fields;
-  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length)));
   return {
     fields: { ...clean, isNepalBill: region === REGIONS.NEPAL || looksNepali },
     rawText,

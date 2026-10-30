@@ -50,6 +50,11 @@ export default function Reports() {
     ['Cash · enter by hand', money(t.cash, profile.region)],
     ['Digital · auto-entered', money(t.digital, profile.region)],
     ['IRD coupons', t.coupons],
+    ...(t.splitCount ? [
+      ['My personal share', money(t.myShare, profile.region)],
+      ['Recoverable (splits)', money(t.recoverable, profile.region)],
+      ['Still owed to me', money(t.outstanding, profile.region)],
+    ] : []),
   ];
 
   return (

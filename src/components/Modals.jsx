@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Save, Ticket, Trash } from 'lucide-react';
+import { Divide, Save, Ticket, Trash } from 'lucide-react';
 import { validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, validateImageFile } from '../lib/image.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
@@ -36,7 +36,8 @@ export function BillEditor({ expense, onClose }) {
     try {
       const saved = await saveExpense(draft);
       toast('Bill saved.');
-      if (thenApply) openIrd(saved);
+      if (thenApply === 'split') { onClose(); window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`; }
+      else if (thenApply) openIrd(saved);
       else onClose();
     } catch (e) {
       toast(e.message || 'Could not save.', 'error');
@@ -65,6 +66,7 @@ export function BillEditor({ expense, onClose }) {
         <>
           <Button variant="danger" icon={Trash} onClick={remove} className="mr-auto">Delete</Button>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" icon={Divide} disabled={busy} onClick={() => save('split')}>{draft.split ? 'Edit split' : 'Split'}</Button>
           {canApply && <Button variant="outline" icon={Ticket} onClick={() => save(true)} disabled={busy}>Save & apply</Button>}
           <Button variant="dark" icon={Save} onClick={() => save(false)} disabled={busy}>Save</Button>
         </>

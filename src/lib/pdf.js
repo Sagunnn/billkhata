@@ -71,6 +71,7 @@ export async function buildReportPdf({ expenses, profile, from, to, includeImage
     ['Cash spend', `NPR ${npr(t.cash)}`],
     ['Digital spend', `NPR ${npr(t.digital)}`],
     ['IRD coupons', String(t.coupons)],
+    ...(t.splitCount ? [['My share', `NPR ${npr(t.myShare)}`], ['Recoverable', `NPR ${npr(t.recoverable)}`]] : []),
   ];
   const colW = (W - 2 * M) / stats.length;
   stats.forEach(([k, v], i) => {

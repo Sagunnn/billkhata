@@ -86,6 +86,11 @@ export function reportTotals(list) {
     cash: sum(list.filter(cashLike), (e) => e.totalAmount),
     digital: sum(list.filter((e) => !cashLike(e)), (e) => e.totalAmount),
     coupons: list.filter((e) => /^\d{12}$/.test(e.irdCoupon || '')).length,
+    // Split bills: the full amount stays the expense (IRD), with your part and what friends owe.
+    splitCount: list.filter((e) => e.split).length,
+    myShare: sum(list, (e) => (e.split ? e.split.myShare : e.totalAmount)),
+    recoverable: sum(list.filter((e) => e.split), (e) => e.split.recoverable),
+    outstanding: sum(list.filter((e) => e.split), (e) => e.split.outstanding),
   };
 }
 

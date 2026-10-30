@@ -74,3 +74,38 @@ export function validateProfile(p) {
   if (![REGIONS.NEPAL, REGIONS.INTL].includes(p.region)) errors.region = 'Pick a region.';
   return errors;
 }
+
+/* ---------- Split Khata: payment QR and saved friends ---------- */
+
+const QR_KEY = 'billkhata_payment_qr';
+const FRIENDS_KEY = 'billkhata_friends';
+const GROUPS_KEY = 'billkhata_groups';
+export const MAX_QR_IMAGE_BYTES = 100 * 1024;
+
+/**
+ * How friends pay you back:
+ * - { mode: 'esewa', esewaId, name } builds an eSewa personal QR from your profile
+ * - { mode: 'image', image, text, label } is your own bank / Fonepay / eSewa / Khalti QR photo;
+ *   `text` is what the QR decodes to (empty if it couldn't be read), so links can carry it
+ */
+export function loadPaymentQr() {
+  return read(QR_KEY) || { mode: '' };
+}
+export const savePaymentQr = (q) => write(QR_KEY, q);
+
+/** Frequent friends: [{ name, diet: 'veg'|'non-veg', alcohol }] */
+export const loadFriends = () => (Array.isArray(read(FRIENDS_KEY)) ? read(FRIENDS_KEY) : []);
+export function rememberFriends(members) {
+  const byName = new Map(loadFriends().map((f) => [f.name.toLowerCase(), f]));
+  members.filter((m) => !m.isPayer && m.name.trim()).forEach((m) => byName.set(m.name.trim().toLowerCase(), { name: m.name.trim(), diet: m.diet, alcohol: m.alcohol }));
+  write(FRIENDS_KEY, [...byName.values()].slice(-60));
+}
+export const forgetFriend = (name) => write(FRIENDS_KEY, loadFriends().filter((f) => f.name.toLowerCase() !== String(name).toLowerCase()));
+
+/** Saved groups: [{ name, members: [{ name, diet, alcohol }] }] */
+export const loadGroups = () => (Array.isArray(read(GROUPS_KEY)) ? read(GROUPS_KEY) : []);
+export function saveGroup(name, members) {
+  const group = { name: String(name).trim(), members: members.filter((m) => !m.isPayer).map((m) => ({ name: m.name, diet: m.diet, alcohol: m.alcohol })) };
+  write(GROUPS_KEY, [...loadGroups().filter((g) => g.name.toLowerCase() !== group.name.toLowerCase()), group].slice(-20));
+}
+export const deleteGroup = (name) => write(GROUPS_KEY, loadGroups().filter((g) => g.name.toLowerCase() !== String(name).toLowerCase()));

@@ -11,7 +11,7 @@ the OCR provider the user picked.
 ```sh
 npm install
 npm run dev       # http://localhost:5173
-npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR preprocessing, portal helper
+npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR, splitter, portal helper
 npm run build     # writes dist/
 ```
 
@@ -95,6 +95,37 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
 
 The dashboard shows this month's cash spend (enter on the portal yourself; CBMS counted here),
 digital QR/card spend (entered automatically) and total VAT paid on bills with VAT recorded.
+
+## Split Khata (bill splitter)
+
+`#/split` lists splits and bills to split; `#/split-bill/<billId>` is the editor; `#/split/<token>`
+is the read-only page friends open. All logic is in `src/lib/splitter.js` (pure, unit-tested).
+
+- **Line items** come from the scan: `parseLineItemsFromText` for Tesseract text
+  ("Chicken Momo 2 250 500", "Tuborg 2 x 450 900", "3 Masala Tea 150"; totals/VAT rows skipped)
+  and a `lineItems` array in the Vision schema. Items can be added, edited, deleted, pasted as text
+  or read again from the stored photo.
+- **`classifyFoodItem`** tags each item `veg`, `non-veg`, `alcohol` or `shared` from Nepali menu
+  words (sekuwa, choila, sukuti, kukhurako, khasi, buff…; Tuborg, Gorkha, Barasinghe, Khukuri,
+  aila, chhyang…; English and Devanagari). Word boundaries keep "drumstick", "ginger", "eggplant"
+  and "buffet" out of the wrong bucket. Unknown food is veg.
+- **People** have Veg/Non-veg and Drinks toggles, and **In split / Left out** (a left-out person
+  stays listed with Rs. 0, e.g. the payer treating friends). Friends and groups are remembered in
+  localStorage. Auto-ticks: veg and shared items to everyone, non-veg to non-veg eaters, alcohol to
+  drinkers. Any tick can be changed; an item can switch to **By units (1x, 2x)**.
+- **Shares**: **By items**: each item divides among its ticks by weight; the gap to the bill total
+  (VAT, service charge, discount) is spread **proportionally** (`subtotal × total / items subtotal`)
+  or **equally**. **Split equally**: total ÷ people in the split. Rounded to the paisa
+  (largest remainder) so shares add up exactly; unassigned items are reported, never charged.
+- **Ledger**: the bill keeps its full amount (for the IRD draw); `expense.split` stores the state,
+  `myShare`, `recoverable` and `outstanding` (unpaid friends). Reports and the PDF show them.
+- **Payment QR** (Settings): an eSewa personal QR built from the profile
+  (`{"eSewa_id":"…","name":"…"}`; check it with the eSewa app before relying on it), or an uploaded
+  bank / Fonepay / eSewa / Khalti QR, cropped and kept under 100 KB. Uploaded QRs are read with
+  jsQR so links can carry the QR text.
+- **Sharing**: a PNG summary drawn on canvas (everyone's lines, VAT/SC share, payer QR) and a link
+  `#/split/<token>`, where the token is deflate-compressed JSON in base64url (a 4-item, 3-person split
+  is about 420 characters). Opening a link never seeds demo data.
 
 ## IRD portal helper (Tampermonkey userscript + bookmarklet)
 

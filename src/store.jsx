@@ -23,7 +23,8 @@ export function StoreProvider({ children }) {
     (async () => {
       try {
         // First visit: load demo bills (and a demo profile) so every flow can be tried.
-        if (!flag('seeded')) {
+        const viewingSharedSplit = /^#\/split\/[A-Za-z0-9_-]+$/.test(window.location.hash);
+        if (!flag('seeded') && !viewingSharedSplit) {
           flag('seeded', true);
           if ((await db.getAllExpenses()).length === 0) await db.putMany(await buildSampleExpenses());
           if (!hasProfile()) {

@@ -14,12 +14,15 @@ Extract these fields. Use an empty string or 0 when a field is not on the bill; 
 - paymentMethod: "${PAYMENT_METHODS[1]}" if the bill shows it was paid by Fonepay, QR, eSewa, Khalti, mobile banking, connectIPS or a card; otherwise "${PAYMENT_METHODS[0]}".
 - category: the best fit from the list.
 - isNepalBill: true if this is a Nepali bill (NPR, रु, Nepali PAN/VAT, Nepali address).
+- lineItems: every purchased item row on an itemised bill (restaurant, café, bar, shop), in order:
+  name as printed, qty, price (unit rate) and amount (line total before VAT / service charge).
+  Leave out subtotal, service charge, VAT, discount and total rows. Use [] if the bill has no item rows.
 Convert Devanagari digits (०-९) to 0-9.`;
 
 export const BILL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'totalAmount', 'vatAmount', 'paymentMethod', 'category', 'isNepalBill'],
+  required: ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'totalAmount', 'vatAmount', 'paymentMethod', 'category', 'isNepalBill', 'lineItems'],
   properties: {
     merchantName: { type: 'string' },
     sellerPan: { type: 'string' },
@@ -31,6 +34,20 @@ export const BILL_SCHEMA = {
     paymentMethod: { type: 'string', enum: PAYMENT_METHODS.slice(0, 2) },
     category: { type: 'string', enum: CATEGORIES },
     isNepalBill: { type: 'boolean' },
+    lineItems: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'qty', 'price', 'amount'],
+        properties: {
+          name: { type: 'string' },
+          qty: { type: 'number' },
+          price: { type: 'number' },
+          amount: { type: 'number' },
+        },
+      },
+    },
   },
 };
 

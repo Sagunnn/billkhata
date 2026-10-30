@@ -1,6 +1,6 @@
 // Capture -> OCR -> verify -> save.
 import { useState } from 'react';
-import { Camera, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
+import { Camera, Divide, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, prepareForOcr, validateImageFile } from '../lib/image.js';
@@ -97,7 +97,7 @@ export default function Scan() {
     processImage(await fileToDataUrl(file));
   }
 
-  async function save(thenApply) {
+  async function save(then) {
     const errs = validateExpense(draft);
     setErrors(errs);
     if (Object.keys(errs).length) {
@@ -109,7 +109,8 @@ export default function Scan() {
       const saved = await saveExpense(draft);
       toast('Bill saved to your ledger.');
       reset();
-      if (thenApply) openIrd(saved);
+      if (then === true || then === 'apply') openIrd(saved);
+      else if (then === 'split') window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`;
       else window.location.hash = '#/ledger';
     } catch (e) {
       toast(e.message || 'Could not save.', 'error');
@@ -198,7 +199,8 @@ export default function Scan() {
           )}
           <div className="sticky bottom-20 mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white pt-4 md:static">
             <Button variant="ghost" onClick={reset}>Discard</Button>
-            {canApply && <Button variant="outline" icon={Ticket} disabled={saving} onClick={() => save(true)}>Save & apply to IRD</Button>}
+            <Button variant="outline" icon={Divide} disabled={saving} onClick={() => save('split')}>Save &amp; split{draft.lineItems?.length ? ` (${draft.lineItems.length} items)` : ''}</Button>
+            {canApply && <Button variant="outline" icon={Ticket} disabled={saving} onClick={() => save('apply')}>Save & apply to IRD</Button>}
             <Button variant="dark" icon={Save} disabled={saving} onClick={() => save(false)}>Save bill</Button>
           </div>
         </Card>

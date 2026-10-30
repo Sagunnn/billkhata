@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, LayoutDashboard, List, ScanLine, Settings as SettingsIcon, ShieldCheck } from 'lucide-react';
+import { FileText, LayoutDashboard, List, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import Dashboard from './views/Dashboard.jsx';
@@ -8,12 +8,14 @@ import Scan from './views/Scan.jsx';
 import Reports from './views/Reports.jsx';
 import Settings from './views/Settings.jsx';
 import CouponImport from './views/CouponImport.jsx';
+import { SplitEditor, SplitHub, SplitShare } from './views/Split.jsx';
 
 const ROUTES = [
   { path: '', label: 'Dashboard', icon: LayoutDashboard, view: Dashboard },
   { path: 'ledger', label: 'Ledger', icon: List, view: Ledger },
   { path: 'scan', label: 'Scan', icon: ScanLine, view: Scan },
-  { path: 'reports', label: 'Reports', icon: FileText, view: Reports },
+  { path: 'split', label: 'Split', icon: SplitIcon, view: SplitHub },
+  { path: 'reports', label: 'Reports', icon: FileText, view: Reports, desktopOnly: true },
   { path: 'settings', label: 'Settings', icon: SettingsIcon, view: Settings },
 ];
 
@@ -71,7 +73,7 @@ function BottomNav({ route }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur pb-safe md:hidden">
       <div className="mx-auto grid max-w-lg grid-cols-5">
-        {ROUTES.map(({ path, label, icon: Icon }) => {
+        {ROUTES.filter((r) => !r.desktopOnly).map(({ path, label, icon: Icon }) => {
           const active = route === path;
           if (path === 'scan') {
             return (
@@ -99,9 +101,22 @@ export default function App() {
   const { ready, loadError } = useStore();
   // #/coupon/<billId>/<code> comes back from the portal helper.
   const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);
-  const current = couponMatch
-    ? { path: 'coupon', label: 'Save coupon', view: CouponImport }
-    : ROUTES.find((r) => r.path === route) || ROUTES[0];
+  const shareMatch = /^split\/([A-Za-z0-9_-]+)$/.exec(route);
+  const editMatch = /^split-bill\/(.+)$/.exec(route);
+  let current;
+  let viewProps = {};
+  if (couponMatch) {
+    current = { path: 'coupon', label: 'Save coupon', view: CouponImport };
+    viewProps = { billId: decodeURIComponent(couponMatch[1]), code: couponMatch[2] };
+  } else if (shareMatch) {
+    current = { path: 'split', label: 'Shared split', view: SplitShare };
+    viewProps = { token: shareMatch[1] };
+  } else if (editMatch) {
+    current = { path: 'split', label: 'Split bill', view: SplitEditor };
+    viewProps = { billId: decodeURIComponent(editMatch[1]) };
+  } else {
+    current = ROUTES.find((r) => r.path === route) || ROUTES[0];
+  }
   const View = current.view;
 
   useEffect(() => {
@@ -121,7 +136,7 @@ export default function App() {
               Could not open local storage: {loadError} Bills will not be saved in this window.
             </div>
           )}
-          {ready ? <View {...(couponMatch ? { billId: decodeURIComponent(couponMatch[1]), code: couponMatch[2] } : {})} /> : <div className="py-20 text-center text-slate-500">Loading your bills…</div>}
+          {ready ? <View key={route} {...viewProps} /> : <div className="py-20 text-center text-slate-500">Loading your bills…</div>}
         </div>
       </main>
       <BottomNav route={current.path} />

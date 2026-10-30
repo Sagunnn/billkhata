@@ -22,6 +22,15 @@ function useActions() {
   };
 }
 
+/** "Split · my share रु 520 · रु 1,630 to collect" under a split bill. */
+function SplitNote({ e, region }) {
+  return (
+    <a href={`#/split-bill/${encodeURIComponent(e.id)}`} className="mt-0.5 inline-block text-xs font-semibold text-navy hover:underline">
+      Split · my share {money(e.split.myShare, region)}{e.split.outstanding > 0 ? ` · ${money(e.split.outstanding, region)} to collect` : ' · settled'}
+    </a>
+  );
+}
+
 function Thumb({ e, onClick }) {
   if (!e.receiptImage) {
     return <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-400"><ImageIcon className="size-5" /></div>;
@@ -54,6 +63,7 @@ export function ExpenseCards({ list }) {
                 <div className="text-xs text-slate-500">
                   {formatAD(e.billDateAD)}{e.billDateBS ? ` · ${formatBS(e.billDateBS)}` : ''} · {e.category}
                 </div>
+                {e.split && <SplitNote e={e} region={profile.region} />}
               </button>
               <div className="num shrink-0 text-right font-bold text-slate-900">{money(e.totalAmount, profile.region)}</div>
             </div>
@@ -100,6 +110,7 @@ export function ExpenseTable({ list }) {
               </td>
               <td className="max-w-[220px] px-2 py-2.5">
                 <button type="button" onClick={() => a.edit(e)} className="block max-w-full truncate text-left font-semibold text-slate-900 hover:underline">{e.merchantName || 'Untitled bill'}</button>
+                {e.split && <SplitNote e={e} region={profile.region} />}
                 {e.notes && <div className="truncate text-xs text-slate-500">{e.notes}</div>}
               </td>
               <td className="px-2 py-2.5">

@@ -5,6 +5,7 @@ import { PAYMENT } from './constants.js';
 import { finalizeExpense } from './expense.js';
 import { compressImage } from './image.js';
 import { addDaysAD, adToBs, todayAD } from './nepaliDate.js';
+import { makeItem } from './splitter.js';
 
 export const DEMO_PROFILE = {
   fullName: 'Demo User',
@@ -96,7 +97,7 @@ function specs(today) {
       merchantName: 'Thamel Momo House', address: 'Thamel, Kathmandu', sellerPan: '604411223',
       invoiceNumber: 'TMH-8812', ...day(1), totalAmount: 840.5, vatAmount: 96.7,
       paymentMethod: PAYMENT.DIGITAL, category: 'Food & Dining',
-      items: [['Buff Momo x2', 480], ['Lemon Tea x3', 263.8]],
+      items: [['Buff Momo x2', 360], ['Veg Momo', 150], ['Gorkha Beer', 150], ['Lemon Tea x3', 83.8]],
     },
     {
       merchantName: 'Kathmandu Fashion Hub', address: 'New Road, Kathmandu', sellerPan: '602233445',
@@ -135,6 +136,8 @@ export async function buildSampleExpenses(today = todayAD()) {
   const out = [];
   for (const [i, s] of specs(today).entries()) {
     const { items, address, ...fields } = s;
+    // Item rows from the receipt, so Split Khata has something to split straight away.
+    const lineItems = items.map(([name, amount], k) => makeItem({ id: `sample-${i + 1}-item-${k + 1}`, name: name.replace(/\s+x\d+$/, ''), qty: Number(name.match(/x(\d+)$/)?.[1] || 1), amount }));
     const { dataUrl } = await compressImage(receiptFor(s));
     const now = new Date(Date.now() - i * 3600_000).toISOString();
     out.push(finalizeExpense({
@@ -144,6 +147,7 @@ export async function buildSampleExpenses(today = todayAD()) {
       irdAppliedAt: fields.irdCoupon ? now : null,
       notes: '',
       receiptImage: dataUrl,
+      lineItems,
       isNepalBill: true,
       isSample: true,
       ocrEngine: 'sample',

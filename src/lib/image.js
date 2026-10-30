@@ -55,17 +55,31 @@ export async function compressImage(src, maxBytes = MAX_IMAGE_BYTES) {
   return { ...out, bytes: dataUrlBytes(out.dataUrl) };
 }
 
-export const OCR_CONTRAST = 1.45;
-
 /**
- * Grayscale (Rec. 601 luminance) plus a contrast stretch around mid-grey, in place.
- * Faded thermal print and carbon-copy handwriting gain enough contrast for Tesseract.
- * Works on any RGBA byte array, so it is testable without a canvas.
+ * Grayscale (Rec. 601 luminance), then auto-levels: the darkest 1% maps to black and the brightest
+ * 2% to white, with a slight darkening curve (gamma 1.3) for faint print. Because it adapts to each
+ * photo's own lighting, faded thermal bills and grey, unevenly lit photos come out crisp; a fixed
+ * contrast stretch lost the PAN line and garbled digits on the same test photo.
+ * Works on any RGBA byte array, so it's testable without a canvas.
  */
-export function enhancePixelsForOCR(data, contrast = OCR_CONTRAST) {
-  for (let i = 0; i < data.length; i += 4) {
-    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const v = Math.max(0, Math.min(255, Math.round((y - 128) * contrast + 128)));
+export function enhancePixelsForOCR(data) {
+  const n = data.length / 4;
+  if (!n) return data;
+  const lum = new Uint8ClampedArray(n);
+  const hist = new Uint32Array(256);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    lum[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    hist[lum[j]]++;
+  }
+  let lo = 0;
+  let hi = 255;
+  for (let v = 0, acc = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.01) { lo = v; break; } }
+  for (let v = 255, acc = 0; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.02) { hi = v; break; } }
+  const span = Math.max(1, hi - lo);
+  const table = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) table[v] = Math.round(Math.pow(Math.min(1, Math.max(0, (v - lo) / span)), 1.3) * 255);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    const v = table[lum[j]];
     data[i] = v;
     data[i + 1] = v;
     data[i + 2] = v;
@@ -74,27 +88,29 @@ export function enhancePixelsForOCR(data, contrast = OCR_CONTRAST) {
 }
 
 /** Applies the OCR enhancement to a canvas and returns it. */
-export function preprocessCanvasForOCR(canvas, contrast = OCR_CONTRAST) {
+export function preprocessCanvasForOCR(canvas) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  enhancePixelsForOCR(img.data, contrast);
+  enhancePixelsForOCR(img.data);
   ctx.putImageData(img, 0, 0);
   return canvas;
 }
 
 /**
  * Larger, sharper copies for text recognition: `color` for vision models and `enhanced`
- * (grayscale, contrast-stretched) for Tesseract. The stored photo stays untouched.
+ * (grayscale, auto-levelled) for Tesseract. The stored photo stays untouched.
  */
 export async function prepareForOcr(src) {
   const img = await loadImage(src);
-  const scale = Math.min(1, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
+  // Small or distant photos are enlarged (up to 2.5x) so small print like the PAN line stays readable.
+  const scale = Math.min(2.5, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   const color = canvas.toDataURL('image/jpeg', 0.92);
   const enhanced = preprocessCanvasForOCR(canvas).toDataURL('image/png');

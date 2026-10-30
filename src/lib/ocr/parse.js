@@ -4,7 +4,10 @@ import { CATEGORIES, PAYMENT } from '../constants.js';
 import { adToBs, bsToAd, isValidAD, isValidBS, toAsciiDigits, ymd } from '../nepaliDate.js';
 
 const PAN_KEYWORDS = /(pan|vat|p\.a\.n|प्यान|पान|स्थायी\s*लेखा\s*(नम्बर|नं)|स्था\.?\s*ले\.?\s*नं|भ्याट)/i;
-const INVOICE_RE = /(?:bill|invoice|inv|receipt|ref|बिल|बीजक|बिजक|रसिद)\.?\s*(?:no\.?|number|num|#|नं\.?|नम्बर)\s*[:.\-#]?\s*([A-Za-z0-9][A-Za-z0-9/._-]{0,39})/i;
+// "Bill No.:- 2083/84-1052", "Invoice # INV-77", "Inv. No.: KTM/0091", "बिल नं: ४५७" and common OCR
+// slips ("lnvoice", "Bil1", "N0"). The number may also sit on the next line.
+const INVOICE_KEY = /(?:\b(?:bill|bil1|biil|invoice|lnvoice|1nvoice|inv|receipt|ref|order)\b|बिल|बीजक|बिजक|रसिद)\s*\.?\s*(?:no\b|n0\b|number|num\b|#|नं|नम्बर)\s*\.?/i;
+const INVOICE_VALUE = /^[\s:.#\-–—=]*([A-Za-z0-9/._-]*\d[A-Za-z0-9/._-]*)/;
 // A line that is just "No. 1234" (the value must contain a digit, so "No. of items" is skipped).
 const INVOICE_FALLBACK_RE = /(?:^|\n)\s*(?:no|नं)\.?\s*[:.#-]?\s*([A-Za-z/._-]{0,10}\d[A-Za-z0-9/._-]{0,29})/i;
 // Fonepay, wallets, QR and cards are entered in the IRD draw by the payment provider.
@@ -51,6 +54,17 @@ function findDates(text) {
   if (out.bs && !out.ad) out.ad = bsToAd(out.bs) || '';
   if (out.ad && !out.bs) out.bs = adToBs(out.ad) || '';
   return out;
+}
+
+function findInvoice(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const m = INVOICE_KEY.exec(lines[i]);
+    if (!m) continue;
+    const rest = lines[i].slice(m.index + m[0].length);
+    const v = INVOICE_VALUE.exec(rest) || (!/[A-Za-z0-9]/.test(rest) && INVOICE_VALUE.exec(lines[i + 1] || ''));
+    if (v && v[1].length <= 40) return v[1].replace(/[.\-_/]+$/, '');
+  }
+  return '';
 }
 
 function findTotal(lines) {
@@ -114,7 +128,7 @@ export function parseReceiptText(raw) {
   return {
     merchantName: findMerchant(lines),
     sellerPan,
-    invoiceNumber: text.match(INVOICE_RE)?.[1] || text.match(INVOICE_FALLBACK_RE)?.[1] || '',
+    invoiceNumber: findInvoice(lines) || text.match(INVOICE_FALLBACK_RE)?.[1] || '',
     paymentMethod: DIGITAL_PAY_RE.test(text) ? PAYMENT.DIGITAL : undefined,
     billDateAD: dates.ad,
     billDateBS: dates.bs,

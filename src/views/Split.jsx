@@ -457,6 +457,11 @@ export function SplitEditor({ billId }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="space-y-4">
           <MembersEditor split={split} update={update} />
+          {!split.items.length && expense.lineItems?.length > 0 && (
+            <button type="button" onClick={() => update({ ...split, mode: 'items', items: expense.lineItems.map((it) => makeItem(it)) })} className="w-full rounded-xl border-2 border-dashed border-navy/40 bg-blue-50/50 p-3 text-sm font-semibold text-navy hover:bg-blue-50">
+              Use the {expense.lineItems.length} items read from this bill
+            </button>
+          )}
           <ItemsEditor split={split} update={update} onReadPhoto={expense.receiptImage ? readPhoto : null} reading={reading} />
           <Matrix split={split} update={update} />
         </div>

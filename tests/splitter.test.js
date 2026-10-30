@@ -170,3 +170,8 @@ test('equal mode and left-out people survive the share link', async () => {
   assert.equal(split.members[1].out, true);
   assert.deepEqual(computeSplit(split).members.map((m) => m.share), computeSplit(s).members.map((m) => m.share));
 });
+
+test('parseLineItemsFromText strips OCR junk before item names', () => {
+  const items = parseLineItemsFromText('] "Chicken Sekuwa 2 450.00 900.00\n| “Veg Thakali Set 3 380.00 1,140.00\nJ Buff Choila 1 320.00 320.00\nI Paneer Tikka 1 400.00 400.00');
+  assert.deepEqual(items.map((i) => i.name), ['Chicken Sekuwa', 'Veg Thakali Set', 'Buff Choila', 'Paneer Tikka']);
+});

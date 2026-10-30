@@ -68,3 +68,35 @@ test('more bill number styles', () => {
   assert.equal(parseReceiptText('No. 8812\nTotal 300').invoiceNumber, '8812');
   assert.equal(parseReceiptText('No. of items 3\nTotal 300').invoiceNumber, '');
 });
+
+test('bill number formats seen on Nepali bills and OCR slips', () => {
+  const inv = (t) => parseReceiptText(`${t}\nTotal 500`).invoiceNumber;
+  assert.equal(inv('Bill No.:- 2083/84-1052   Date: 2083/07/13'), '2083/84-1052');
+  assert.equal(inv('Bill No : 1052'), '1052');
+  assert.equal(inv('Invoice # INV-77'), 'INV-77');
+  assert.equal(inv('lnvoice No: 991'), '991');
+  assert.equal(inv('Bil1 N0. 4412'), '4412');
+  assert.equal(inv('Bill#123'), '123');
+  assert.equal(inv('Bill No.\n2083-1187'), '2083-1187');
+  assert.equal(inv('बिल नं.:- ४५७'), '457');
+  assert.equal(inv('ABBREVIATED TAX INVOICE'), '');
+  assert.equal(inv('Bill Date: 2083/07/13'), '');
+});
+
+test('a real-layout restaurant bill: items, VAT and bill number', () => {
+  const t = `HIMALAYAN SEKUWA CORNER
+PAN No : 610234567
+Bill No.:- 2083/84-1052   pate: 2083/07/13
+S.N  Particulars           Qty    Rate     Amount
+1    Chicken Sekuwa          2   450.00    900.00
+2    Veg Thakali Set         3   380.00  1,140.00
+4    Tuborg Strong 650ml     4   550.00  2,200.00
+Sub Total                                4,240.00
+Service Charge 10%                         424.00
+VAT 13%                                    606.32
+Grand Total                              5,270.32`;
+  const r = parseReceiptText(t);
+  assert.equal(r.invoiceNumber, '2083/84-1052');
+  assert.equal(r.totalAmount, 5270.32);
+  assert.equal(r.sellerPan, '610234567');
+});

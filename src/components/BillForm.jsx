@@ -1,9 +1,11 @@
 // The editable verification form for a bill. Used after a scan and when editing.
 import { useEffect, useMemo, useState } from 'react';
-import { ImagePlus, Store, Trash, ZoomIn } from 'lucide-react';
+import { ImagePlus, ListPlus, Store, Trash, ZoomIn } from 'lucide-react';
 import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { findDuplicateBill } from '../lib/ird.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
+import { makeItem } from '../lib/splitter.js';
+import { money } from '../lib/format.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
 import { Field, Toggle } from './ui.jsx';
@@ -43,6 +45,31 @@ function DateFields({ ad, bs, onChange, error }) {
         />
       </Field>
     </div>
+  );
+}
+
+/** The item rows read from the bill. Used by Split Khata and Trip Khata; fix them here once. */
+function LineItems({ items = [], onChange }) {
+  const sum = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  const set = (id, patch) => onChange(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  return (
+    <details className="rounded-lg border border-slate-200" open={items.length > 0}>
+      <summary className="cursor-pointer px-3.5 py-2.5 text-sm font-semibold text-slate-800">
+        Items read from the bill ({items.length}){items.length ? ` · ${money(sum)}` : ''}
+      </summary>
+      <div className="space-y-2 border-t border-slate-200 p-3">
+        {!items.length && <p className="text-xs text-slate-500">No item rows were found. Add them here if you’ll split this bill, or skip it.</p>}
+        {items.map((it) => (
+          <div key={it.id} className="grid grid-cols-[minmax(0,1fr)_56px_96px_auto] gap-2">
+            <input className="input py-1.5" value={it.name} onChange={(e) => set(it.id, { name: e.target.value })} aria-label="Item name" placeholder="Item" />
+            <input className="input num py-1.5" inputMode="numeric" value={it.qty} onChange={(e) => { const qty = Math.max(1, Number(e.target.value.replace(/\D/g, '')) || 1); set(it.id, { qty, price: Math.round(((Number(it.amount) || 0) / qty) * 100) / 100 }); }} aria-label="Quantity" />
+            <input className="input num py-1.5" inputMode="decimal" value={it.amount} onChange={(e) => { const amount = e.target.value.replace(/[^\d.]/g, ''); set(it.id, { amount, price: Math.round(((Number(amount) || 0) / it.qty) * 100) / 100 }); }} aria-label="Amount" />
+            <button type="button" onClick={() => onChange(items.filter((x) => x.id !== it.id))} className="rounded-md p-2 text-slate-500 hover:bg-red-50 hover:text-brand" aria-label={`Delete ${it.name}`}><Trash className="size-4" /></button>
+          </div>
+        ))}
+        <button type="button" onClick={() => onChange([...items, makeItem({ name: '', amount: 0 })])} className="inline-flex items-center gap-1.5 text-sm font-semibold text-navy"><ListPlus className="size-4" />Add item</button>
+      </div>
+    </details>
   );
 }
 
@@ -143,6 +170,8 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
             </select>
           </Field>
         </div>
+
+        <LineItems items={e.lineItems || []} onChange={(lineItems) => onChange({ lineItems })} />
 
         <Field label="Notes" htmlFor="f-notes">
           <textarea id="f-notes" rows={2} className="input" value={e.notes || ''} onChange={set('notes')} placeholder="Optional" />

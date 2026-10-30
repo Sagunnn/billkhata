@@ -81,10 +81,19 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
 
 ## OCR: contrast preprocessing, Vision fallback, merchant memory
 
-- `prepareForOcr` makes two 2200 px copies: a colour one for vision models and an enhanced one for
-  Tesseract (`preprocessCanvasForOCR`: Rec. 601 luminance grayscale, contrast ×1.45 around mid-grey).
-  This helps faded thermal print and carbon-copy handwriting. The stored photo (< 300 KB, colour)
-  is never altered.
+- `prepareForOcr` makes two copies at 2200 px on the long side (small photos are enlarged up to
+  2.5×): a colour one for vision models and an enhanced one for Tesseract (`preprocessCanvasForOCR`:
+  Rec. 601 grayscale, then auto-levels: darkest 1% → black, brightest 2% → white, gamma 1.3). It
+  adapts to each photo's lighting. On a grey, blurred test photo it recovered the PAN line, the full
+  bill number and clean item names, which a fixed ×1.45 contrast stretch lost. The stored photo
+  (< 300 KB, colour) is never altered.
+- Tesseract reads in page-segmentation mode 6 (one uniform block), which keeps
+  "item … qty … rate … amount" on one line; the default auto mode split the same photo into columns
+  and lost every item row. If mode 6 finds neither items nor a total, it retries in mode 4 and
+  keeps the better read.
+- Bill numbers: `Bill No.:- 2083/84-1052`, `Invoice # INV-77`, `Inv. No.: KTM/0091`, `बिल नं: ४५७`,
+  OCR slips (`lnvoice`, `Bil1`, `N0`) and a number on the next line. The items read from a bill are
+  shown, editable, on the bill form.
 - After a Tesseract read with no 9-digit PAN, no total, or confidence below 60, the Scan screen
   offers **Re-scan with Vision AI** if any vision API key is saved. It reuses the same image, so there
   is no re-upload.

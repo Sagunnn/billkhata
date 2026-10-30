@@ -66,6 +66,8 @@ export function parseLineItemsFromText(rawText = '') {
     const lead = name.match(/^(\d{1,2})\s*[xX]?\s+(.*)$/);
     if (lead) { qty = Number(lead[1]); name = lead[2]; }
     name = name.replace(/^\d+[.)]\s*/, ''); // serial numbers like "1." or "2)"
+    name = name.replace(/^[^\p{L}\p{N}]+/u, '').trim(); // OCR junk from the bill's left edge: ] " | “
+    name = name.replace(/^[IlJ|!]\s+(?=\S)/, ''); // a misread serial number ("1" → I/l, "3" → J)
     if ((name.match(/[A-Za-zऀ-ॿ]/g) || []).length < 2) continue;
 
     const amount = nums.at(-1);

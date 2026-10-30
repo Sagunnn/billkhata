@@ -18,8 +18,24 @@ async function runTesseract(image, { nepali, onProgress }) {
     });
     tesseractLangs = langs;
   }
-  const { data } = await tesseractWorker.recognize(image);
-  return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
+  // Receipts are one block of rows. Mode 6 ("single uniform block") keeps "item … qty … amount"
+  // on one line; the default auto mode often splits a bill into columns, losing every item row.
+  // If mode 6 finds neither items nor a total, try the column-aware mode 4 and keep the better read.
+  const read = async (psm) => {
+    await tesseractWorker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
+    const { data } = await tesseractWorker.recognize(image);
+    return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
+  };
+  const first = await read('6');
+  if (readScore(first.text) >= 2) return first;
+  const second = await read('4');
+  return readScore(second.text) > readScore(first.text) ? second : first;
+}
+
+/** How much a read found: item rows, plus the total, PAN and bill number. */
+function readScore(text) {
+  const f = parseReceiptText(text);
+  return parseLineItemsFromText(text).length + (f.totalAmount ? 2 : 0) + (f.sellerPan ? 1 : 0) + (f.invoiceNumber ? 1 : 0);
 }
 
 // Below this mean word confidence (0-100) a Tesseract read is treated as unreliable.

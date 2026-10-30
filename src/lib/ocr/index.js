@@ -18,7 +18,24 @@ async function runTesseract(image, { nepali, onProgress }) {
     tesseractLangs = langs;
   }
   const { data } = await tesseractWorker.recognize(image);
-  return data.text || '';
+  return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
+}
+
+// Below this mean word confidence (0-100) a Tesseract read is treated as unreliable.
+export const LOW_CONFIDENCE = 60;
+
+/** True when a local read missed the fields that matter or was unsure of itself. */
+export function needsBetterRead({ fields = {}, confidence = null } = {}) {
+  const missingPan = !/^\d{9}$/.test(String(fields.sellerPan || ''));
+  const missingTotal = !(Number(fields.totalAmount) > 0);
+  return missingPan || missingTotal || (confidence != null && confidence < LOW_CONFIDENCE);
+}
+
+/** The vision provider to use for a re-scan: the chosen one if it has a key, else any with a key. */
+export function visionProviderWithKey(settings) {
+  const keys = settings?.apiKeys || {};
+  if (keys[settings?.visionProvider]) return settings.visionProvider;
+  return Object.keys(keys).find((k) => keys[k]) || '';
 }
 
 /** Normalises whatever a vision model returned into clean form values. */
@@ -50,13 +67,16 @@ export function normalizeExtraction(raw = {}) {
 }
 
 /**
- * @param {string} image data URL
- * @returns {Promise<{fields: object, rawText: string, engine: string}>}
+ * @param {string|{color: string, enhanced: string}} image data URL, or both OCR copies from prepareForOcr
+ * @returns {Promise<{fields: object, rawText: string, engine: string, confidence: number|null}>}
  */
 export async function extractBill(image, settings, { region, onProgress } = {}) {
   let fields;
   let rawText = '';
   let engine = settings.ocrEngine;
+  let confidence = null;
+  const color = typeof image === 'string' ? image : image.color;
+  const enhanced = typeof image === 'string' ? image : image.enhanced || image.color;
 
   if (settings.ocrEngine === OCR_ENGINES.VISION) {
     const provider = settings.visionProvider;
@@ -64,12 +84,12 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     if (!apiKey) throw new Error('Add an API key in Settings, or switch the OCR engine to Tesseract.');
     onProgress?.({ status: 'Reading the bill with the vision model', progress: 0.3 });
     const { extractWithVision } = await import('./vision.js');
-    const raw = await extractWithVision(image, { provider, apiKey, model: settings.models?.[provider] });
+    const raw = await extractWithVision(color, { provider, apiKey, model: settings.models?.[provider] });
     fields = normalizeExtraction(raw);
     rawText = JSON.stringify(raw, null, 2);
     engine = `${provider}:${settings.models?.[provider]}`;
   } else {
-    rawText = await runTesseract(image, { nepali: settings.tesseractNepali, onProgress });
+    ({ text: rawText, confidence } = await runTesseract(enhanced, { nepali: settings.tesseractNepali, onProgress }));
     fields = parseReceiptText(rawText);
   }
 
@@ -79,5 +99,6 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     fields: { ...clean, isNepalBill: region === REGIONS.NEPAL || looksNepali },
     rawText,
     engine,
+    confidence,
   };
 }

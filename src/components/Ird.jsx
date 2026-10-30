@@ -6,13 +6,14 @@ import {
   Terminal, Ticket, TriangleAlert, UserRound,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT } from '../lib/constants.js';
-import { checkEligibility, COUPON_RE, getIrdStatus, isAutoEnrolled, portalFields, portalLink } from '../lib/ird.js';
+import { checkEligibility, COUPON_RE, findDuplicateBill, getIrdStatus, isAutoEnrolled, portalFields, portalLink } from '../lib/ird.js';
 import { appOrigin, bookmarklet, consoleScript, HELPER_VERSION, userscriptUrl } from '../lib/irdHelper.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { validateProfile } from '../lib/profile.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
 import { Button, CopyButton, Field, Modal, StatusBadge } from './ui.jsx';
+import { DuplicateBanner } from './DuplicateBanner.jsx';
 
 export function EligibilityPanel({ expense }) {
   const result = checkEligibility(expense);
@@ -221,7 +222,8 @@ function DigitalCouponModal({ expense, onClose }) {
 }
 
 function CashApplyModal({ expense: current, onClose }) {
-  const { profile } = useStore();
+  const { profile, expenses, openEditor } = useStore();
+  const duplicate = findDuplicateBill(current, expenses);
   const fields = portalFields(current, profile);
   const profileReady = Object.keys(validateProfile(profile)).length === 0 && !isDemoProfile(profile);
   const billNumberChanged = current.invoiceNumber && fields.bill_number !== current.invoiceNumber.trim();
@@ -256,14 +258,23 @@ function CashApplyModal({ expense: current, onClose }) {
               </li>
             ))}
           </ol>
-          <a
-            href={portalLink(current, profile, appOrigin())}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-center font-semibold text-white shadow-sm hover:bg-blue-900"
-          >
-            <ExternalLink className="size-[18px]" />Open portal &amp; auto-fill
-          </a>
+          {duplicate ? (
+            <>
+              <DuplicateBanner duplicate={duplicate} region={profile.region} onOpen={(d) => { onClose(); openEditor(d); }} />
+              <button type="button" disabled className="flex min-h-12 w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 font-semibold text-slate-500">
+                <ExternalLink className="size-[18px]" />Open portal &amp; auto-fill (blocked: duplicate bill)
+              </button>
+            </>
+          ) : (
+            <a
+              href={portalLink(current, profile, appOrigin())}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-center font-semibold text-white shadow-sm hover:bg-blue-900"
+            >
+              <ExternalLink className="size-[18px]" />Open portal &amp; auto-fill
+            </a>
+          )}
           <HelperSetup />
         </div>
 
@@ -283,6 +294,7 @@ function CashApplyModal({ expense: current, onClose }) {
             </div>
           )}
           <CouponVault expense={current} onClose={onClose} />
+          {!duplicate && (
           <details className="card group px-4">
             <summary className="flex cursor-pointer items-center gap-2 py-3 text-sm font-bold text-slate-900">
               <ClipboardList className="size-4" />Copy fields by hand
@@ -304,6 +316,7 @@ function CashApplyModal({ expense: current, onClose }) {
               <p className="pb-3 text-xs text-slate-500">The console script fills the form when pasted into the browser’s developer console on prize.ird.gov.np, if you opened the portal some other way.</p>
             </div>
           </details>
+          )}
         </div>
       </div>
     </Modal>

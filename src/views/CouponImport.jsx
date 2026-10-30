@@ -2,7 +2,7 @@
 // Asks before saving, since any page could link here.
 import { useState } from 'react';
 import { BadgeCheck, CircleAlert, Ticket } from 'lucide-react';
-import { COUPON_RE } from '../lib/ird.js';
+import { COUPON_RE, formatCoupon } from '../lib/ird.js';
 import { money } from '../lib/format.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
@@ -40,7 +40,7 @@ export default function CouponImport({ billId, code }) {
       <PageHeader title="Save prize coupon" subtitle="Sent from the IRD portal by the BillKhata helper" />
       <Card className="p-5">
         <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Coupon number</div>
-        <div className="mt-1 font-mono text-3xl font-bold tracking-widest text-emerald-800">{code}</div>
+        <div className="mt-1 font-mono text-3xl font-bold tracking-widest text-emerald-800">{formatCoupon(code)}</div>
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
           <div className="font-semibold text-slate-900">{bill.merchantName}</div>
           <div className="text-slate-600">

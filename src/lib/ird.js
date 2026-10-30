@@ -27,6 +27,10 @@ export function checkEligibility(e, { today = todayAD(), todayBs = todayBS() } =
   if (!Number.isFinite(amount) || amount < IRD_MIN_AMOUNT) {
     reasons.push(`Amount must be at least Rs. ${IRD_MIN_AMOUNT}.`);
   }
+  if (amount === IRD_MIN_AMOUNT) {
+    // The portal accepts exactly Rs. 100, but the Operating Procedure says "more than".
+    warnings.push('Exactly Rs. 100: the portal accepts it, but Section 4(1) of the Operating Procedure, 2083 says purchases of more than Rs. 100 ("एक पटकमा रु. १०० भन्दा बढी"), so this bill could be rejected at claim time.');
+  }
   if (!PAN_RE.test(String(e.sellerPan || ''))) {
     reasons.push('Seller PAN/VAT number (9 digits) is missing.');
   }
@@ -66,11 +70,74 @@ export const needsCouponOnly = (e, opts) => getIrdStatus(e, opts) === IRD_STATUS
 const toAscii = (v) => String(v ?? '').replace(/[\u0966-\u096F]/g, (c) => String(c.charCodeAt(0) - 0x0966));
 
 /**
- * The portal keeps only letters, digits and . / _ - in a bill number (max 40, upper case),
- * so "बिल नं ४५७" or "AKP 0457" would otherwise arrive empty or changed.
+ * Bill number as the portal stores it: Nepali digits to ASCII, upper case, only A-Z 0-9 . / _ -
+ * (max 40). "बिल नं ४५७" becomes "457" and "akp 0457" becomes "AKP0457".
  */
-export function cleanBillNumber(v) {
-  return toAscii(v).replace(/[^0-9A-Za-z./_-]/g, '').slice(0, 40).toUpperCase();
+export function normalizeInvoiceNumber(raw = '') {
+  return toAscii(raw).toUpperCase().replace(/[^A-Z0-9./_-]/g, '').slice(0, 40);
+}
+export const cleanBillNumber = normalizeInvoiceNumber;
+
+/** A 12-digit prize coupon from any spacing or Nepali digits, or '' when it isn't 12 digits. */
+export function normalizeCouponCode(raw = '') {
+  const digits = toAscii(raw).replace(/\D/g, '');
+  return digits.length === 12 ? digits : '';
+}
+
+/** "208307123456" -> "208 307 123 456" */
+export const formatCoupon = (code) => normalizeCouponCode(code).replace(/(\d{3})(?=\d)/g, '$1 ');
+
+/**
+ * Another saved bill with the same seller PAN and bill number. The program allows each bill
+ * into the draw once (Operating Procedure 2083, Section 4(6)); entering it twice can void it.
+ */
+export function findDuplicateBill(candidate, existingBills = []) {
+  const pan = toAscii(candidate?.sellerPan).replace(/\D/g, '');
+  const inv = normalizeInvoiceNumber(candidate?.invoiceNumber);
+  if (!PAN_RE.test(pan) || !inv) return null;
+  return existingBills.find((b) => b.id !== candidate.id
+    && toAscii(b.sellerPan).replace(/\D/g, '') === pan
+    && normalizeInvoiceNumber(b.invoiceNumber) === inv) || null;
+}
+
+/* ---------- winners ---------- */
+
+// Prize rules from the Operating Procedure, 2083 (Sections 6, 8 and 9).
+export const PRIZES = {
+  daily: { gross: 133334, net: 100000 },
+  bumper: { gross: 1000000, net: 750000 },
+  taxRate: 0.25,
+};
+export const CLAIM_DAYS = 15;
+
+/**
+ * Every 12-digit coupon number in a pasted winners list. Accepts "007 315 254 493",
+ * "007315254493", "0073-1525-4493" and Nepali digits; longer digit runs are ignored.
+ */
+export function extractCouponCodes(rawNoticeText = '') {
+  const text = toAscii(rawNoticeText);
+  const found = new Set();
+  // 12 digits with at most one space or hyphen between any two (covers 3-3-3-3, 4-4-4 and none).
+  for (const m of text.matchAll(/(?<!\d)(?:\d[ \t-]?){11}\d(?!\d)/g)) {
+    found.add(m[0].replace(/\D/g, ''));
+  }
+  return [...found];
+}
+
+/** Saved bills whose coupon appears in the pasted winners list. */
+export function matchWinningCoupons(rawNoticeText = '', savedBills = []) {
+  const codes = new Set(extractCouponCodes(rawNoticeText));
+  return savedBills.filter((b) => {
+    const c = normalizeCouponCode(b.irdCoupon);
+    return c && codes.has(c);
+  });
+}
+
+/** Winners are announced on the 1st and 16th of the Nepali month: the latest one on or before a BS date. */
+export function lastAnnouncementBS(bsDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bsDate || '');
+  if (!m) return '';
+  return `${m[1]}-${m[2]}-${Number(m[3]) >= 16 ? '16' : '01'}`;
 }
 
 /** The values the portal's "enroll a cash bill" form asks for, keyed by its input names. */

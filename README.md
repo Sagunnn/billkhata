@@ -11,7 +11,7 @@ the OCR provider the user picked.
 ```sh
 npm install
 npm run dev       # http://localhost:5173
-npm test          # date conversion, receipt parser, IRD rules, portal helper
+npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR preprocessing, portal helper
 npm run build     # writes dist/
 ```
 
@@ -39,11 +39,62 @@ Checked against prize.ird.gov.np's own code (October 2026):
   bank or wallet; entering them again breaks the program rules. BillKhata shows a badge instead of
   the Apply button for `Digital QR / Card`. `CBMS Big Mart` bills are treated like cash.
 - Amount must be **at least Rs. 100** (`>= 100`, as the portal validates). Change `IRD_MIN_AMOUNT`
-  in `src/lib/constants.js` if the rule changes.
+  in `src/lib/constants.js` if the rule changes. A bill of exactly Rs. 100 gets a soft warning:
+  Section 4(1) of the Operating Procedure says "एक पटकमा रु. १०० भन्दा बढी" (more than Rs. 100),
+  so it may fail at claim time even though the portal accepts it.
 - Seller PAN must be 9 digits. Business purchases, government bodies, phone/internet/electricity,
   transport and air tickets are excluded.
 - Bills dated outside the current fortnight (1–15 or 16–end of the Nepali month) get a warning,
   not a block.
+
+Rules are cited from the signed *करदाता प्रोत्साहन उपहार कार्यक्रम सञ्चालन कार्यविधि, २०८३*
+([ird.gov.np](https://ird.gov.np/content/13584/taxpayer-incentive-gift-program-operating-procedures--2083/)).
+
+## Duplicate bill guard
+
+A bill may enter the draw only once (Section 4(6)); a second entry can void the coupon.
+`findDuplicateBill(candidate, bills)` in `src/lib/ird.js` matches another saved bill with the same
+9-digit seller PAN and the same bill number after `normalizeInvoiceNumber` (Nepali digits to ASCII,
+upper case, only `A-Z 0-9 . / _ -`, the way the portal stores it). The bill form shows a banner
+with **Open that bill**, and the Quick-Apply modal blocks **Open portal & auto-fill** (and the
+console script) for the copy. Saving is still allowed so nothing is lost.
+
+## Winning coupons and the 15-day claim
+
+Winners are drawn on the 1st and 16th of each Nepali month (Section 6): one per day plus a
+fortnightly bumper. Prizes are Rs. 1,33,334 (Rs. 1,00,000 after the 25% windfall tax under
+Section 88A of the Income Tax Act, 2058) and Rs. 10,00,000 (Rs. 7,50,000 net) (Section 8).
+
+**Dashboard → Check winning coupons**: paste the text of prize.ird.gov.np's विजेता सूची
+(Winners list) or an IRD notice. `matchWinningCoupons(text, bills)` converts Nepali digits and
+finds every 12-digit number (`007 315 254 493`, `007315254493`, `0073-1525-4493`; longer digit runs
+such as account numbers are skipped), then compares them with saved coupons
+(`normalizeCouponCode`). A match is stored on the bill as `irdWin` (announcement date, claim-by
+date, checklist ticks), so it is kept in backups and shows as a banner on the dashboard.
+
+Section 9(1): claim **within 15 days of the announcement** at the nearest Inland Revenue Office,
+in person or through a representative, with the **original paper bill**, a copy of an ID
+(national ID, citizenship, passport or driving licence), bank account details and your PAN.
+Unclaimed prizes go to the Prime Minister's Disaster Relief Fund (Section 9(5)). The portal also
+has an online claim form and shows each winner's exact "Claim available until" date, which
+BillKhata tells the user to trust over its own estimate (announcement date + 15 days).
+
+## OCR: contrast preprocessing, Vision fallback, merchant memory
+
+- `prepareForOcr` makes two 2200 px copies: a colour one for vision models and an enhanced one for
+  Tesseract (`preprocessCanvasForOCR`: Rec. 601 luminance grayscale, contrast ×1.45 around mid-grey).
+  This helps faded thermal print and carbon-copy handwriting. The stored photo (< 300 KB, colour)
+  is never altered.
+- After a Tesseract read with no 9-digit PAN, no total, or confidence below 60, the Scan screen
+  offers **Re-scan with Vision AI** if any vision API key is saved. It reuses the same image, so there
+  is no re-upload.
+- `src/lib/merchants.js` remembers shops from earlier bills. A known PAN fills the name and the
+  category picked last time, a known name fills the PAN, and the shop field autocompletes.
+
+## Cash vs digital
+
+The dashboard shows this month's cash spend (enter on the portal yourself; CBMS counted here),
+digital QR/card spend (entered automatically) and total VAT paid on bills with VAT recorded.
 
 ## IRD portal helper (Tampermonkey userscript + bookmarklet)
 
@@ -64,8 +115,11 @@ portal cleans them (letters, digits, `. / _ -`, upper case; Nepali digits conver
 is checked afterwards and re-filled if it came out empty.
 
 After the user passes the security check and submits, the helper spots the coupon
-(`.prize-coupon-card .coupon-numerals`) and offers **Save to BillKhata**, which opens
-`#/coupon/<billId>/<code>` in the app for confirmation.
+(`.prize-coupon-card .coupon-numerals`): a MutationObserver, plus a 400 ms poll for 5 s after the
+form's `submit` event in case a slow animation slips past it. It offers
+**Save 208 307 123 456 to BillKhata**, which opens `#/coupon/<billId>/<12 digits>` in the app
+for confirmation. Field values go through the native `value` setter followed by `input`, `change`
+and `blur` events (sent by hand when a background tab can't take focus).
 
 It never touches the hidden `company_website` honeypot, the Turnstile check or the submit
 button, and it refuses to fill Fonepay/QR/card bills, which the bank or wallet has already entered.

@@ -4,7 +4,7 @@ import { validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, validateImageFile } from '../lib/image.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { money } from '../lib/format.js';
-import { getIrdStatus } from '../lib/ird.js';
+import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
 import { IRD_STATUS } from '../lib/constants.js';
 import { useStore } from '../store.jsx';
 import BillForm from './BillForm.jsx';
@@ -21,7 +21,7 @@ export async function photoFromFile(file) {
 }
 
 export function BillEditor({ expense, onClose }) {
-  const { saveExpense, removeExpense, profile, openIrd } = useStore();
+  const { saveExpense, removeExpense, profile, openIrd, expenses } = useStore();
   const toast = useToast();
   const [draft, setDraft] = useState(expense);
   const [viewPhoto, setViewPhoto] = useState(false);
@@ -52,7 +52,7 @@ export function BillEditor({ expense, onClose }) {
     onClose();
   }
 
-  const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED;
+  const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED && !findDuplicateBill(draft, expenses);
 
   return (
     <>

@@ -1,10 +1,16 @@
 // The editable verification form for a bill. Used after a scan and when editing.
-import { useEffect, useState } from 'react';
-import { ImagePlus, Trash, ZoomIn } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ImagePlus, Store, Trash, ZoomIn } from 'lucide-react';
 import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
+import { findDuplicateBill } from '../lib/ird.js';
+import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
+import { useStore } from '../store.jsx';
 import { Field, Toggle } from './ui.jsx';
 import { EligibilityPanel } from './Ird.jsx';
+import { DuplicateBanner } from './DuplicateBanner.jsx';
+
+const DEFAULT_CATEGORY = CATEGORIES.at(-1);
 
 function DateFields({ ad, bs, onChange, error }) {
   const [bsDraft, setBsDraft] = useState(bs || '');
@@ -41,14 +47,60 @@ function DateFields({ ad, bs, onChange, error }) {
 }
 
 export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto }) {
+  const { expenses, openEditor } = useStore();
   const set = (k) => (ev) => onChange({ [k]: ev.target.value });
   const isNepal = region === REGIONS.NEPAL;
+  const duplicate = findDuplicateBill(e, expenses);
+  const shops = useMemo(() => merchantDirectory(expenses.filter((b) => b.id !== e.id)), [expenses, e.id]);
+  const memory = lookupMerchant(e, expenses);
+  const memoryDiffers = memory && (memory.merchantName !== e.merchantName || memory.category !== e.category || (memory.sellerPan && memory.sellerPan !== e.sellerPan));
+
+  // Typing a known shop name fills its PAN, and its category if none was picked yet.
+  function changeMerchant(name) {
+    const patch = { merchantName: name };
+    const hit = lookupMerchant({ id: e.id, merchantName: name }, expenses);
+    if (hit) {
+      if (!/^\d{9}$/.test(e.sellerPan || '') && hit.sellerPan) patch.sellerPan = hit.sellerPan;
+      if (e.category === DEFAULT_CATEGORY) patch.category = hit.category;
+    }
+    onChange(patch);
+  }
+
+  // A complete PAN of a known shop fills its name (if empty) and category (if still the default).
+  function changePan(raw) {
+    const pan = toAsciiDigits(raw).replace(/\D/g, '').slice(0, 9);
+    const patch = { sellerPan: pan };
+    const hit = pan.length === 9 && lookupMerchant({ id: e.id, sellerPan: pan }, expenses);
+    if (hit) {
+      if (!String(e.merchantName || '').trim()) patch.merchantName = hit.merchantName;
+      if (e.category === DEFAULT_CATEGORY) patch.category = hit.category;
+    }
+    onChange(patch);
+  }
 
   return (
+    <div className="space-y-4">
+    <DuplicateBanner duplicate={duplicate} onOpen={openEditor} region={region} />
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div className="space-y-4">
         <Field label="Shop / seller name" htmlFor="f-merchant" error={errors.merchantName}>
-          <input id="f-merchant" className={`input ${errors.merchantName ? 'input-error' : ''}`} value={e.merchantName} onChange={set('merchantName')} placeholder="e.g. Annapurna Kirana Pasal" autoComplete="off" />
+          <input id="f-merchant" list="known-shops" className={`input ${errors.merchantName ? 'input-error' : ''}`} value={e.merchantName} onChange={(ev) => changeMerchant(ev.target.value)} placeholder="e.g. Annapurna Kirana Pasal" autoComplete="off" />
+          <datalist id="known-shops">
+            {shops.map((m) => <option key={`${m.sellerPan}|${m.merchantName}`} value={m.merchantName}>{m.sellerPan ? `PAN ${m.sellerPan} · ` : ''}{m.category}</option>)}
+          </datalist>
+          {memoryDiffers && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 ring-1 ring-inset ring-slate-200">
+              <Store className="size-3.5 text-slate-500" />
+              <span>Seen before{memory.matchedBy === 'pan' ? ' (same PAN)' : ''}: <b>{memory.merchantName}</b> · {memory.category}{memory.count > 1 ? ` · ${memory.count} bills` : ''}</span>
+              <button
+                type="button"
+                className="ml-auto font-semibold text-navy underline"
+                onClick={() => onChange({ merchantName: memory.merchantName, category: memory.category, ...(memory.sellerPan ? { sellerPan: memory.sellerPan } : {}) })}
+              >
+                Use these
+              </button>
+            </div>
+          )}
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
@@ -59,7 +111,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
               maxLength={9}
               className={`input num ${errors.sellerPan ? 'input-error' : ''}`}
               value={e.sellerPan}
-              onChange={(ev) => onChange({ sellerPan: toAsciiDigits(ev.target.value).replace(/\D/g, '').slice(0, 9) })}
+              onChange={(ev) => changePan(ev.target.value)}
               placeholder="601234567"
             />
           </Field>
@@ -127,6 +179,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
         </div>
         <EligibilityPanel expense={e} />
       </aside>
+    </div>
     </div>
   );
 }

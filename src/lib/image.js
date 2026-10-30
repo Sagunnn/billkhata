@@ -55,10 +55,50 @@ export async function compressImage(src, maxBytes = MAX_IMAGE_BYTES) {
   return { ...out, bytes: dataUrlBytes(out.dataUrl) };
 }
 
-/** A larger, higher-quality copy for text recognition. */
+export const OCR_CONTRAST = 1.45;
+
+/**
+ * Grayscale (Rec. 601 luminance) plus a contrast stretch around mid-grey, in place.
+ * Faded thermal print and carbon-copy handwriting gain enough contrast for Tesseract.
+ * Works on any RGBA byte array, so it is testable without a canvas.
+ */
+export function enhancePixelsForOCR(data, contrast = OCR_CONTRAST) {
+  for (let i = 0; i < data.length; i += 4) {
+    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const v = Math.max(0, Math.min(255, Math.round((y - 128) * contrast + 128)));
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+  }
+  return data;
+}
+
+/** Applies the OCR enhancement to a canvas and returns it. */
+export function preprocessCanvasForOCR(canvas, contrast = OCR_CONTRAST) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  enhancePixelsForOCR(img.data, contrast);
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+/**
+ * Larger, sharper copies for text recognition: `color` for vision models and `enhanced`
+ * (grayscale, contrast-stretched) for Tesseract. The stored photo stays untouched.
+ */
 export async function prepareForOcr(src) {
   const img = await loadImage(src);
-  return render(img, 2200, 0.92).dataUrl;
+  const scale = Math.min(1, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const color = canvas.toDataURL('image/jpeg', 0.92);
+  const enhanced = preprocessCanvasForOCR(canvas).toDataURL('image/png');
+  return { color, enhanced };
 }
 
 export function validateImageFile(file) {

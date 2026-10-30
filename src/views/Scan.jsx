@@ -1,11 +1,12 @@
 // Capture -> OCR -> verify -> save.
 import { useState } from 'react';
-import { Camera, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
+import { Camera, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, prepareForOcr, validateImageFile } from '../lib/image.js';
-import { getIrdStatus } from '../lib/ird.js';
-import { extractBill } from '../lib/ocr/index.js';
+import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
+import { extractBill, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
+import { applyMerchantMemory } from '../lib/merchants.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
@@ -22,7 +23,7 @@ const STATUS_TEXT = {
 };
 
 export default function Scan() {
-  const { settings, profile, saveExpense, openIrd } = useStore();
+  const { settings, profile, saveExpense, openIrd, expenses } = useStore();
   const toast = useToast();
   const [step, setStep] = useState('pick'); // pick | reading | review
   const [draft, setDraft] = useState(null);
@@ -32,6 +33,10 @@ export default function Scan() {
   const [rawText, setRawText] = useState('');
   const [viewPhoto, setViewPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ocrImages, setOcrImages] = useState(null); // kept so a re-scan needs no re-upload
+  const [lastRead, setLastRead] = useState(null); // { engine, confidence, fields } of the latest OCR pass
+  const [rescanning, setRescanning] = useState(false);
+  const rescanProvider = visionProviderWithKey(settings);
 
   const engineLabel = settings.ocrEngine === OCR_ENGINES.VISION
     ? `${VISION_PROVIDERS[settings.visionProvider]?.label} (${settings.models[settings.visionProvider]})`
@@ -43,23 +48,46 @@ export default function Scan() {
     setProgress({ status: 'Preparing the photo', progress: 0 });
     const base = blankExpense(profile.region);
     try {
-      const [stored, ocrImage] = await Promise.all([compressImage(src), prepareForOcr(src)]);
+      const [stored, images] = await Promise.all([compressImage(src), prepareForOcr(src)]);
+      setOcrImages(images);
       let fields = {};
       let engine = settings.ocrEngine;
       try {
-        const out = await extractBill(ocrImage, settings, { region: profile.region, onProgress: setProgress });
+        const out = await extractBill(images, settings, { region: profile.region, onProgress: setProgress });
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
+        setLastRead({ engine: settings.ocrEngine, confidence: out.confidence, fields: out.fields });
       } catch (err) {
+        setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {} });
         toast(`Could not read the bill automatically: ${err.message} Fill in the details below.`, 'error');
       }
+      // Shops seen before: fill a missing name/PAN and reuse the category picked last time.
+      fields = applyMerchantMemory(fields, expenses).fields;
       setDraft({ ...base, ...fields, receiptImage: stored.dataUrl, ocrEngine: engine });
       setErrors({});
       setStep('review');
     } catch (err) {
       toast(err.message || 'Could not open that image.', 'error');
       setStep('pick');
+    }
+  }
+
+  async function rescanWithVision() {
+    if (!ocrImages || !rescanProvider) return;
+    setRescanning(true);
+    try {
+      const visionSettings = { ...settings, ocrEngine: OCR_ENGINES.VISION, visionProvider: rescanProvider };
+      const out = await extractBill(ocrImages, visionSettings, { region: profile.region });
+      const fields = applyMerchantMemory(out.fields, expenses).fields;
+      setDraft((d) => ({ ...d, ...fields, ocrEngine: out.engine }));
+      setRawText(out.rawText);
+      setLastRead({ engine: OCR_ENGINES.VISION, confidence: null, fields: out.fields });
+      toast(`Re-read with ${VISION_PROVIDERS[rescanProvider].label}. Check the fields.`);
+    } catch (err) {
+      toast(`Vision re-scan failed: ${err.message}`, 'error');
+    } finally {
+      setRescanning(false);
     }
   }
 
@@ -96,6 +124,8 @@ export default function Scan() {
     setPreview('');
     setRawText('');
     setErrors({});
+    setOcrImages(null);
+    setLastRead(null);
   }
 
   if (step === 'reading') {
@@ -116,7 +146,7 @@ export default function Scan() {
   }
 
   if (step === 'review' && draft) {
-    const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED;
+    const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED && !findDuplicateBill(draft, expenses);
     return (
       <div>
         <PageHeader
@@ -124,6 +154,25 @@ export default function Scan() {
           subtitle="OCR makes mistakes. Fix anything that looks wrong, then save."
           actions={<Button variant="ghost" icon={RotateCcw} onClick={reset}>Start over</Button>}
         />
+        {lastRead?.engine === OCR_ENGINES.TESSERACT && ocrImages && needsBetterRead(lastRead) && (
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center">
+            <ScanEye className="size-6 shrink-0" />
+            <div className="flex-1">
+              <p className="font-bold">The on-device reader wasn’t sure about this bill.</p>
+              <p className="mt-0.5">
+                {[
+                  !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && 'no seller PAN found',
+                  !(Number(lastRead.fields.totalAmount) > 0) && 'no total found',
+                  lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `confidence ${Math.round(lastRead.confidence)}%`,
+                ].filter(Boolean).join(' · ')}
+                {rescanProvider ? '. A vision model reads faded and handwritten bills much better.' : '. Add a vision API key in Settings to re-read bills like this in one click.'}
+              </p>
+            </div>
+            {rescanProvider
+              ? <Button variant="dark" icon={rescanning ? LoaderCircle : ScanEye} className={rescanning ? '[&_svg]:animate-spin' : ''} disabled={rescanning} onClick={rescanWithVision}>{rescanning ? 'Re-scanning…' : 'Re-scan with Vision AI'}</Button>
+              : <a href="#/settings" className="font-semibold text-navy underline">Open Settings</a>}
+          </div>
+        )}
         <Card className="p-4 md:p-5">
           <BillForm
             value={draft}

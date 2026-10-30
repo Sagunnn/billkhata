@@ -47,8 +47,8 @@ export default function Reports() {
     ['Total expenses', money(t.total, profile.region)],
     ['Bills', t.count],
     ['VAT paid', money(t.vat, profile.region)],
-    ['Cash (incl. CBMS)', money(t.cash, profile.region)],
-    ['Digital QR / Card', money(t.digital, profile.region)],
+    ['Cash · enter by hand', money(t.cash, profile.region)],
+    ['Digital · auto-entered', money(t.digital, profile.region)],
     ['IRD coupons', t.coupons],
   ];
 

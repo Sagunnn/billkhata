@@ -1,13 +1,15 @@
-import { CalendarDays, ChevronRight, Hourglass, ScanLine, Ticket, UserRound, Wallet } from 'lucide-react';
+import { useState } from 'react';
+import { CalendarDays, ChevronRight, Coins, Hourglass, ScanLine, SearchCheck, Ticket, Trophy, UserRound, Wallet } from 'lucide-react';
 import { REGIONS } from '../lib/constants.js';
-import { byCategory, filterExpenses, summarize } from '../lib/expense.js';
+import { byCategory, filterExpenses, reportTotals, summarize } from '../lib/expense.js';
 import { money } from '../lib/format.js';
-import { needsCouponOnly, needsManualEntry } from '../lib/ird.js';
+import { CLAIM_DAYS, formatCoupon, needsCouponOnly, needsManualEntry, normalizeCouponCode } from '../lib/ird.js';
 import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { ExpenseList } from '../components/ExpenseList.jsx';
 import { IrdAction } from '../components/Ird.jsx';
-import { Card, EmptyState } from '../components/ui.jsx';
+import { Button, Card, EmptyState } from '../components/ui.jsx';
+import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
 
 function Kpi({ label, value, sub, icon: Icon, tone = 'slate', href }) {
   const tones = {
@@ -49,6 +51,51 @@ function CategoryBars({ data, region }) {
   );
 }
 
+// Validated two-colour palette (dataviz check): cash orange, digital blue.
+const SPLIT = { cash: '#ea580c', digital: '#2563eb' };
+
+/** Cash (enter by hand) vs digital (auto-entered) spend, plus VAT paid. */
+function CashDigitalCard({ list, region, label }) {
+  const t = reportTotals(list);
+  const vatBills = list.filter((e) => Number(e.vatAmount) > 0).length;
+  const total = t.cash + t.digital;
+  const parts = [
+    { key: 'cash', name: 'Cash', note: 'enter on the IRD portal yourself', value: t.cash },
+    { key: 'digital', name: 'Digital QR / Card', note: 'entered automatically', value: t.digital },
+  ];
+  const pct = (v) => (total ? Math.round((v / total) * 100) : 0);
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h2 className="font-bold">Cash vs digital</h2>
+        <span className="text-xs text-slate-500">{label}</span>
+      </div>
+      {total ? (
+        <>
+          <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={parts.map((p) => `${p.name} ${pct(p.value)}%`).join(', ')}>
+            {parts.filter((p) => p.value > 0).map((p) => (
+              <div key={p.key} title={`${p.name}: ${money(p.value, region)} (${pct(p.value)}%)`} style={{ width: `${(p.value / total) * 100}%`, background: SPLIT[p.key] }} className="h-full first:rounded-l-full last:rounded-r-full" />
+            ))}
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-3">
+            {parts.map((p) => (
+              <div key={p.key}>
+                <dt className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><span className="size-2.5 rounded-sm" style={{ background: SPLIT[p.key] }} />{p.name} · {pct(p.value)}%</dt>
+                <dd className="num text-lg font-extrabold text-slate-900">{money(p.value, region)}</dd>
+                <dd className="text-xs text-slate-500">{p.note}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      ) : <p className="py-3 text-sm text-slate-500">No bills this month yet.</p>}
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-sm">
+        <span className="flex items-center gap-1.5 text-slate-600"><Coins className="size-4" />VAT paid</span>
+        <span><b className="num text-slate-900">{money(t.vat, region)}</b> <span className="text-xs text-slate-500">on {vatBills} bill{vatBills === 1 ? '' : 's'} with VAT recorded</span></span>
+      </div>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
   const { expenses, profile } = useStore();
   const region = profile.region;
@@ -66,6 +113,9 @@ export default function Dashboard() {
     : filterExpenses(expenses, { range: 'month' });
   const monthLabel = isNepal && tBs ? `${BS_MONTHS[parseYmd(tBs).m - 1]} ${tBs.slice(0, 4)}` : new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const recent = filterExpenses(expenses, { range: 'all' }).slice(0, 6);
+  const [winnerModal, setWinnerModal] = useState(null); // null | [] (check) | [bill] (claim)
+  const wins = openWins(expenses);
+  const couponCount = expenses.filter((e) => normalizeCouponCode(e.irdCoupon)).length;
 
   return (
     <div className="space-y-5">
@@ -86,6 +136,16 @@ export default function Dashboard() {
           <ChevronRight className="size-4" />
         </a>
       )}
+
+      {wins.map((b) => (
+        <button key={b.id} type="button" onClick={() => setWinnerModal([b])} className="flex w-full items-center gap-3 rounded-xl bg-emerald-600 px-4 py-3 text-left text-sm text-white shadow hover:bg-emerald-700">
+          <Trophy className="size-6 shrink-0" />
+          <span className="flex-1">
+            <b>Coupon {formatCoupon(b.irdCoupon)} won!</b> {b.merchantName} · claim by {formatAD(b.irdWin.claimByAD)} with the original paper bill.
+          </span>
+          <span className="font-semibold underline">Claim checklist</span>
+        </button>
+      ))}
 
       {isNepal && win && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white">
@@ -131,6 +191,20 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      <div className="grid gap-5 lg:grid-cols-2">
+        <CashDigitalCard list={monthList} region={region} label={monthLabel} />
+        <Card className="flex flex-col p-4">
+          <h2 className="mb-1 flex items-center gap-2 font-bold"><Trophy className="size-4 text-amber-600" />Winning coupons</h2>
+          <p className="text-sm text-slate-600">
+            IRD draws winners on the 1st and 16th of each Nepali month. Paste the winners list from prize.ird.gov.np (विजेता सूची) to check your {couponCount} saved coupon{couponCount === 1 ? '' : 's'}.
+            Winners have {CLAIM_DAYS} days to claim with the original paper bill.
+          </p>
+          <div className="mt-auto pt-3">
+            <Button variant="dark" icon={SearchCheck} onClick={() => setWinnerModal([])}>Check winning coupons</Button>
+          </div>
+        </Card>
+      </div>
+
       <Card>
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 className="font-bold">Recent bills</h2>
@@ -142,6 +216,7 @@ export default function Dashboard() {
           </EmptyState>
         )}
       </Card>
+      {winnerModal && <WinnerCheckModal initial={winnerModal} onClose={() => setWinnerModal(null)} />}
     </div>
   );
 }

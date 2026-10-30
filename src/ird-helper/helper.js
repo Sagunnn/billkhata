@@ -105,7 +105,8 @@ function billkhataIrdHelper(MODE) {
     return document.querySelector('form input[name="' + name + '"]:not([type="hidden"]), form textarea[name="' + name + '"]');
   }
 
-  /* React ignores plain `el.value = x`; set it through the native setter and fire the events. */
+  /* React ignores plain `el.value = x`. Set it through the native prototype setter, then fire
+     input, change and blur so every kind of binding (onChange, onBlur validation) sees it. */
   function setValue(el, value) {
     var proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype
       : el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -114,7 +115,14 @@ function billkhataIrdHelper(MODE) {
     setter.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    if (el.tagName !== 'SELECT') el.blur();
+    if (el.tagName === 'SELECT') return;
+    var hadFocus = document.activeElement === el;
+    el.blur();
+    /* A background tab can't take focus, so blur() fires nothing; send the events ourselves. */
+    if (!hadFocus) {
+      el.dispatchEvent(new FocusEvent('blur'));
+      el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    }
   }
 
   function byText(selector, re) {
@@ -216,24 +224,52 @@ function billkhataIrdHelper(MODE) {
 
   /* ---------- coupon pickup after submit ---------- */
 
+  /* A MutationObserver catches the coupon card as it renders. After a submit we also poll every
+     400 ms for 5 s, in case a slow animation after the security check slips past the observer. */
   var observer = null;
-  function watchForCoupon(p) {
+  var pollTimer = null;
+  var onSubmit = null;
+  function stopWatching() {
     if (observer) observer.disconnect();
-    var seen = Array.prototype.map.call(document.querySelectorAll('.coupon-numerals'), function (n) { return n.textContent; });
-    observer = new MutationObserver(function () {
+    if (pollTimer) clearInterval(pollTimer);
+    if (onSubmit) document.removeEventListener('submit', onSubmit, true);
+    observer = null;
+    pollTimer = null;
+    onSubmit = null;
+  }
+  function couponCode(text) {
+    var code = ascii(text).replace(/\D/g, '');
+    return code.length === 12 ? code : '';
+  }
+  function formatCode(code) { return code.replace(/(\d{3})(?=\d)/g, '$1 '); }
+  function watchForCoupon(p) {
+    stopWatching();
+    /* Coupons already on the page (an earlier enrollment) are not this bill's. */
+    var seen = Array.prototype.map.call(document.querySelectorAll('.coupon-numerals'), function (n) { return couponCode(n.textContent); });
+    function scan() {
       var nodes = document.querySelectorAll('.prize-coupon-card .coupon-numerals');
       for (var i = 0; i < nodes.length; i++) {
-        if (seen.indexOf(nodes[i].textContent) >= 0) continue;
-        var code = ascii(nodes[i].textContent).replace(/\D/g, '');
-        if (code.length === 12) {
-          observer.disconnect();
+        var code = couponCode(nodes[i].textContent);
+        if (code && seen.indexOf(code) < 0) {
+          stopWatching();
           remember(null);
           render('coupon', p, { code: code });
-          return;
+          return true;
         }
       }
-    });
+      return false;
+    }
+    observer = new MutationObserver(scan);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    /* Listen only: the helper never submits the form itself. */
+    onSubmit = function () {
+      if (pollTimer) clearInterval(pollTimer);
+      var started = Date.now();
+      pollTimer = setInterval(function () {
+        if (scan() || Date.now() - started > 5000) { clearInterval(pollTimer); pollTimer = null; }
+      }, 400);
+    };
+    document.addEventListener('submit', onSubmit, true);
   }
 
   /* ---------- the floating panel ---------- */
@@ -263,7 +299,7 @@ function billkhataIrdHelper(MODE) {
   function closePanel() {
     var host = document.getElementById(HOST_ID);
     if (host) host.remove();
-    if (observer) observer.disconnect();
+    stopWatching();
   }
   function money(v) {
     var n = Number(clean('billed_total_amount', v));
@@ -298,8 +334,8 @@ function billkhataIrdHelper(MODE) {
         + 'omplete the security check and press <b>Generate prize coupon</b> (<b>पुरस्कार कुपन सिर्जना गर्नुहोस्</b>). This box will catch the coupon number.</div>'
         + '<div class="btns"><button class="b s" data-a="fill">Fill again</button><button class="b s" data-a="close">Hide</button></div>';
     } else if (state === 'coupon') {
-      body = '<div class="muted">Prize coupon for ' + esc(p.merchant || 'your bill') + '</div><div class="code">' + esc(extra.code) + '</div>'
-        + '<div class="btns">' + (p.app && p.id ? '<button class="b p" data-a="save">Save to BillKhata</button>' : '') + '<button class="b s" data-a="copy">Copy</button></div>'
+      body = '<div class="muted">Prize coupon for ' + esc(p.merchant || 'your bill') + '</div><div class="code">' + esc(formatCode(extra.code)) + '</div>'
+        + '<div class="btns">' + (p.app && p.id ? '<button class="b p" data-a="save">Save ' + esc(formatCode(extra.code)) + ' to BillKhata</button>' : '') + '<button class="b s" data-a="copy">Copy</button></div>'
         + '<div class="muted" style="margin-top:8px">Keep the paper bill. You need it to claim a prize.</div>';
     }
 

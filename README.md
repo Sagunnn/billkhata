@@ -158,6 +158,15 @@ digital QR/card spend (entered automatically) and total VAT paid on bills with V
 `#/split` lists splits and bills to split; `#/split-bill/<billId>` is the editor. All logic is in
 `src/lib/splitter.js` (pure, unit-tested).
 
+The editor is three steps, built for phones, with Back / Next pinned above the bottom bar:
+**1. Bill**: the bill (photo, code, total), then its items as a tidy list; tap an item to edit it.
+No items? One tap splits equally. **2. People**: "By what each had" or "Split equally", a − / +
+counter for how many people, and per person a name, an in/out tick and (by items only) Veg/Non-veg
+and Drinks. Saved friends and groups sit behind one disclosure. **3. Shares**: your share / to
+collect / still owed, then each person's share with Show QR and Mark paid; the per-item tick grid
+and the VAT/service-charge choice are under "Fine-tune who had what". Reopening a split with people
+starts on Shares.
+
 - **Line items** come from the scan: `parseLineItemsFromText` for Tesseract text
   ("Chicken Momo 2 250 500", "Tuborg 2 x 450 900", "3 Masala Tea 150"; totals/VAT rows skipped)
   and a `lineItems` array in the Vision schema. Items can be added, edited, deleted, pasted as text

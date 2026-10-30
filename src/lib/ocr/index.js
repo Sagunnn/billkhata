@@ -20,16 +20,18 @@ async function runTesseract(image, { nepali, onProgress }) {
   }
   // Receipts are one block of rows. Mode 6 ("single uniform block") keeps "item … qty … amount"
   // on one line; the default auto mode often splits a bill into columns, losing every item row.
-  // If mode 6 finds neither items nor a total, try the column-aware mode 4 and keep the better read.
+  // If mode 6 finds no items, modes 4 and 3 are tried too and the best read wins.
   const read = async (psm) => {
     await tesseractWorker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
     const { data } = await tesseractWorker.recognize(image);
     return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
   };
+  // Keep the first read that finds items; otherwise try the column-aware modes and keep the best.
   const first = await read('6');
-  if (readScore(first.text) >= 2) return first;
-  const second = await read('4');
-  return readScore(second.text) > readScore(first.text) ? second : first;
+  if (parseLineItemsFromText(first.text).length) return first;
+  const reads = [first, await read('4'), await read('3')];
+  const rank = (r) => parseLineItemsFromText(r.text).length * 10 + readScore(r.text);
+  return reads.reduce((best, r) => (rank(r) > rank(best) ? r : best));
 }
 
 /** How much a read found: item rows, plus the total, PAN and bill number. */

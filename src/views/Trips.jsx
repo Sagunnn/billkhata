@@ -217,12 +217,13 @@ function EntryModal({ trip, entry, onClose, onSave }) {
     return { category: it?.category || 'shared', touched: Boolean(it), ids: it?.assignedMemberIds || getDefaultAssignedMembers('shared', members) };
   });
   const [reading, setReading] = useState(false);
+  const [rawText, setRawText] = useState('');
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
   const itemsSum = d.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const total = Number(d.totalAmount) || 0;
 
   // Simple (one-line) expense: the category follows the title until changed by hand.
-  const simpleCat = simple.touched ? simple.category : classifyTripItem(d.title);
+  const simpleCat = simple.touched ? simple.category : d.hasBill ? 'shared' : classifyTripItem(d.title);
   const simpleIds = simple.touched ? simple.ids : getDefaultAssignedMembers(simpleCat, members);
 
   async function readPhoto(file) {
@@ -233,12 +234,14 @@ function EntryModal({ trip, entry, onClose, onSave }) {
       const src = await fileToDataUrl(file);
       const [stored, images] = await Promise.all([compressImage(src), prepareForOcr(src)]);
       set({ receiptImage: stored.dataUrl });
-      const { fields } = await extractBill(images, settings, { region: profile.region });
+      const { fields, rawText: text } = await extractBill(images, settings, { region: profile.region });
+      setRawText(text || '');
       const items = (fields.lineItems || []).map((it) => makeTripItem({ name: it.name, amount: it.amount }, members));
       setD((x) => ({
         ...x,
         hasBill: true,
-        itemised: true,
+        // No item rows: keep the whole bill as one line rather than an empty, unsaveable item list.
+        itemised: items.length > 0 || x.items.length > 0,
         title: x.title || fields.merchantName || '',
         sellerPan: fields.sellerPan || x.sellerPan,
         invoiceNumber: fields.invoiceNumber || x.invoiceNumber,
@@ -248,7 +251,7 @@ function EntryModal({ trip, entry, onClose, onSave }) {
         paymentMethod: fields.paymentMethod || x.paymentMethod,
         items: items.length ? items : x.items,
       }));
-      toast(items.length ? `Read ${items.length} items. Check them against the bill.` : 'Read the bill, but no item rows. Add items by hand or keep it as one line.');
+      toast(items.length ? `Read ${items.length} items. Check them against the bill.` : 'Read the bill but found no item rows, so it’s one line shared by everyone. Use “Split into items” to add them.');
     } catch (e) {
       toast(`Couldn’t read the bill: ${e.message}`, 'error');
     } finally {
@@ -316,17 +319,25 @@ function EntryModal({ trip, entry, onClose, onSave }) {
         {d.hasBill && d.paidByMemberId === me.id && <p className="rounded-lg bg-blue-50 p-2.5 text-xs text-blue-950">You paid this bill, so it’s also saved in your ledger for the IRD lucky draw. It isn’t counted as your spending there; your trip share is.</p>}
         {d.hasBill && d.paidByMemberId !== me.id && <p className="rounded-lg bg-slate-50 p-2.5 text-xs text-slate-600">{members.find((m) => m.id === d.paidByMemberId)?.name || 'They'} paid, so they hold the bill and can enter it in the IRD draw themselves.</p>}
 
+        {rawText && (
+          <details className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <summary className="cursor-pointer font-semibold text-slate-700">Text the scanner read</summary>
+            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-xs text-slate-700">{rawText}</pre>
+          </details>
+        )}
         {d.itemised ? (
           <div className="space-y-2">
-            <div className="flex items-center justify-between"><h3 className="text-sm font-bold">Items</h3>{!d.hasBill && <button type="button" className="text-xs font-semibold text-navy underline" onClick={() => set({ itemised: false })}>Single line instead</button>}</div>
+            <div className="flex items-center justify-between"><h3 className="text-sm font-bold">Items</h3><button type="button" className="text-xs font-semibold text-navy underline" onClick={() => set({ itemised: false })}>Single line instead</button></div>
             {d.items.map((it, i) => (
               <ItemRow key={it.id} item={it} members={members} onChange={(next) => set({ items: d.items.map((x, k) => (k === i ? next : x)) })} onRemove={() => set({ items: d.items.filter((_, k) => k !== i) })} />
             ))}
             <Button size="sm" icon={ListPlus} onClick={() => set({ items: [...d.items, makeTripItem({ name: '', amount: '' }, members)] })}>Add item</Button>
-            <p className="text-sm text-slate-600">
-              Items {money(itemsSum)} · paid {money(total)}
-              {total && Math.abs(total - itemsSum) >= 0.01 ? ` · ${total > itemsSum ? 'VAT / service charge' : 'discount'} ${money(Math.abs(total - itemsSum))} shared in proportion to each person’s items` : ''}
-            </p>
+            {itemsSum > 0 ? (
+              <p className="text-sm text-slate-600">
+                Items {money(itemsSum)} · paid {money(total)}
+                {total && Math.abs(total - itemsSum) >= 0.01 ? ` · ${total > itemsSum ? 'VAT / service charge' : 'discount'} ${money(Math.abs(total - itemsSum))} shared in proportion to each person’s items` : ''}
+              </p>
+            ) : <p className="text-sm text-slate-600">Add the items with their amounts, or use “Single line instead”.</p>}
           </div>
         ) : (
           <div className="space-y-2 rounded-lg border border-slate-200 p-3">

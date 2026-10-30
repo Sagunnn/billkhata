@@ -175,3 +175,34 @@ test('parseLineItemsFromText strips OCR junk before item names', () => {
   const items = parseLineItemsFromText('] "Chicken Sekuwa 2 450.00 900.00\n| “Veg Thakali Set 3 380.00 1,140.00\nJ Buff Choila 1 320.00 320.00\nI Paneer Tikka 1 400.00 400.00');
   assert.deepEqual(items.map((i) => i.name), ['Chicken Sekuwa', 'Veg Thakali Set', 'Buff Choila', 'Paneer Tikka']);
 });
+
+test('amount styles: 180/-, Rs. 180, रु १८०, 2 x 90 = 180, 180,00', () => {
+  const items = parseLineItemsFromText([
+    'Veg Momo 180/-', 'Chicken Chowmein Rs. 220', 'Buff Sekuwa रु ३६०', 'Masala Tea 2 x 45 = 90', 'Lassi 120,00', 'Room Service Tea 60', 'Cashew Fry 300',
+  ].join('\n'));
+  assert.deepEqual(items.map((i) => [i.name, i.qty, i.amount]), [
+    ['Veg Momo', 1, 180], ['Chicken Chowmein', 1, 220], ['Buff Sekuwa', 1, 360], ['Masala Tea', 2, 90], ['Lassi', 1, 120], ['Room Service Tea', 1, 60], ['Cashew Fry', 1, 300],
+  ]);
+});
+
+test('names and amounts read as separate columns are paired back up', () => {
+  const text = `NEW BHANCHA GHAR
+Bill No: 77
+Particulars
+Chicken Momo
+Veg Thakali
+Coke
+200.00
+450.00
+120.00
+Total 770.00`;
+  assert.deepEqual(parseLineItemsFromText(text).map((i) => [i.name, i.amount]), [['Chicken Momo', 200], ['Veg Thakali', 450], ['Coke', 120]]);
+  // Counts don't match: better nothing than wrong pairs.
+  assert.deepEqual(parseLineItemsFromText('Particulars\nMomo\nTea\n200\nTotal 200'), []);
+});
+
+test('header lines like "Table: 4  Time: 19:42" are not items', () => {
+  const names = (t) => parseLineItemsFromText(t).map((i) => i.name);
+  assert.deepEqual(names('Table: 4          Time: 19:42\nKOT No: 12\nVeg Momo 180'), ['Veg Momo']);
+  assert.deepEqual(names('Table: 4          Time: 19:42'), []);
+});

@@ -100,3 +100,7 @@ Grand Total                              5,270.32`;
   assert.equal(r.totalAmount, 5270.32);
   assert.equal(r.sellerPan, '610234567');
 });
+
+test('shop name spacing is tidied', () => {
+  assert.equal(parseReceiptText('MOUNTAIN VIEW    RESTRO\nTotal 536').merchantName, 'MOUNTAIN VIEW RESTRO');
+});

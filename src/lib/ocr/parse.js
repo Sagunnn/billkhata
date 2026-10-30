@@ -95,7 +95,7 @@ function findVat(lines) {
 
 function findMerchant(lines) {
   for (const line of lines.slice(0, 6)) {
-    const clean = line.replace(/[^\p{L}\p{N}&.'\s-]/gu, '').trim();
+    const clean = line.replace(/[^\p{L}\p{N}&.'\s-]/gu, '').replace(/\s+/g, ' ').trim();
     if (clean.length < 3 || /\d{5,}/.test(clean)) continue;
     if (/(tax\s*invoice|invoice|estimate|bill|receipt|pan|vat|tel|phone|date)/i.test(clean) && clean.split(/\s+/).length < 3) continue;
     return clean.slice(0, 80);

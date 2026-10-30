@@ -26,9 +26,75 @@ export function classifyFoodItem(name = '') {
 
 /* ---------- line items from OCR text ---------- */
 
-const SKIP_LINE = /(sub\s*-?\s*total|grand|\btotal\b|net\s*(amount|payable)|\bvat\b|\btax(able)?\b|service|\bs\.?\s?c\b|discount|\bdisc\b|round|\bcash\b|change|tender|\bpaid\b|balance|bill\s*no|invoice|\binv\b|\bdate\b|\bpan\b|phone|\btel\b|\bmob|table\s*no|waiter|cashier|steward|guest|thank|visit|particulars|description|\bqty\b|\brate\b|\bs\.?\s?n\.?\b|जम्मा|कुल|भ्याट|मिति|बिल\s*नं)/i;
+// Lines that are never items: totals, taxes, payment and header lines. Word-bounded so items like
+// "Room Service Tea", "Cashew Fry" or "Ground Coffee" are kept.
+const SKIP_LINE = /(sub\s*-?\s*total|grand|\btotal\b|net\s*(amount|payable)|\bvat\b|\btax(able)?\b|service\s*(charge|chg|tax)|\bs\.?\s?c\b\s*\d|discount|\bdisc\b|round\s*(off|ing)|\bcash\b|\bchange\b|tender|\bpaid\b|balance|bill\s*no|invoice|\binv\b|\bdate\b|\bpan\b|phone|\btel\b|\bmob|\btable\b|\btime\b|\bkot\b|token\s*no|waiter|cashier|steward|thank|visit|particulars|description|\bqty\b|\brate\b|\bs\.?\s?n\.?\b|जम्मा|कुल|भ्याट|मिति|बिल\s*नं)/i;
 const NUM = /^[\d,]+(?:\.\d{1,2})?$/;
 const toNum = (t) => Number(String(t).replace(/,/g, ''));
+
+/** Evens out how amounts are written: "180/-", "Rs. 180", "रु १८०", "2 x 90 = 180", "180,00". */
+function normalizeLine(raw) {
+  return raw
+    .replace(/(\d)\s*\/-/g, '$1') // 180/-
+    .replace(/(?:\b(?:rs|npr)\.?|रु\.?)\s*(?=\d)/gi, '') // Rs. 180, NPR 180, रु 180
+    .replace(/(\d),(\d{2})(?![\d,])/g, '$1.$2') // 180,00 (decimal comma)
+    .replace(/(\d)\s*[xX×@*]\s*(\d)/g, '$1 $2') // 2 x 90
+    .replace(/(\D)\s*[=:]\s*(?=\d)/g, '$1 ') // "= 180", ": 180" (but not times like 19:42)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanName(raw) {
+  let name = raw.replace(/[|:.\-–—]+$/, '').trim();
+  let qty = 1;
+  const lead = name.match(/^(\d{1,2})\s*[xX]?\s+(.*)$/);
+  if (lead) { qty = Number(lead[1]); name = lead[2]; }
+  name = name.replace(/^\d+[.)]\s*/, ''); // serial numbers like "1." or "2)"
+  name = name.replace(/^[^\p{L}\p{N}]+/u, '').trim(); // OCR junk from the bill's left edge: ] " | “
+  name = name.replace(/^[IlJ|!]\s+(?=\S)/, ''); // a misread serial number ("1" → I/l, "3" → J)
+  return { name, qty };
+}
+
+/** One item from a name and the numbers after it (amount last; qty and rate when present). */
+function buildItem(rawName, nums) {
+  const { name, qty: leadQty } = cleanName(rawName);
+  if ((name.match(/[A-Za-zऀ-ॿ]/g) || []).length < 2) return null;
+  const amount = nums.at(-1);
+  if (!(amount > 0) || amount > 1e6) return null;
+  let qty = leadQty;
+  let price = amount / qty;
+  if (nums.length >= 3) {
+    const [q, p] = nums.slice(-3, -1);
+    if (Math.abs(q * p - amount) < 0.6) { qty = q; price = p; } // qty, rate, amount
+    else if (Number.isInteger(q) && q > 0 && q <= 50) { qty = q; price = amount / q; }
+  } else if (nums.length === 2) {
+    const [a] = nums;
+    if (Number.isInteger(a) && a > 0 && a <= 50 && Math.abs((amount / a) - Math.round(amount / a)) < 1e-9 && amount / a >= 5) { qty = a; price = amount / a; }
+    else if (a > 0 && Math.abs(amount / a - Math.round(amount / a)) < 0.01) { price = a; qty = Math.round(amount / a); }
+  }
+  return makeItem({ name, qty, price, amount });
+}
+
+/**
+ * When OCR reads a bill column by column, names and amounts come out as separate runs of lines.
+ * Between the header and the first total, pair n name-only lines with n number-only lines, in order.
+ */
+function pairColumns(lines) {
+  const header = lines.findIndex((l) => /(particulars|description|\bitems?\b|\bqty\b|विवरण)/i.test(l));
+  const start = header < 0 ? 0 : header + 1;
+  let end = lines.findIndex((l, i) => i >= start && /(sub\s*-?\s*total|\btotal\b|grand|जम्मा)/i.test(l));
+  if (end < 0) end = lines.length;
+  const names = [];
+  const amounts = [];
+  for (const line of lines.slice(start, end)) {
+    if (!line || SKIP_LINE.test(line)) continue;
+    const tokens = line.split(' ');
+    if (tokens.every((t) => NUM.test(t))) amounts.push(tokens.map(toNum));
+    else if (!NUM.test(tokens.at(-1)) && (line.match(/[A-Za-zऀ-ॿ]/g) || []).length >= 2) names.push(line);
+  }
+  if (!names.length || names.length !== amounts.length) return [];
+  return names.map((n, i) => buildItem(n, amounts[i])).filter(Boolean);
+}
 
 let itemSeq = 0;
 export const newItemId = () => `i${Date.now().toString(36)}${(itemSeq++).toString(36)}`;
@@ -49,42 +115,23 @@ export function makeItem({ name = '', qty = 1, price = 0, amount, tag, id } = {}
 
 /**
  * Pulls item rows out of receipt OCR text: "Chicken Momo 2 x 250 500", "Tuborg 2 450 900",
- * "Veg Chowmein 180.00", "2 Buff Sekuwa 640". Totals, VAT and header lines are skipped.
+ * "Veg Chowmein 180/-", "2 Buff Sekuwa Rs. 640", "Momo 2 x 90 = 180". Totals, VAT and header
+ * lines are skipped. If no row has its amount on the same line, names and amounts read as
+ * separate columns are paired up in order.
  */
 export function parseLineItemsFromText(rawText = '') {
+  const lines = toAsciiDigits(rawText).split(/\r?\n/).map(normalizeLine);
   const items = [];
-  const lines = toAsciiDigits(rawText).split(/\r?\n/);
-  for (const raw of lines) {
-    const line = raw.replace(/(\d)\s*[xX×@*]\s*(\d)/g, '$1 $2').replace(/\s+/g, ' ').trim();
+  for (const line of lines) {
     if (!line || SKIP_LINE.test(line)) continue;
     const tokens = line.split(' ');
     const nums = [];
     while (tokens.length && NUM.test(tokens.at(-1))) nums.unshift(toNum(tokens.pop()));
     if (!nums.length) continue;
-    let name = tokens.join(' ').replace(/[|:.\-–—]+$/, '').trim();
-    let qty = 1;
-    const lead = name.match(/^(\d{1,2})\s*[xX]?\s+(.*)$/);
-    if (lead) { qty = Number(lead[1]); name = lead[2]; }
-    name = name.replace(/^\d+[.)]\s*/, ''); // serial numbers like "1." or "2)"
-    name = name.replace(/^[^\p{L}\p{N}]+/u, '').trim(); // OCR junk from the bill's left edge: ] " | “
-    name = name.replace(/^[IlJ|!]\s+(?=\S)/, ''); // a misread serial number ("1" → I/l, "3" → J)
-    if ((name.match(/[A-Za-zऀ-ॿ]/g) || []).length < 2) continue;
-
-    const amount = nums.at(-1);
-    let price = amount / qty;
-    if (nums.length >= 3) {
-      const [q, p] = nums.slice(-3, -1);
-      if (Math.abs(q * p - amount) < 0.6) { qty = q; price = p; } // qty, rate, amount
-      else if (Number.isInteger(q) && q > 0 && q <= 50) { qty = q; price = amount / q; }
-    } else if (nums.length === 2) {
-      const [a] = nums;
-      if (Number.isInteger(a) && a > 0 && a <= 50 && Math.abs((amount / a) - Math.round(amount / a)) < 1e-9 && amount / a >= 5) { qty = a; price = amount / a; }
-      else if (a > 0 && Math.abs(amount / a - Math.round(amount / a)) < 0.01) { price = a; qty = Math.round(amount / a); }
-    }
-    if (!(amount > 0) || amount > 1e6) continue;
-    items.push(makeItem({ name, qty, price, amount }));
+    const item = buildItem(tokens.join(' '), nums);
+    if (item) items.push(item);
   }
-  return items;
+  return items.length ? items : pairColumns(lines);
 }
 
 /* ---------- 2. members and auto-ticks ---------- */

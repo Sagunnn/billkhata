@@ -16,6 +16,15 @@ function latin(text) {
 
 const npr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const LINK_BLUE = [29, 78, 216];
+const imageFormat = (src) => (/^data:image\/png/i.test(src || '') ? 'PNG' : 'JPEG');
+
+/**
+ * The expense report. With the receipt appendix on, every bill is cross-referenced both ways:
+ * the "Code / Ref" cell says "-> See p.N" and links to its voucher card, and each card's header
+ * names the table page and row and links back. Page numbers match the "Page X of Y" footers.
+ * The returned doc carries `billkhataRefs` (where each bill landed), used by tests.
+ */
 export async function buildReportPdf({ expenses, profile, from, to, includeImages }) {
   const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -32,21 +41,21 @@ export async function buildReportPdf({ expenses, profile, from, to, includeImage
   doc.setTextColor(...ink);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('BillKhata Expense Report', M, 16);
+  doc.text('BillKhata Expense & Voucher Report', M, 16);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(...muted);
   const range = from || to
-    ? `${from ? formatAD(from) : 'start'} – ${to ? formatAD(to) : 'today'}`
+    ? `${from ? formatAD(from) : 'start'} - ${to ? formatAD(to) : 'today'}`
     : 'All dates';
   doc.text(`Generated ${new Date().toLocaleString('en-GB')}`, W - M, 16, { align: 'right' });
 
   doc.setTextColor(...ink);
   doc.setFontSize(10);
   const lines = [
-    ['Name', latin(profile.fullName) || '—'],
-    ['Phone', profile.phone || '—'],
-    ['Personal PAN', profile.pan || '—'],
+    ['Name', latin(profile?.fullName) || '-'],
+    ['Phone', profile?.phone || '-'],
+    ['Personal PAN', profile?.pan || '-'],
     ['Report period', range],
   ];
   lines.forEach(([k, v], i) => {
@@ -86,75 +95,140 @@ export async function buildReportPdf({ expenses, profile, from, to, includeImage
     doc.setFont('helvetica', 'normal');
   });
 
-  // Itemised table
-  const rows = [...expenses]
-    .sort((a, b) => (a.billDateAD || '').localeCompare(b.billDateAD || ''))
-    .map((e) => [
-      `${e.billDateAD || ''}\n${e.billDateBS ? `BS ${e.billDateBS}` : ''}`,
-      latin(e.merchantName),
-      e.sellerPan || '—',
-      latin(e.invoiceNumber) || '—',
-      e.category,
-      e.paymentMethod,
-      e.irdCoupon || '—',
-      npr(e.totalAmount),
-    ]);
+  // Itemised table. "Code / Ref" comes first; with the appendix on, its cell gets a second
+  // (blank) line where the appendix page is written once the appendix exists.
+  const rows = [...expenses].sort((a, b) => (a.billDateAD || '').localeCompare(b.billDateAD || '') || (a.billCode || '').localeCompare(b.billCode || ''));
+  const appendix = Boolean(includeImages);
+  const cells = new Map(); // bill id -> { page, x, y, w, h, rowIndex, code, hasImage }
   autoTable(doc, {
     startY: boxY + 26,
-    head: [['Date (AD / BS)', 'Merchant', 'Seller PAN', 'Invoice #', 'Category', 'Payment', 'IRD Coupon #', 'Amount (NPR)']],
-    body: rows,
-    foot: [['', '', '', '', '', '', 'Total', { content: npr(t.total), styles: { halign: 'right' } }]],
-    margin: { left: M, right: M },
+    head: [['Code / Ref', 'Date (AD / BS)', 'Merchant', 'Seller PAN', 'Invoice #', 'Category', 'Payment', 'IRD Coupon #', 'Amount (NPR)']],
+    body: rows.map((e) => [
+      appendix ? `${e.billCode || '-'}\n ` : (e.billCode || '-'),
+      `${e.billDateAD || ''}${e.billDateBS ? `\nBS ${e.billDateBS}` : ''}`,
+      latin(e.merchantName),
+      e.sellerPan || '-',
+      latin(e.invoiceNumber) || '-',
+      e.category,
+      e.paymentMethod,
+      e.irdCoupon || '-',
+      npr(e.totalAmount),
+    ]),
+    foot: [['', '', '', '', '', '', '', 'Total', npr(t.total)]],
+    showFoot: 'lastPage',
+    rowPageBreak: 'avoid',
+    margin: { left: M, right: M, bottom: 14 },
     styles: { fontSize: 8.5, cellPadding: 2, textColor: ink, lineColor: [226, 232, 240], lineWidth: 0.1 },
     headStyles: { fillColor: ink, textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [241, 245, 249], textColor: ink, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 28 }, 2: { cellWidth: 22 }, 6: { cellWidth: 28 }, 7: { halign: 'right', cellWidth: 28 } },
+    columnStyles: { 0: { cellWidth: 25, fontStyle: 'bold' }, 1: { cellWidth: 25 }, 3: { cellWidth: 21 }, 7: { cellWidth: 27 }, 8: { halign: 'right', cellWidth: 26 } },
+    didDrawCell: (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+      const e = rows[data.row.index];
+      cells.set(e.id, {
+        page: doc.getCurrentPageInfo().pageNumber,
+        x: data.cell.x, y: data.cell.y, w: data.cell.width, h: data.cell.height,
+        rowIndex: data.row.index + 1, code: e.billCode || '-', hasImage: Boolean(e.receiptImage),
+      });
+    },
   });
+  const tableEnd = doc.getNumberOfPages();
 
-  // Receipt appendix
-  const withImages = expenses.filter((e) => e.receiptImage);
-  if (includeImages && withImages.length) {
-    const cols = 4;
-    const rowsPerPage = 2;
-    const gap = 6;
-    const cellW = (W - 2 * M - gap * (cols - 1)) / cols;
-    const cellH = (H - 30 - gap * (rowsPerPage - 1)) / rowsPerPage;
-    withImages.forEach((e, i) => {
-      const slot = i % (cols * rowsPerPage);
+  // Receipt voucher appendix: 2 x 2 labelled cards per page, starting on a new page.
+  const appendixPages = new Map(); // bill id -> page of its card
+  const withPhotos = appendix ? rows.filter((e) => e.receiptImage) : [];
+  if (withPhotos.length) {
+    const gap = 8;
+    const top = 22;
+    const cardW = (W - 2 * M - gap) / 2;
+    const cardH = (H - top - 16 - gap) / 2;
+    const headH = 17;
+    withPhotos.forEach((e, i) => {
+      const slot = i % 4;
       if (slot === 0) {
         doc.addPage();
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(13);
         doc.setTextColor(...ink);
-        doc.text('Appendix: receipt images', M, 14);
+        doc.text('Receipt Voucher Appendix', M, 14);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...muted);
+        doc.text('Click a card header to jump back to its row in the expense table.', W - M, 14, { align: 'right' });
       }
-      const x = M + (slot % cols) * (cellW + gap);
-      const y = 20 + Math.floor(slot / cols) * (cellH + gap);
-      const props = doc.getImageProperties(e.receiptImage);
-      const maxH = cellH - 12;
-      const scale = Math.min(cellW / props.width, maxH / props.height);
-      const w = props.width * scale;
-      const h = props.height * scale;
-      doc.setDrawColor(203, 213, 225);
-      doc.rect(x, y, cellW, cellH);
-      doc.addImage(e.receiptImage, 'JPEG', x + (cellW - w) / 2, y + 1, w, h, undefined, 'FAST');
+      const page = doc.getCurrentPageInfo().pageNumber;
+      appendixPages.set(e.id, page);
+      const x = M + (slot % 2) * (cardW + gap);
+      const y = top + Math.floor(slot / 2) * (cardH + gap);
+      const ref = cells.get(e.id);
+
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, cardW, cardH, 1.5, 1.5, 'S');
+      doc.setFillColor(239, 246, 255);
+      doc.rect(x + 0.3, y + 0.3, cardW - 0.6, headH, 'F');
+      doc.setDrawColor(191, 219, 254);
+      doc.line(x, y + headH + 0.3, x + cardW, y + headH + 0.3);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...LINK_BLUE);
+      doc.text(`[${e.billCode || '-'}] - Table ref: page ${ref?.page ?? '?'}, row #${ref?.rowIndex ?? '?'}`, x + 3, y + 5);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
-      doc.text(doc.splitTextToSize(`${e.billDateAD} · ${latin(e.merchantName)} · NPR ${npr(e.totalAmount)}`, cellW - 4), x + 2, y + cellH - 7);
-      if (e.irdCoupon) doc.text(`Coupon ${e.irdCoupon}`, x + 2, y + cellH - 2.5);
+      doc.setTextColor(...ink);
+      const info = `${latin(e.merchantName) || 'Bill'} • PAN: ${e.sellerPan || '-'} • Inv: ${latin(e.invoiceNumber) || '-'} • NPR ${npr(e.totalAmount)}`;
+      doc.text(doc.splitTextToSize(info, cardW - 6)[0], x + 3, y + 9.5);
+      if (e.irdCoupon) {
+        doc.setTextColor(4, 120, 87);
+        doc.text(`IRD Coupon: ${e.irdCoupon}`, x + 3, y + 14);
+      }
+      if (ref) doc.link(x, y, cardW, headH, { pageNumber: ref.page });
+
+      const props = doc.getImageProperties(e.receiptImage);
+      const boxW = cardW - 6;
+      const boxH = cardH - headH - 5;
+      const scale = Math.min(boxW / props.width, boxH / props.height);
+      const w = props.width * scale;
+      const h = props.height * scale;
+      doc.addImage(e.receiptImage, imageFormat(e.receiptImage), x + 3 + (boxW - w) / 2, y + headH + 2.5 + (boxH - h) / 2, w, h, undefined, 'FAST');
     });
   }
 
-  // Page footers
+  // Back-fill the table: forward links to each card, or "No Photo".
+  if (appendix) {
+    for (const [id, c] of cells) {
+      doc.setPage(c.page);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      const target = appendixPages.get(id);
+      if (target) {
+        doc.setTextColor(...LINK_BLUE);
+        doc.text(`-> See p.${target}`, c.x + 2, c.y + c.h - 2.4);
+        doc.link(c.x, c.y, c.w, c.h, { pageNumber: target });
+      } else {
+        doc.setTextColor(...muted);
+        doc.text('No Photo', c.x + 2, c.y + c.h - 2.4);
+      }
+    }
+  }
+
+  // Footers last, so "Page X of Y" counts the appendix too.
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...muted);
-    doc.text(`BillKhata · expense.sagunpradhan.com.np · data stays on your device`, M, H - 5);
-    doc.text(`Page ${p} of ${pages}`, W - M, H - 5, { align: 'right' });
+    doc.text(`BillKhata Expense & Voucher Report • Page ${p} of ${pages}`, W / 2, H - 5, { align: 'center' });
   }
+
+  doc.billkhataRefs = {
+    pages,
+    tablePages: tableEnd,
+    bills: rows.map((e) => ({ id: e.id, code: e.billCode || '', ...cells.get(e.id), appendixPage: appendixPages.get(e.id) || null })),
+  };
   return doc;
 }
 

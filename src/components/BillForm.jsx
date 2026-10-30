@@ -5,6 +5,7 @@ import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.
 import { findDuplicateBill } from '../lib/ird.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
 import { makeItem } from '../lib/splitter.js';
+import { assignBillCode } from '../lib/billCode.js';
 import { money } from '../lib/format.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
@@ -74,7 +75,9 @@ function LineItems({ items = [], onChange }) {
 }
 
 export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto }) {
-  const { expenses, openEditor } = useStore();
+  const { expenses, trips, openEditor } = useStore();
+  const saved = expenses.some((x) => x.id === e.id);
+  const code = assignBillCode(e, expenses, trips);
   const set = (k) => (ev) => onChange({ [k]: ev.target.value });
   const isNepal = region === REGIONS.NEPAL;
   const duplicate = findDuplicateBill(e, expenses);
@@ -108,6 +111,12 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
   return (
     <div className="space-y-4">
     <DuplicateBanner duplicate={duplicate} onOpen={openEditor} region={region} />
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono font-bold tracking-wide text-white" title="Voucher code">{code}</span>
+      <span className="text-xs text-slate-500">
+        {saved ? 'Voucher code' : 'Voucher code it gets when saved'}. Write it on the paper bill so it matches your PDF report.
+      </span>
+    </div>
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div className="space-y-4">
         <Field label="Shop / seller name" htmlFor="f-merchant" error={errors.merchantName}>

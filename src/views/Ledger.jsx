@@ -52,7 +52,7 @@ export default function Ledger() {
           <Segmented value={f.range} onChange={(range) => update({ range })} options={RANGES} className="overflow-x-auto" />
           <div className="relative min-w-[180px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input className="input py-2 pl-9" placeholder="Search shop, invoice, PAN, coupon" value={f.search} onChange={(e) => update({ search: e.target.value })} aria-label="Search bills" />
+            <input className="input py-2 pl-9" placeholder="Search code, shop, invoice, PAN, coupon" value={f.search} onChange={(e) => update({ search: e.target.value })} aria-label="Search bills" />
           </div>
           <Button size="md" icon={Funnel} onClick={() => setShowFilters((v) => !v)} className="md:hidden">Filters</Button>
           {active > 0 && <Button size="md" variant="ghost" icon={RotateCcw} onClick={() => update(EMPTY)}>Reset</Button>}

@@ -135,6 +135,6 @@ export function filterExpenses(list, f) {
     .filter((e) => !f.category || e.category === f.category)
     .filter((e) => !f.payment || e.paymentMethod === f.payment)
     .filter((e) => !f.status || getIrdStatus(e) === f.status)
-    .filter((e) => !q || [e.merchantName, e.invoiceNumber, e.sellerPan, e.irdCoupon, e.notes].some((v) => String(v || '').toLowerCase().includes(q)))
+    .filter((e) => !q || [e.billCode, e.merchantName, e.invoiceNumber, e.sellerPan, e.irdCoupon, e.notes].some((v) => String(v || '').toLowerCase().includes(q)))
     .sort((a, b) => (b.billDateAD || '').localeCompare(a.billDateAD || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
 }

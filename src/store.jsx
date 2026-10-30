@@ -3,10 +3,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as db from './lib/db.js';
 import { finalizeExpense } from './lib/expense.js';
+import { assignBillCode, ensureBillCodes, tripInitials } from './lib/billCode.js';
 import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 
 const StoreContext = createContext(null);
+
+/** Gives every stored bill a valid, unique voucher code; saves only the ones that changed. */
+async function syncBillCodes() {
+  const changed = ensureBillCodes(await db.getAllExpenses(), await db.getAllTrips());
+  if (changed.length) await db.putMany(changed);
+  return db.getAllExpenses();
+}
 
 export function StoreProvider({ children }) {
   const [expenses, setExpenses] = useState([]);
@@ -33,7 +41,7 @@ export function StoreProvider({ children }) {
             setProfileState(loadProfile());
           }
         }
-        setExpenses(await db.getAllExpenses());
+        setExpenses(await syncBillCodes()); // backfills codes for bills saved before codes existed
         setTrips(await db.getAllTrips());
       } catch (err) {
         setLoadError(err?.message || 'This browser blocked local storage (private mode?).');
@@ -45,6 +53,7 @@ export function StoreProvider({ children }) {
 
   const saveExpense = useCallback(async (e) => {
     const clean = finalizeExpense(e);
+    clean.billCode = assignBillCode(clean, await db.getAllExpenses(), await db.getAllTrips());
     await db.putExpense(clean);
     setExpenses((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
     return clean;
@@ -58,7 +67,7 @@ export function StoreProvider({ children }) {
   const replaceAll = useCallback(async (list) => {
     await db.clearExpenses();
     await db.putMany(list);
-    setExpenses(await db.getAllExpenses());
+    setExpenses(await syncBillCodes());
   }, []);
 
   /** Adds bills whose id is not already stored. Returns how many were added. */
@@ -66,7 +75,7 @@ export function StoreProvider({ children }) {
     const have = new Set((await db.getAllExpenses()).map((e) => e.id));
     const fresh = list.filter((e) => !have.has(e.id));
     await db.putMany(fresh);
-    setExpenses(await db.getAllExpenses());
+    setExpenses(await syncBillCodes()); // a bill from another device may reuse a code
     return fresh.length;
   }, []);
 
@@ -79,13 +88,16 @@ export function StoreProvider({ children }) {
 
   const loadSamples = useCallback(async () => {
     await db.putMany(await buildSampleExpenses());
-    setExpenses(await db.getAllExpenses());
+    setExpenses(await syncBillCodes());
   }, []);
 
   const saveTrip = useCallback(async (t) => {
     const clean = { ...t, updatedAt: new Date().toISOString() };
+    const before = (await db.getAllTrips()).find((x) => x.id === clean.id);
     await db.putTrip(clean);
     setTrips((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
+    // Trip bills are coded by the trip's initials; renaming the trip re-codes them.
+    if (before && tripInitials(before.name) !== tripInitials(clean.name)) setExpenses(await syncBillCodes());
     return clean;
   }, []);
 
@@ -98,6 +110,7 @@ export function StoreProvider({ children }) {
     await db.clearTrips();
     await db.putManyTrips(list);
     setTrips(await db.getAllTrips());
+    setExpenses(await syncBillCodes());
   }, []);
 
   /** Adds trips whose id is not already stored. Returns how many were added. */
@@ -106,6 +119,7 @@ export function StoreProvider({ children }) {
     const fresh = list.filter((t) => !have.has(t.id));
     await db.putManyTrips(fresh);
     setTrips(await db.getAllTrips());
+    setExpenses(await syncBillCodes());
     return fresh.length;
   }, []);
 

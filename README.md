@@ -11,7 +11,7 @@ the OCR provider the user picked.
 ```sh
 npm install
 npm run dev       # http://localhost:5173
-npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR, splitter, trips, QR, portal helper
+npm test          # dates, parser, IRD rules, duplicates, winners, OCR, splitter, trips, QR, voucher codes + PDF, helper
 npm run build     # writes dist/
 ```
 
@@ -49,6 +49,30 @@ Checked against prize.ird.gov.np's own code (October 2026):
 
 Rules are cited from the signed *करदाता प्रोत्साहन उपहार कार्यक्रम सञ्चालन कार्यविधि, २०८३*
 ([ird.gov.np](https://ird.gov.np/content/13584/taxpayer-incentive-gift-program-operating-procedures--2083/)).
+
+## Voucher codes and the cross-referenced PDF
+
+Every bill gets a short **voucher code** (`src/lib/billCode.js`), shown on the bill form, in the
+ledger (searchable) and in the PDF, so it can be written on the paper bill:
+
+- `KT1-03` = Kartik (two-letter BS month: BA JE AS SA BH AW KT MG PS MA FA CH), first fortnight
+  (`1` = days 1–15, `2` = 16–end), third bill. Trip bills use the trip's initials: `NW-02` for
+  "Nagarkot Weekend".
+- Codes are assigned once on save and stored, so a code written on paper stays valid. A bill only
+  gets a new code if it moves to another fortnight or into/out of a trip, or if a restore brings in
+  a clashing code. Existing bills are coded oldest-first on first load.
+
+The **Expense & Voucher Report** (`buildReportPdf`) puts `Code / Ref` in the first column. With the
+receipt appendix on:
+
+- The appendix starts on a new page with up to 4 cards per page (2 × 2). Each card's header shows
+  `[KT1-03] - Table ref: page 1, row #4`, then shop · PAN · invoice · amount, and the IRD coupon if
+  any. The header links back to the table page.
+- After the appendix is drawn, each `Code / Ref` cell gets `-> See p.N` and a link to its card, or
+  `No Photo` in grey. Cells are located with autoTable's `didDrawCell`; rows never split across pages.
+- `Page X of Y` footers are stamped last, so cross-reference numbers match the visible page numbers.
+- Standard PDF fonts have no arrow glyphs, so references use `->` and the card header reads
+  "Table ref" instead of `↑`.
 
 ## Duplicate bill guard
 

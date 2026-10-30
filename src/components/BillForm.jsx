@@ -12,6 +12,7 @@ import { Field, Toggle } from './ui.jsx';
 import { EligibilityPanel } from './Ird.jsx';
 import { CrossReferenceCard } from './CrossReference.jsx';
 import { crossReferenceBill } from '../lib/dedupe.js';
+import { itemsMatchTotal } from '../lib/ocr/index.js';
 
 const DEFAULT_CATEGORY = CATEGORIES.at(-1);
 
@@ -50,8 +51,12 @@ function DateFields({ ad, bs, onChange, error }) {
 }
 
 /** The item rows read from the bill. Used by Split Khata and Trip Khata; fix them here once. */
-function LineItems({ items = [], onChange }) {
+function LineItems({ items = [], total, onChange }) {
   const sum = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  const billTotal = Number(total) || 0;
+  // Items usually add up to the total, or a bit under it (VAT, service charge on top).
+  const gap = items.length && billTotal > 0 ? Math.round((billTotal - sum) * 100) / 100 : 0;
+  const offBy = items.length > 0 && billTotal > 0 && !itemsMatchTotal(items, billTotal);
   const set = (id, patch) => onChange(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   return (
     <details className="rounded-lg border border-slate-200" open={items.length > 0}>
@@ -60,8 +65,13 @@ function LineItems({ items = [], onChange }) {
       </summary>
       <div className="space-y-2 border-t border-slate-200 p-3">
         {!items.length && <p className="text-xs text-slate-500">No item rows were found. Add them here if you’ll split this bill, or skip it.</p>}
+        {offBy && (
+          <p role="status" className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+            Items add up to {money(sum)}, the bill total is {money(billTotal)}{gap > 0 ? `: ${money(gap)} is missing` : `: ${money(-gap)} too much`}. Check for a missed or misread item.
+          </p>
+        )}
         {items.map((it) => (
-          <div key={it.id} className="grid grid-cols-[minmax(0,1fr)_56px_96px_auto] gap-2">
+          <div key={it.id} className="grid grid-cols-[minmax(0,1fr)_44px_84px_auto] gap-1.5 sm:grid-cols-[minmax(0,1fr)_56px_96px_auto] sm:gap-2">
             <input className="input py-1.5" value={it.name} onChange={(e) => set(it.id, { name: e.target.value })} aria-label="Item name" placeholder="Item" />
             <input className="input num py-1.5" inputMode="numeric" value={it.qty} onChange={(e) => { const qty = Math.max(1, Number(e.target.value.replace(/\D/g, '')) || 1); set(it.id, { qty, price: Math.round(((Number(it.amount) || 0) / qty) * 100) / 100 }); }} aria-label="Quantity" />
             <input className="input num py-1.5" inputMode="decimal" value={it.amount} onChange={(e) => { const amount = e.target.value.replace(/[^\d.]/g, ''); set(it.id, { amount, price: Math.round(((Number(amount) || 0) / it.qty) * 100) / 100 }); }} aria-label="Amount" />
@@ -190,14 +200,22 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
           </Field>
         </div>
 
-        <LineItems items={e.lineItems || []} onChange={(lineItems) => onChange({ lineItems })} />
+        <LineItems items={e.lineItems || []} total={e.totalAmount} onChange={(lineItems) => onChange({ lineItems })} />
 
         <Field label="Notes" htmlFor="f-notes">
           <textarea id="f-notes" rows={2} className="input" value={e.notes || ''} onChange={set('notes')} placeholder="Optional" />
         </Field>
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
           <Toggle id="f-nepal" checked={e.isNepalBill} onChange={(v) => onChange({ isNepalBill: v })} label="Nepal PAN/VAT bill" description="Turn on to check this bill for the IRD prize coupon draw." />
+          {(e.isEstimate || isNepal) && (
+            <Toggle id="f-estimate" checked={Boolean(e.isEstimate)} onChange={(v) => onChange({ isEstimate: v })} label="Estimate, not a tax bill" description="Slips marked “Estimate” or “not a valid bill” can’t enter the IRD draw. Still saved as an expense." />
+          )}
+          {e.isEstimate && (
+            <p role="status" className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+              This is an estimate. The IRD draw needs the shop’s PAN/VAT bill: ask for it and scan that one instead (it will have a PAN and a bill number).
+            </p>
+          )}
         </div>
       </div>
 

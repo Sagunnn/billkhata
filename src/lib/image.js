@@ -87,6 +87,42 @@ export function enhancePixelsForOCR(data) {
   return data;
 }
 
+/**
+ * Adaptive threshold (Bradley–Roth): a pixel turns black when it's clearly darker than its
+ * neighbourhood. Copes with the shadows and creases of a crumpled bill, where one global contrast
+ * setting either loses faint print or blackens the folds. `win` is the neighbourhood size in pixels.
+ */
+export function adaptiveThreshold(data, width, height, win = Math.max(16, Math.round(width / 16)), t = 0.15) {
+  const w = width;
+  const h = height;
+  const gray = new Float64Array(w * h);
+  for (let i = 0; i < w * h; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  const sums = new Float64Array((w + 1) * (h + 1)); // integral image
+  for (let y = 1; y <= h; y++) {
+    let row = 0;
+    for (let x = 1; x <= w; x++) {
+      row += gray[(y - 1) * w + x - 1];
+      sums[y * (w + 1) + x] = sums[(y - 1) * (w + 1) + x] + row;
+    }
+  }
+  const r = Math.max(4, Math.round(win / 2));
+  for (let y = 0; y < h; y++) {
+    const y1 = Math.max(0, y - r);
+    const y2 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x1 = Math.max(0, x - r);
+      const x2 = Math.min(w, x + r + 1);
+      const sum = sums[y2 * (w + 1) + x2] - sums[y1 * (w + 1) + x2] - sums[y2 * (w + 1) + x1] + sums[y1 * (w + 1) + x1];
+      const v = gray[y * w + x] < (sum / ((x2 - x1) * (y2 - y1))) * (1 - t) ? 0 : 255;
+      const i = (y * w + x) * 4;
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+    }
+  }
+  return data;
+}
+
 /** Applies the OCR enhancement to a canvas and returns it. */
 export function preprocessCanvasForOCR(canvas) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -97,8 +133,9 @@ export function preprocessCanvasForOCR(canvas) {
 }
 
 /**
- * Larger, sharper copies for text recognition: `color` for vision models and `enhanced`
- * (grayscale, auto-levelled) for Tesseract. The stored photo stays untouched.
+ * Larger, sharper copies for text recognition: `color` for vision models, `enhanced` (grayscale,
+ * auto-levelled) for Tesseract, and `threshold` (black and white) for a second Tesseract read of
+ * crumpled or shadowed bills. The stored photo stays untouched.
  */
 export async function prepareForOcr(src) {
   const img = await loadImage(src);
@@ -113,8 +150,12 @@ export async function prepareForOcr(src) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   const color = canvas.toDataURL('image/jpeg', 0.92);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const enhanced = preprocessCanvasForOCR(canvas).toDataURL('image/png');
-  return { color, enhanced };
+  adaptiveThreshold(pixels.data, canvas.width, canvas.height);
+  ctx.putImageData(pixels, 0, 0);
+  const threshold = canvas.toDataURL('image/png');
+  return { color, enhanced, threshold };
 }
 
 export function validateImageFile(file) {

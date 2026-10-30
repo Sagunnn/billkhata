@@ -5,7 +5,7 @@ import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
 import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
-import { extractBill, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
+import { extractBill, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
@@ -167,8 +167,9 @@ export default function Scan() {
               <p className="font-bold">The on-device reader wasn’t sure about this bill.</p>
               <p className="mt-0.5">
                 {[
-                  !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && 'no seller PAN found',
+                  !lastRead.fields.isEstimate && !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && 'no seller PAN found',
                   !(Number(lastRead.fields.totalAmount) > 0) && 'no total found',
+                  (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount) && 'items don’t add up to the total',
                   lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `confidence ${Math.round(lastRead.confidence)}%`,
                 ].filter(Boolean).join(' · ')}
                 {rescanProvider ? '. A vision model reads faded and handwritten bills much better.' : '. Add a vision API key in Settings to re-read bills like this in one click.'}

@@ -135,20 +135,37 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
 
 ## OCR: contrast preprocessing, Vision fallback, merchant memory
 
-- `prepareForOcr` makes two copies at 2200 px on the long side (small photos are enlarged up to
-  2.5×): a colour one for vision models and an enhanced one for Tesseract (`preprocessCanvasForOCR`:
-  Rec. 601 grayscale, then auto-levels: darkest 1% → black, brightest 2% → white, gamma 1.3). It
-  adapts to each photo's lighting. On a grey, blurred test photo it recovered the PAN line, the full
-  bill number and clean item names, which a fixed ×1.45 contrast stretch lost. The stored photo
-  (< 300 KB, colour) is never altered.
+- `prepareForOcr` makes three copies at 2200 px on the long side (small photos are enlarged up to
+  2.5×): a colour one for vision models, an enhanced one for Tesseract (`preprocessCanvasForOCR`:
+  Rec. 601 grayscale, then auto-levels: darkest 1% → black, brightest 2% → white, gamma 1.3), and a
+  black-and-white one (`adaptiveThreshold`, Bradley–Roth: a pixel is black when clearly darker than
+  its neighbourhood) for crumpled or shadowed bills. The stored photo (< 300 KB, colour) is never
+  altered.
 - Tesseract reads in page-segmentation mode 6 (one uniform block), which keeps
-  "item … qty … rate … amount" on one line; the default auto mode split the same photo into columns
-  and lost every item row. If mode 6 finds neither items nor a total, it retries in mode 4 and
-  keeps the better read.
+  "item … qty … rate … amount" on one line. When the items of that read don't add up to the total
+  (directly, or with 10% service charge and/or 13% VAT on top), up to three more reads are tried:
+  mode 4, the black-and-white copy in mode 6, then mode 3. The first read whose items add up wins;
+  otherwise the most complete one. Fields it missed (PAN, bill number, dates) are taken from the
+  other reads (`mergeReads`).
+- Total: from the "Grand / Net / Invoice Total" line, the **amount in words** ("Six hundred and
+  thirty rupees only" → 630, lakh and crore supported) and the sum of the items. A value two of
+  them agree on wins, and the amount in words beats a lone total line, because OCR reads words on a
+  crumpled bill far better than "630.00". Items larger than the total are dropped.
+- Dates: when a bill's AD date and BS miti disagree (OCR read 2083 as 2073), the one closest to
+  today (and not in the future) is kept and the other is derived from it.
+- Item rows survive crumpled-bill noise: specks before a name ("EB Chinese Soup Momo") and after the
+  amount ("250.00 250.0 7"), qty and rate read as one number ("1200.00 200" = 1 × 200), a price that
+  slipped onto the next line ("Coke" / "ol EE 180.00"), and header lines like "Contact No.: 2" or
+  "ward 2". The bill form warns when the items don't add up to the total and says by how much. The
+  user's own crumpled estimate slip is a test fixture (`tests/fixtures/kotheys-estimate.txt`).
+- Estimates ("Estimate", "THIS IS NOT A VALID BILL", "only for accounting purpose", proforma) are
+  flagged `isEstimate`. They are saved as expenses but can't enter the IRD draw: the form says to
+  ask the shop for its PAN/VAT bill. A missing PAN on an estimate doesn't trigger the Vision prompt.
 - Bill numbers: `Bill No.:- 2083/84-1052`, `Invoice # INV-77`, `Inv. No.: KTM/0091`, `बिल नं: ४५७`,
   OCR slips (`lnvoice`, `Bil1`, `N0`) and a number on the next line. The items read from a bill are
   shown, editable, on the bill form.
-- After a Tesseract read with no 9-digit PAN, no total, or confidence below 60, the Scan screen
+- After a Tesseract read with no 9-digit PAN, no total, items that don't add up, or confidence
+  below 60, the Scan screen
   offers **Re-scan with Vision AI** if any vision API key is saved. It reuses the same image, so there
   is no re-upload.
 - `src/lib/merchants.js` remembers shops from earlier bills. A known PAN fills the name and the

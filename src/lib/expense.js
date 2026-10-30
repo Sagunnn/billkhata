@@ -42,6 +42,7 @@ export function finalizeExpense(e) {
     paymentMethod: PAYMENT_METHODS.includes(e.paymentMethod) ? e.paymentMethod : PAYMENT.CASH,
     category: CATEGORIES.includes(e.category) ? e.category : CATEGORIES.at(-1),
     isNepalBill: Boolean(e.isNepalBill),
+    isEstimate: Boolean(e.isEstimate),
     irdCoupon: String(e.irdCoupon || '').replace(/\D/g, ''),
     updatedAt: new Date().toISOString(),
   };

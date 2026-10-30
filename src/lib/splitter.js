@@ -28,7 +28,7 @@ export function classifyFoodItem(name = '') {
 
 // Lines that are never items: totals, taxes, payment and header lines. Word-bounded so items like
 // "Room Service Tea", "Cashew Fry" or "Ground Coffee" are kept.
-const SKIP_LINE = /(sub\s*-?\s*total|grand|\btotal\b|net\s*(amount|payable)|\bvat\b|\btax(able)?\b|service\s*(charge|chg|tax)|\bs\.?\s?c\b\s*\d|discount|\bdisc\b|round\s*(off|ing)|\bcash\b|\bchange\b|tender|\bpaid\b|balance|bill\s*no|invoice|\binv\b|\bdate\b|\bpan\b|phone|\btel\b|\bmob|\btable\b|\btime\b|\bkot\b|token\s*no|waiter|cashier|steward|thank|visit|particulars|description|\bqty\b|\brate\b|\bs\.?\s?n\.?\b|जम्मा|कुल|भ्याट|मिति|बिल\s*नं)/i;
+const SKIP_LINE = /(sub\s*-?\s*total|grand|\btotal\b|net\s*(amount|payable)|\bvat\b|\btax(able)?\b|service\s*(charge|chg|tax)|\bs\.?\s?c\b\s*\d|discount|\bdisc\b|round\s*(off|ing)|\bcash\b|\bchange\b|tender|\bpaid\b|balance|bill\s*no|invoice|\binv\b|\bdate\b|\bpan\b|phone|\btel\b|\bmob|\btable\b|\btime\b|\bkot\b|token\s*no|waiter|cashier|steward|thank|visit|particulars|description|\bqty\b|\brate\b|\bs\.?\s?n\.?\b|\bamount\b|\brupees?\b|\bonly\b|contact|\bward\b|valid\s*bill|accounting|estimate|terminal|\bmode\b|dine\s*in|take\s*away\s*$|जम्मा|कुल|भ्याट|मिति|बिल\s*नं|रुपैयाँ)/i;
 const NUM = /^[\d,]+(?:\.\d{1,2})?$/;
 const toNum = (t) => Number(String(t).replace(/,/g, ''));
 
@@ -52,8 +52,30 @@ function cleanName(raw) {
   name = name.replace(/^\d+[.)]\s*/, ''); // serial numbers like "1." or "2)"
   name = name.replace(/^[^\p{L}\p{N}]+/u, '').trim(); // OCR junk from the bill's left edge: ] " | “
   name = name.replace(/^[IlJ|!]\s+(?=\S)/, ''); // a misread serial number ("1" → I/l, "3" → J)
+  name = dropLeadingJunk(name);
   return { name, qty };
 }
+
+// Short words that do start item names, so they're never dropped as margin junk.
+const REAL_SHORT = /^(veg|egg|hot|ice|dal|tea|raw|red|big|mo|aa|jhol|sel|pan)$/i;
+
+/**
+ * Specks on a crumpled bill's left edge read as a short token before the name: "EB Chinese Soup
+ * Momo", "dim Coke". Dropped when it's 1–2 characters before a two-word name, or a short lower-case
+ * token before a capitalised word.
+ */
+function dropLeadingJunk(name) {
+  const words = name.split(' ');
+  if (words.length < 2 || REAL_SHORT.test(words[0])) return name;
+  const [first, ...rest] = words;
+  const realWords = rest.filter((w) => /[A-Za-z]{3}/.test(w)).length;
+  if (first.length <= 2 && realWords >= 2) return rest.join(' ');
+  if (/^[a-z]{1,3}$/.test(first) && /^[A-Z]/.test(rest[0]) && realWords >= 1) return rest.join(' ');
+  return name;
+}
+
+/** A name part that's only OCR noise ("ol EE", "i ,"): no word of three letters. */
+const isJunkName = (raw) => !/[A-Za-zऀ-ॿ]{3}/.test(cleanName(raw).name);
 
 /** One item from a name and the numbers after it (amount last; qty and rate when present). */
 function buildItem(rawName, nums) {
@@ -119,17 +141,55 @@ export function makeItem({ name = '', qty = 1, price = 0, amount, tag, id } = {}
  * lines are skipped. If no row has its amount on the same line, names and amounts read as
  * separate columns are paired up in order.
  */
+/**
+ * The numbers at the end of a row, tidied for crumpled-bill OCR:
+ * - noise after the amount ("250.00 250.0 7", "200 gg i") is dropped: short letter tokens, and a
+ *   lone small whole number after a decimal amount;
+ * - qty and rate read as one number ("1200.00 200" for 1 × 200.00 = 200) are split again;
+ * - an amount under 10 with no decimals ("Contact No.: 2") isn't an item.
+ */
+function trailingNumbers(tokens) {
+  const t = [...tokens];
+  const strip = () => { while (t.length > 1 && !/\d/.test(t.at(-1)) && t.at(-1).length <= 3) t.pop(); };
+  strip();
+  if (!NUM.test(t.at(-1) || '')) return { name: tokens.join(' '), nums: [] };
+  const raw = [];
+  while (t.length && NUM.test(t.at(-1))) raw.unshift(t.pop());
+  if (raw.length >= 2 && /^\d$/.test(raw.at(-1)) && raw.at(-2).includes('.')) raw.pop();
+  let nums = raw.map(toNum);
+  if (nums.length === 2 && nums[0] !== nums[1]) {
+    const m = /^(\d{1,2}?)(\d+(?:\.\d{1,2})?)$/.exec(raw[0].replace(/,/g, ''));
+    for (const qLen of [1, 2]) {
+      const q = Number(raw[0].slice(0, qLen));
+      const r = Number(raw[0].slice(qLen).replace(/,/g, ''));
+      if (m && q > 0 && r > 0 && Math.abs(q * r - nums[1]) < 0.6) { nums = [q, r, nums[1]]; break; }
+    }
+  }
+  if (nums.at(-1) < 10 && !raw.at(-1).includes('.')) nums = [];
+  return { name: t.join(' '), nums };
+}
+
 export function parseLineItemsFromText(rawText = '') {
   const lines = toAsciiDigits(rawText).split(/\r?\n/).map(normalizeLine);
   const items = [];
+  // A name whose price slipped onto the next, noisy line ("Coke" / "ol EE 180.00"). Not used for
+  // a run of names (a bill read column by column; pairColumns handles that).
+  let pendingName = '';
+  let namesInRow = 0;
   for (const line of lines) {
-    if (!line || SKIP_LINE.test(line)) continue;
-    const tokens = line.split(' ');
-    const nums = [];
-    while (tokens.length && NUM.test(tokens.at(-1))) nums.unshift(toNum(tokens.pop()));
-    if (!nums.length) continue;
-    const item = buildItem(tokens.join(' '), nums);
+    if (!line || SKIP_LINE.test(line)) { pendingName = ''; namesInRow = 0; continue; }
+    const { name, nums } = trailingNumbers(line.split(' '));
+    if (!nums.length) {
+      const isName = !/\d/.test(line) && !isJunkName(line);
+      namesInRow = isName ? namesInRow + 1 : 0;
+      pendingName = isName && namesInRow === 1 ? line : '';
+      continue;
+    }
+    const merge = pendingName && name.trim() && isJunkName(name);
+    namesInRow = 0;
+    const item = buildItem(merge ? pendingName : name, nums);
     if (item) items.push(item);
+    pendingName = '';
   }
   return items.length ? items : pairColumns(lines);
 }

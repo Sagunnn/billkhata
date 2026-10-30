@@ -24,6 +24,10 @@ export function checkEligibility(e, { today = todayAD(), todayBs = todayBS() } =
   if (!e.isNepalBill) {
     return { eligible: false, reasons: ['Not marked as a Nepal bill.'], warnings, window: null };
   }
+  if (e.isEstimate) {
+    // Estimates and "not a valid bill" slips aren't tax invoices; only the PAN/VAT bill counts.
+    reasons.push('This is an estimate, not a tax bill. Ask the shop for its PAN/VAT bill and scan that one.');
+  }
   const amount = Number(e.totalAmount);
   if (!Number.isFinite(amount) || amount < IRD_MIN_AMOUNT) {
     reasons.push(`Amount must be at least Rs. ${IRD_MIN_AMOUNT}.`);

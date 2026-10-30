@@ -4,6 +4,8 @@ import { CATEGORIES, OCR_ENGINES, PAYMENT_METHODS, REGIONS } from '../constants.
 import { adToBs, bsToAd, isValidAD, isValidBS, toAsciiDigits } from '../nepaliDate.js';
 import { parseReceiptText } from './parse.js';
 import { makeItem, parseLineItemsFromText } from '../splitter.js';
+import { combineReads, sumMatches } from './consensus.js';
+import { rowsFromWords } from './layout.js';
 
 let tesseractWorker = null;
 let tesseractLangs = '';
@@ -25,21 +27,49 @@ async function runTesseract(images, { nepali, onProgress }) {
     const { data } = await tesseractWorker.recognize(image);
     return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
   };
-  // The first read is usually enough. When its items don't add up to the total (a crumpled bill,
-  // a row lost to a crease), up to three more reads are tried (column-aware modes, then the black
-  // and white copy) and the most complete one wins. The others still fill in fields it missed.
-  const passes = [[images.enhanced, '6'], [images.enhanced, '4'], [images.threshold, '6'], [images.enhanced, '3']]
-    .filter(([img]) => img);
+  // Mode 11 (sparse text) finds every word with its position, line or no line. rowsFromWords then
+  // pairs each item name with its numbers by order, which survives a curved, crumpled bill.
+  const readWords = async (image) => {
+    await tesseractWorker.setParameters({ tessedit_pageseg_mode: '11' });
+    const { data } = await tesseractWorker.recognize(image, {}, { blocks: true, text: true });
+    const words = [];
+    for (const block of data.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const line of para.lines || []) {
+          for (const w of line.words || []) words.push({ text: w.text, confidence: w.confidence, ...w.bbox });
+        }
+      }
+    }
+    return { text: rowsFromWords(words), kind: 'words', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
+  };
+  // A clean bill is done in one read. A crumpled or curved one reads differently every time, so it
+  // gets up to five reads (two images, line and word modes) and combineReads votes on the answer.
+  const passes = [
+    () => read(images.enhanced, '6'),
+    () => readWords(images.enhanced),
+    images.threshold && (() => readWords(images.threshold)),
+    images.threshold && (() => read(images.threshold, '6')),
+    () => read(images.enhanced, '4'),
+  ].filter(Boolean);
   const reads = [];
-  for (const [img, psm] of passes) {
-    if (reads.length) onProgress?.({ status: `Bill is hard to read: trying again (${reads.length + 1} of ${passes.length})`, progress: 0 });
-    const r = await read(img, psm);
-    Object.assign(r, readScore(r.text));
-    reads.push(r);
-    if (r.complete) break;
+  for (const pass of passes) {
+    if (reads.length) onProgress?.({ status: `Hard-to-read bill: reading it again (${reads.length + 1} of ${passes.length})`, progress: reads.length / passes.length });
+    reads.push(await pass());
+    if (reads.length === 1 && selfConsistent(reads[0].text)) break;
+    if (reads.length >= 3 && combineReads(reads).confident) break;
   }
-  const best = reads.reduce((a, r) => (r.score > a.score ? r : a));
-  return { ...best, others: reads.filter((r) => r !== best).map((r) => r.text) };
+  const confs = reads.map((r) => r.confidence).filter((c) => c != null);
+  return {
+    reads,
+    texts: reads.map((r) => r.text),
+    confidence: confs.length ? Math.max(...confs) : null,
+  };
+}
+
+/** A read that needs no second opinion: a printed total, and items that add up to it. */
+function selfConsistent(text) {
+  const f = parseReceiptText(text);
+  return Boolean(f.totalAmount) && !f.totalGuessed && itemsMatchTotal(parseLineItemsFromText(text), f.totalAmount);
 }
 
 /**
@@ -47,30 +77,17 @@ async function runTesseract(images, { nepali, onProgress }) {
  * top: the read got every row.
  */
 export function itemsMatchTotal(items = [], total) {
-  const sum = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
-  const t = Number(total);
-  if (!items.length || !(t > 0) || !(sum > 0)) return false;
-  return [1, 1.1, 1.13, 1.1 * 1.13].some((f) => Math.abs(sum * f - t) <= Math.max(0.6, t * 0.005));
-}
-
-/** How much a read found: item rows, the total, PAN, bill number, date; most of all, items that add up. */
-function readScore(text) {
-  const f = parseReceiptText(text);
-  const items = parseLineItemsFromText(text);
-  const complete = itemsMatchTotal(items, f.totalAmount);
-  const score = (complete ? 50 : 0) + items.length * 3 + (f.totalAmount ? 2 : 0) + (f.sellerPan ? 2 : 0)
-    + (f.invoiceNumber ? 1 : 0) + (f.billDateAD ? 1 : 0);
-  return { score, complete };
+  return items.length > 0 && sumMatches(items.reduce((s, it) => s + (Number(it.amount) || 0), 0), total);
 }
 
 // Below this mean word confidence (0-100) a Tesseract read is treated as unreliable.
 export const LOW_CONFIDENCE = 60;
 
 /** True when a local read missed the fields that matter, its items don't add up, or it was unsure. */
-export function needsBetterRead({ fields = {}, confidence = null } = {}) {
+export function needsBetterRead({ fields = {}, confidence = null, totalGuessed = false } = {}) {
   // An estimate has no PAN to find, so its absence isn't a misread.
   const missingPan = !fields.isEstimate && !/^\d{9}$/.test(String(fields.sellerPan || ''));
-  const missingTotal = !(Number(fields.totalAmount) > 0);
+  const missingTotal = !(Number(fields.totalAmount) > 0) || totalGuessed;
   // Items that don't add up to the total mean a row was misread or lost.
   const itemsOff = (fields.lineItems || []).length > 0 && !itemsMatchTotal(fields.lineItems, fields.totalAmount);
   return missingPan || missingTotal || itemsOff || (confidence != null && confidence < LOW_CONFIDENCE);
@@ -119,29 +136,6 @@ export function normalizeExtraction(raw = {}) {
 }
 
 /**
- * Fields from the best read, with anything it missed (PAN, bill number, dates, total) taken from
- * the other reads. Items come from one read only, so rows aren't counted twice.
- */
-export function mergeReads(bestText, otherTexts = []) {
-  const fields = { ...parseReceiptText(bestText), lineItems: parseLineItemsFromText(bestText) };
-  for (const text of otherTexts) {
-    const other = parseReceiptText(text);
-    for (const key of ['sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'vatAmount', 'paymentMethod', 'merchantName']) {
-      if (!fields[key] && other[key]) fields[key] = other[key];
-    }
-    if (!fields.totalAmount && other.totalAmount) fields.totalAmount = other.totalAmount;
-    fields.isEstimate ||= other.isEstimate;
-    if (!fields.lineItems.length) {
-      const items = parseLineItemsFromText(text);
-      if (items.length) fields.lineItems = items;
-    }
-  }
-  if (fields.billDateAD && !fields.billDateBS) fields.billDateBS = adToBs(fields.billDateAD) || '';
-  if (fields.billDateBS && !fields.billDateAD) fields.billDateAD = bsToAd(fields.billDateBS) || '';
-  return fields;
-}
-
-/**
  * @param {string|{color: string, enhanced: string, threshold?: string}} image data URL, or both OCR copies from prepareForOcr
  * @returns {Promise<{fields: object, rawText: string, engine: string, confidence: number|null}>}
  */
@@ -166,8 +160,16 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     engine = `${provider}:${settings.models?.[provider]}`;
   } else {
     const read = await runTesseract({ enhanced, threshold }, { nepali: settings.tesseractNepali, onProgress });
-    ({ text: rawText, confidence } = read);
-    fields = mergeReads(rawText, read.others);
+    confidence = read.confidence;
+    rawText = read.texts.length > 1
+      ? read.texts.map((t, i) => `----- read ${i + 1} of ${read.texts.length} -----\n${t.trim()}`).join('\n\n')
+      : read.texts[0] || '';
+    if (read.texts.length > 1) {
+      const { agreement, confident, ...combined } = combineReads(read.reads);
+      fields = combined;
+    } else {
+      fields = { ...parseReceiptText(rawText), lineItems: parseLineItemsFromText(rawText) };
+    }
   }
 
   // An item bigger than the whole bill is a misread number.
@@ -175,12 +177,14 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     fields.lineItems = fields.lineItems.filter((it) => it.amount <= fields.totalAmount + 0.5);
   }
 
-  const { looksNepali, ...rest } = fields;
-  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length)));
+  const { looksNepali, totalGuessed, ...rest } = fields;
+  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== false && !(Array.isArray(v) && !v.length)));
   return {
     fields: { ...clean, isNepalBill: region === REGIONS.NEPAL || looksNepali },
     rawText,
     engine,
     confidence,
+    // No total was printed or read; the one shown is the items' sum (or a guess).
+    totalGuessed: Boolean(totalGuessed && clean.totalAmount),
   };
 }

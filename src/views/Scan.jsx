@@ -57,7 +57,7 @@ export default function Scan() {
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
-        setLastRead({ engine: settings.ocrEngine, confidence: out.confidence, fields: out.fields });
+        setLastRead({ engine: settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed });
       } catch (err) {
         setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {} });
         toast(`Could not read the bill automatically: ${err.message} Fill in the details below.`, 'error');
@@ -169,6 +169,7 @@ export default function Scan() {
                 {[
                   !lastRead.fields.isEstimate && !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && 'no seller PAN found',
                   !(Number(lastRead.fields.totalAmount) > 0) && 'no total found',
+                  lastRead.totalGuessed && Number(lastRead.fields.totalAmount) > 0 && 'total not found on the bill: the one shown is the sum of the items read, check it',
                   (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount) && 'items don’t add up to the total',
                   lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `confidence ${Math.round(lastRead.confidence)}%`,
                 ].filter(Boolean).join(' · ')}

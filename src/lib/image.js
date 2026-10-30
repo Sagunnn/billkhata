@@ -123,6 +123,61 @@ export function adaptiveThreshold(data, width, height, win = Math.max(16, Math.r
   return data;
 }
 
+/**
+ * The angle (degrees) a photographed bill is tilted by. Text rows are sharpest, with the most
+ * contrast between busy and empty rows, when the bill is straight, so each candidate angle is
+ * scored by how peaked the row profile of dark pixels is. `gray` is a small grayscale copy.
+ */
+export function estimateSkew(gray, width, height, { maxAngle = 12 } = {}) {
+  let mean = 0;
+  for (let i = 0; i < gray.length; i++) mean += gray[i];
+  mean /= gray.length || 1;
+  // Text pixels only: clearly darker than their surroundings, on paper (brighter than the photo
+  // average). Dark tables and cloth around the bill would otherwise drown the text rows out.
+  const w = width;
+  const sums = new Float64Array((w + 1) * (height + 1));
+  for (let y = 1; y <= height; y++) {
+    let row = 0;
+    for (let x = 1; x <= w; x++) { row += gray[(y - 1) * w + x - 1]; sums[y * (w + 1) + x] = sums[(y - 1) * (w + 1) + x] + row; }
+  }
+  const r = Math.max(3, Math.round(w / 40));
+  const xs = [];
+  const ys = [];
+  for (let y = 0; y < height; y++) {
+    const y1 = Math.max(0, y - r);
+    const y2 = Math.min(height, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x1 = Math.max(0, x - r);
+      const x2 = Math.min(w, x + r + 1);
+      const local = (sums[y2 * (w + 1) + x2] - sums[y1 * (w + 1) + x2] - sums[y2 * (w + 1) + x1] + sums[y1 * (w + 1) + x1]) / ((x2 - x1) * (y2 - y1));
+      if (local > mean && gray[y * w + x] < local * 0.75) { xs.push(x - w / 2); ys.push(y - height / 2); }
+    }
+  }
+  if (xs.length < 50) return 0;
+  const diag = Math.ceil(Math.hypot(width, height));
+  const score = (deg) => {
+    const a = (deg * Math.PI) / 180;
+    const sin = Math.sin(a);
+    const cos = Math.cos(a);
+    const rows = new Float64Array(diag + 2);
+    for (let i = 0; i < xs.length; i++) rows[Math.round(ys[i] * cos - xs[i] * sin + diag / 2)]++;
+    let s = 0;
+    for (let i = 1; i < rows.length; i++) s += (rows[i] - rows[i - 1]) ** 2;
+    return s;
+  };
+  let best = 0;
+  let bestScore = score(0);
+  for (let d = -maxAngle; d <= maxAngle; d += 0.5) {
+    const sc = score(d);
+    if (sc > bestScore) { best = d; bestScore = sc; }
+  }
+  for (let d = best - 0.4; d <= best + 0.4; d += 0.1) {
+    const sc = score(d);
+    if (sc > bestScore) { best = d; bestScore = sc; }
+  }
+  return Math.round(best * 10) / 10;
+}
+
 /** Applies the OCR enhancement to a canvas and returns it. */
 export function preprocessCanvasForOCR(canvas) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -137,6 +192,22 @@ export function preprocessCanvasForOCR(canvas) {
  * auto-levelled) for Tesseract, and `threshold` (black and white) for a second Tesseract read of
  * crumpled or shadowed bills. The stored photo stays untouched.
  */
+/** The tilt of a photo, measured on a 600 px copy. */
+function skewOf(img) {
+  const scale = Math.min(1, 600 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, w, h);
+  const { data } = g.getImageData(0, 0, w, h);
+  const gray = new Float64Array(w * h);
+  for (let i = 0; i < w * h; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  return estimateSkew(gray, w, h);
+}
+
 export async function prepareForOcr(src) {
   const img = await loadImage(src);
   // Small or distant photos are enlarged (up to 2.5x) so small print like the PAN line stays readable.
@@ -148,14 +219,23 @@ export async function prepareForOcr(src) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  // Straighten a tilted photo first: the reader loses whole rows on a bill a few degrees off.
+  const angle = skewOf(img);
+  if (Math.abs(angle) >= 0.5) {
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((-angle * Math.PI) / 180);
+    ctx.drawImage(img, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  } else {
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  }
   const color = canvas.toDataURL('image/jpeg', 0.92);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const enhanced = preprocessCanvasForOCR(canvas).toDataURL('image/png');
   adaptiveThreshold(pixels.data, canvas.width, canvas.height);
   ctx.putImageData(pixels, 0, 0);
   const threshold = canvas.toDataURL('image/png');
-  return { color, enhanced, threshold };
+  return { color, enhanced, threshold, angle };
 }
 
 export function validateImageFile(file) {

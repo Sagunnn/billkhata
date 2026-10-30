@@ -1,6 +1,7 @@
 // Split Khata: split an itemised bill between friends, with Nepali menu-aware auto-ticks.
 // Pure functions only (no DOM), so the maths and the share-link format are unit-tested.
 import { toAsciiDigits } from './nepaliDate.js';
+import { levenshtein } from './dedupe.js';
 
 /* ---------- 1. Veg / non-veg / alcohol classifier ---------- */
 
@@ -39,6 +40,7 @@ function normalizeLine(raw) {
     .replace(/(?:\b(?:rs|npr)\.?|रु\.?)\s*(?=\d)/gi, '') // Rs. 180, NPR 180, रु 180
     .replace(/(\d),(\d{2})(?![\d,])/g, '$1.$2') // 180,00 (decimal comma)
     .replace(/(\d)\s*[xX×@*]\s*(\d)/g, '$1 $2') // 2 x 90
+    .replace(/(?<![\d/])(\d{1,2})\s*[|/]\s*(?=\d+\.\d{2}\b)/g, '$1 ') // "1/200.00", "1|200.00": qty, rate
     .replace(/(\D)\s*[=:]\s*(?=\d)/g, '$1 ') // "= 180", ": 180" (but not times like 19:42)
     .replace(/\s+/g, ' ')
     .trim();
@@ -77,8 +79,48 @@ function dropLeadingJunk(name) {
 /** A name part that's only OCR noise ("ol EE", "i ,"): no word of three letters. */
 const isJunkName = (raw) => !/[A-Za-zऀ-ॿ]{3}/.test(cleanName(raw).name);
 
+// Summary words as OCR misreads them ("DisCaunt", "Discoyny", "Invoig", "Among", "Tota1"):
+// a word within two letters of one of these makes the line a summary line, not an item.
+// Same first letter, so "Mount Everest" or "Cashew Fry" stay items.
+const SUMMARY_WORDS = ['discount', 'amount', 'invoice', 'total', 'rupees'];
+const looksLikeSummary = (line) => line.toLowerCase()
+  .replace(/[a-z][a-z\d]*/g, (w) => w.replace(/1/g, 'i').replace(/0/g, 'o').replace(/5/g, 's')) // "D1SCunt"
+  .split(/[^a-z]+/).some((w) => w.length >= 4
+  && SUMMARY_WORDS.some((k) => w[0] === k[0] && Math.abs(k.length - w.length) <= 2
+    && levenshtein(w, k, 2) <= (k.length >= 6 ? 2 : 1)));
+
+const money2 = (n) => (Math.round(n * 100) / 100).toFixed(2);
+/** `read` is what OCR made of `expected`: within 15% and two characters. */
+export const nearMisread = (expected, read) => Math.abs(expected - read) <= read * 0.15 && levenshtein(money2(expected), money2(read), 2) <= 2;
+
+/**
+ * Fixes a misread amount using the row's own arithmetic: rate × qty must equal the amount, so
+ * "90.00 189.09" is 2 × 90 = 180.00 and "1 200.00 209" is 200. Only when the corrected amount is
+ * within two characters and 15% of what was read (8/0/9 look-alikes), so real rows aren't changed.
+ */
+function repairRow(nums) {
+  if (nums.length < 2) return nums;
+  const amount = nums.at(-1);
+  const rate = nums.at(-2);
+  const qty = nums.length >= 3 ? nums.at(-3) : null;
+  if (!(rate > 0) || !(amount > 0)) return nums;
+  if (qty && Math.abs(qty * rate - amount) < 0.6) return nums;
+  if (!qty && Math.abs(Math.round(amount / rate) * rate - amount) < 0.6) return nums;
+  let best = null;
+  for (let k = 1; k <= 20; k++) {
+    const target = rate * k;
+    if (!nearMisread(target, amount)) continue;
+    const d = levenshtein(money2(target), money2(amount), 2);
+    const score = d + (qty === k ? -0.5 : 0);
+    if (!best || score < best.score) best = { k, target, score };
+  }
+  if (!best) return nums;
+  return [...nums.slice(0, Math.max(0, nums.length - 3)), best.k, rate, best.target];
+}
+
 /** One item from a name and the numbers after it (amount last; qty and rate when present). */
-function buildItem(rawName, nums) {
+function buildItem(rawName, rawNums) {
+  const nums = repairRow(rawNums);
   const { name, qty: leadQty } = cleanName(rawName);
   if ((name.match(/[A-Za-zऀ-ॿ]/g) || []).length < 2) return null;
   const amount = nums.at(-1);
@@ -162,7 +204,7 @@ function trailingNumbers(tokens) {
     for (const qLen of [1, 2]) {
       const q = Number(raw[0].slice(0, qLen));
       const r = Number(raw[0].slice(qLen).replace(/,/g, ''));
-      if (m && q > 0 && r > 0 && Math.abs(q * r - nums[1]) < 0.6) { nums = [q, r, nums[1]]; break; }
+      if (m && q > 0 && r > 0 && (Math.abs(q * r - nums[1]) < 0.6 || nearMisread(q * r, nums[1]))) { nums = [q, r, nums[1]]; break; }
     }
   }
   if (nums.at(-1) < 10 && !raw.at(-1).includes('.')) nums = [];
@@ -172,12 +214,13 @@ function trailingNumbers(tokens) {
 export function parseLineItemsFromText(rawText = '') {
   const lines = toAsciiDigits(rawText).split(/\r?\n/).map(normalizeLine);
   const items = [];
-  // A name whose price slipped onto the next, noisy line ("Coke" / "ol EE 180.00"). Not used for
-  // a run of names (a bill read column by column; pairColumns handles that).
+  // A name whose numbers slipped onto the next line ("Coke" / "2 90.00 180.00", or with noise:
+  // "ol EE 180.00"). Not used after a run of names: that's a bill read column by column, which
+  // pairColumns handles.
   let pendingName = '';
   let namesInRow = 0;
   for (const line of lines) {
-    if (!line || SKIP_LINE.test(line)) { pendingName = ''; namesInRow = 0; continue; }
+    if (!line || SKIP_LINE.test(line) || looksLikeSummary(line)) { pendingName = ''; namesInRow = 0; continue; }
     const { name, nums } = trailingNumbers(line.split(' '));
     if (!nums.length) {
       const isName = !/\d/.test(line) && !isJunkName(line);
@@ -185,7 +228,8 @@ export function parseLineItemsFromText(rawText = '') {
       pendingName = isName && namesInRow === 1 ? line : '';
       continue;
     }
-    const merge = pendingName && name.trim() && isJunkName(name);
+    // Name on one line, its numbers on the next (a curved bill puts the numbers half a line lower).
+    const merge = pendingName && (!name.trim() || isJunkName(name));
     namesInRow = 0;
     const item = buildItem(merge ? pendingName : name, nums);
     if (item) items.push(item);

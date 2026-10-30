@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { amountInWords, parseReceiptText } from '../src/lib/ocr/parse.js';
 import { parseLineItemsFromText } from '../src/lib/splitter.js';
-import { itemsMatchTotal, mergeReads, needsBetterRead } from '../src/lib/ocr/index.js';
+import { itemsMatchTotal, needsBetterRead } from '../src/lib/ocr/index.js';
+import { combineReads } from '../src/lib/ocr/consensus.js';
 import { checkEligibility } from '../src/lib/ird.js';
 
 const kotheys = readFileSync(new URL('./fixtures/kotheys-estimate.txt', import.meta.url), 'utf8');
@@ -64,8 +65,8 @@ test('an estimate cannot enter the IRD draw, and a missing PAN on it is not a mi
   assert.equal(needsBetterRead({ fields: { isEstimate: true, totalAmount: 630, lineItems: items.slice(0, 2) }, confidence: 80 }), true);
 });
 
-test('fields a read missed are filled from the other reads', () => {
-  const f = mergeReads('Shop A\nChicken Momo 250.00\nTotal 250.00', ['Shop A\nPAN: 301234567\nBill No: 77\nDate: 2026-10-29']);
+test('reads are combined: fields one read missed come from the others', () => {
+  const f = combineReads(['Shop A\nChicken Momo 250.00\nTotal 250.00', 'Shop A\nPAN: 301234567\nBill No: 77\nDate: 2026-10-29\nChicken Momo 250.00\nTotal 250.00']);
   assert.equal(f.totalAmount, 250);
   assert.equal(f.sellerPan, '301234567');
   assert.equal(f.invoiceNumber, '77');

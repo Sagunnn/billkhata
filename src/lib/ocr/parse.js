@@ -113,32 +113,47 @@ export function amountInWords(text = '') {
 }
 
 /**
- * The bill total. Candidates: a total line ("Grand Total", "Invoice Total", …), the amount in words,
- * and the sum of the items. One that two sources agree on wins; the amount in words beats a lone
- * total line; the largest number on the bill is only a last resort.
+ * Every value that could be the bill total, with how much to trust it: the amount in words (2),
+ * a "Grand / Net / Invoice Total" line (1.5), any other total line (1). Used to vote across reads.
  */
-function findTotal(lines, itemsSum = 0) {
-  let line = null;
+export function totalCandidates(raw = '') {
+  const lines = toAsciiDigits(raw).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const out = [];
   lines.forEach((l, i) => {
     if (!TOTAL_RE.test(l) || NOT_TOTAL_RE.test(l) || VAT_LINE_RE.test(l) && !/total/i.test(l)) return;
     // Amount usually sits on the same line; some printers put it on the next one.
     let nums = amountsIn(l);
     if (!nums.length) nums = amountsIn(lines[i + 1] || '').slice(0, 1);
-    const n = nums.length ? Math.max(...nums) : null;
-    // Prefer "grand/net/invoice total" lines and later lines (totals usually come last).
-    const weight = (/grand|net|payable|invoice\s*total|जम्मा/i.test(l) ? 2 : 1) * 1000 + i;
-    if (n && (!line || weight > line.weight)) line = { n, weight };
+    if (!nums.length) return;
+    const strong = /grand|net|payable|invoice\s*total|जम्मा/i.test(l);
+    out.push({ value: Math.max(...nums), weight: strong ? 1.5 : 1, at: i, source: 'line' });
   });
   const words = amountInWords(lines.join(' '));
+  if (words) out.push({ value: words, weight: 2, at: lines.length, source: 'words' });
+  return out;
+}
+
+/**
+ * The bill total. Candidates: a total line ("Grand Total", "Invoice Total", …), the amount in words,
+ * and the sum of the items. One that two sources agree on wins; the amount in words beats a lone
+ * total line; the largest number on the bill is only a last resort.
+ */
+function findTotal(lines, itemsSum = 0) {
+  const cands = totalCandidates(lines.join('\n'));
+  const lineCands = cands.filter((c) => c.source === 'line');
+  // Prefer "grand/net/invoice total" lines and later lines (totals usually come last).
+  const line = lineCands.sort((x, y) => (y.weight - x.weight) || (y.at - x.at))[0]?.value || null;
+  const words = cands.find((c) => c.source === 'words')?.value || null;
   const sum = Math.round(itemsSum * 100) / 100;
   const near = (a, b) => a && b && Math.abs(a - b) < 0.6;
-  if (line && (near(line.n, words) || near(line.n, sum))) return line.n;
-  if (words && near(words, sum)) return words;
-  if (words) return words;
-  if (line) return line.n;
-  if (sum > 0) return sum;
+  const agreed = lineCands.find((c) => near(c.value, words) || near(c.value, sum));
+  if (agreed) return { value: agreed.value, guessed: false };
+  if (words) return { value: words, guessed: false };
+  if (line) return { value: line, guessed: false };
+  // No total printed or read: a guess. Flagged, so a missed item can't pass as a matching total.
+  if (sum > 0) return { value: sum, guessed: true };
   const all = lines.flatMap(amountsIn).filter((n) => n < 10_000_000);
-  return all.length ? Math.max(...all) : null;
+  return { value: all.length ? Math.max(...all) : null, guessed: true };
 }
 
 function findVat(lines) {
@@ -183,7 +198,7 @@ export function parseReceiptText(raw) {
   const dates = findDates(text);
   const sellerPan = findPan(lines);
   const itemsSum = parseLineItemsFromText(text).reduce((sum, it) => sum + it.amount, 0);
-  const totalAmount = findTotal(lines, itemsSum);
+  const { value: totalAmount, guessed: totalGuessed } = findTotal(lines, itemsSum);
   const vatAmount = findVat(lines);
   const looksNepali = Boolean(sellerPan) || /(npr|rs\.?|रु|नेपाल|nepal|kathmandu|lalitpur|pokhara|vat)/i.test(text);
   return {
@@ -194,6 +209,7 @@ export function parseReceiptText(raw) {
     billDateAD: dates.ad,
     billDateBS: dates.bs,
     totalAmount,
+    totalGuessed,
     vatAmount: vatAmount && totalAmount && vatAmount < totalAmount ? vatAmount : null,
     category: guessCategory(text),
     isEstimate: ESTIMATE_RE.test(text),

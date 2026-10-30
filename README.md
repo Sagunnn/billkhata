@@ -135,29 +135,43 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
 
 ## OCR: contrast preprocessing, Vision fallback, merchant memory
 
-- `prepareForOcr` makes three copies at 2200 px on the long side (small photos are enlarged up to
-  2.5×): a colour one for vision models, an enhanced one for Tesseract (`preprocessCanvasForOCR`:
-  Rec. 601 grayscale, then auto-levels: darkest 1% → black, brightest 2% → white, gamma 1.3), and a
-  black-and-white one (`adaptiveThreshold`, Bradley–Roth: a pixel is black when clearly darker than
-  its neighbourhood) for crumpled or shadowed bills. The stored photo (< 300 KB, colour) is never
-  altered.
-- Tesseract reads in page-segmentation mode 6 (one uniform block), which keeps
-  "item … qty … rate … amount" on one line. When the items of that read don't add up to the total
-  (directly, or with 10% service charge and/or 13% VAT on top), up to three more reads are tried:
-  mode 4, the black-and-white copy in mode 6, then mode 3. The first read whose items add up wins;
-  otherwise the most complete one. Fields it missed (PAN, bill number, dates) are taken from the
-  other reads (`mergeReads`).
-- Total: from the "Grand / Net / Invoice Total" line, the **amount in words** ("Six hundred and
+- `prepareForOcr` first measures how tilted the photo is (`estimateSkew`: the angle at which rows
+  of text pixels, dark spots on bright paper, line up most sharply) and straightens it. It then
+  makes three copies at 2200 px on the long side (small photos enlarged up to 2.5×): a colour one
+  for vision models, an enhanced one for Tesseract (Rec. 601 grayscale, auto-levels: darkest 1% →
+  black, brightest 2% → white, gamma 1.3), and a black-and-white one (`adaptiveThreshold`,
+  Bradley–Roth) for crumpled or shadowed bills. The stored photo is never altered.
+- A clean bill is read once (mode 6, one uniform block) and accepted when it has a printed total
+  and its items add up to it (directly, or with 10% service charge and/or 13% VAT on top).
+- A crumpled or curved bill reads differently every time, so it gets up to five reads: mode 6,
+  then **word-position reads** (mode 11, sparse text) of both copies, the black-and-white copy in
+  mode 6, and mode 4. A word-position read (`src/lib/ocr/layout.js`) groups the item names into
+  rows and the numbers into rows separately, then pairs them in order. On a bent bill each row's
+  numbers sit lower than its name, sometimes by more than a line, which glues them to the wrong
+  item in a line-by-line read.
+- `src/lib/ocr/consensus.js` combines the reads. Totals vote (amount in words 2, a "Grand / Invoice
+  Total" line 1.5, a guessed total 0.2). Item rows are matched across reads by amount, name and
+  position (a misread "189" joins the "180" row it sits in). The set of rows that adds up to a
+  voted total and is backed by the most reads wins. Each row takes the name most reads back, and
+  bill number, shop and dates are voted on too. Reading stops early once two reads print the same
+  total and every row was seen at least twice.
+- Misread digits are fixed with the row's own arithmetic: "90.00 189.09" is 2 × 90 = 180.00,
+  "1 200.00 209" is 200. This only happens when the fix is within two characters and 15% of what
+  was read.
+- Total of a single read: from the "Grand / Net / Invoice Total" line, the **amount in words** ("Six hundred and
   thirty rupees only" → 630, lakh and crore supported) and the sum of the items. A value two of
   them agree on wins, and the amount in words beats a lone total line, because OCR reads words on a
-  crumpled bill far better than "630.00". Items larger than the total are dropped.
+  crumpled bill far better than "630.00". Items larger than the total are dropped. When no total
+  is found, the items' sum is used but flagged as a guess (`totalGuessed`): the Scan screen says so
+  and offers the Vision re-scan, so a missed item can't hide behind a "matching" total.
 - Dates: when a bill's AD date and BS miti disagree (OCR read 2083 as 2073), the one closest to
   today (and not in the future) is kept and the other is derived from it.
 - Item rows survive crumpled-bill noise: specks before a name ("EB Chinese Soup Momo") and after the
   amount ("250.00 250.0 7"), qty and rate read as one number ("1200.00 200" = 1 × 200), a price that
   slipped onto the next line ("Coke" / "ol EE 180.00"), and header lines like "Contact No.: 2" or
-  "ward 2". The bill form warns when the items don't add up to the total and says by how much. The
-  user's own crumpled estimate slip is a test fixture (`tests/fixtures/kotheys-estimate.txt`).
+  "ward 2", and misspelt summary rows ("DisCaunt", "Invoig"). The bill form warns when the items
+  don't add up to the total and says by how much. Real reads of a crumpled estimate slip are test
+  fixtures (`tests/fixtures/kotheys-*`), including word positions from a tilted copy.
 - Estimates ("Estimate", "THIS IS NOT A VALID BILL", "only for accounting purpose", proforma) are
   flagged `isEstimate`. They are saved as expenses but can't enter the IRD draw: the form says to
   ask the shop for its PAN/VAT bill. A missing PAN on an estimate doesn't trigger the Vision prompt.

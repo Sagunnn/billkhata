@@ -32,11 +32,11 @@ export function QrBox({ text, image, label, size = 200 }) {
 
 /** Whether the saved QR can carry an amount (EMVCo tag 54 / eSewa "amount"). */
 const KIND_NOTES = {
-  emv: [true, 'NepalQR / EMVCo code read. Each person’s QR will have their amount filled in (tag 54). Test-scan one with your banking app before relying on it.'],
-  'emv-invalid': [false, 'This looks like a NepalQR code but its checksum is wrong, so it may have been misread. Amounts won’t be added. Try a sharper, tighter crop.'],
-  esewa: [true, 'eSewa QR read. An "amount" will be added for each person; check with the eSewa app that it’s pre-filled.'],
-  other: [false, 'QR read, but it isn’t a NepalQR / eSewa code, so friends will type the amount themselves.'],
-  '': [false, 'This QR couldn’t be read, so amounts can’t be filled in (the image still shows). Try a sharper, tighter crop.'],
+  emv: [true, 'NepalQR / mobile-banking QR read correctly (checksum OK).'],
+  'emv-invalid': [false, 'This looks like a NepalQR code but its checksum is wrong, so it may have been misread. Try a sharper, tighter crop.'],
+  esewa: [true, 'eSewa QR read.'],
+  other: [true, 'QR read.'],
+  '': [false, 'This QR couldn’t be read, but the image will still show. If it doesn’t scan, try a sharper, tighter crop.'],
 };
 function QrKindNote({ text }) {
   const [ok, note] = KIND_NOTES[qrKind(text || '')] || KIND_NOTES.other;
@@ -156,7 +156,7 @@ export function PaymentQrSettings() {
   return (
     <Card className="p-4 md:p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><QrCode className="size-5" />Receive payments (Split Khata)</h2>
-      <p className="mb-4 text-sm text-slate-600">The QR friends scan to pay you back. Shown in the split screen and on the summary image, with each person’s amount filled in where your QR supports it. Stored only in this browser.</p>
+      <p className="mb-4 text-sm text-slate-600">The QR friends scan to pay you back, shown with each person’s amount in the split screen and on the summary image. They type the amount after scanning. Stored only in this browser.</p>
       <Segmented
         value={config.mode || ''}
         onChange={(mode) => save({ ...config, mode })}
@@ -177,7 +177,7 @@ export function PaymentQrSettings() {
               </div>
               <p className="flex gap-1.5 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-950 ring-1 ring-inset ring-amber-200">
                 <Smartphone className="mt-px size-3.5 shrink-0" />
-                Encodes {'{"eSewa_id":"…","name":"…"}'}. Before sharing, scan it once with another phone’s eSewa app to check it opens your account. If not, upload the QR from your eSewa app instead.
+                eSewa doesn’t publish its QR format, so this one is a guess ({'{"eSewa_id":"…","name":"…"}'}). Scan it once with another phone’s eSewa app; if it doesn’t open your account, use “Upload my QR” with the QR from your eSewa app.
               </p>
             </>
           )}

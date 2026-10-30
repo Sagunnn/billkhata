@@ -160,3 +160,89 @@ export async function buildReportPdf({ expenses, profile, from, to, includeImage
 
 export const reportFilename = (from, to) => `billkhata_report_${from || 'all'}${to ? `_to_${to}` : ''}.pdf`.replace(/-/g, '_');
 
+
+/** Trip Settlement PDF: every expense, each person's breakdown, and who pays whom. */
+export async function buildTripPdf({ trip, settlement, profile }) {
+  const [{ jsPDF }, { autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 12;
+  const ink = [15, 23, 42];
+  const muted = [100, 116, 139];
+  const name = (id) => latin(trip.members.find((m) => m.id === id)?.name) || 'Unknown';
+  const head = { fillColor: ink, textColor: 255, fontStyle: 'bold' };
+  const styles = { fontSize: 8.5, cellPadding: 2, textColor: ink, lineColor: [226, 232, 240], lineWidth: 0.1 };
+  const dates = trip.entries.map((e) => e.dateAD).filter(Boolean).sort();
+
+  doc.setFillColor(185, 28, 28);
+  doc.rect(0, 0, W, 4, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(...ink);
+  doc.text(`Trip Settlement: ${latin(trip.name) || 'Trip'}`, M, 16);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...muted);
+  doc.text(`${dates.length ? `${formatAD(dates[0])} - ${formatAD(dates.at(-1))} · ` : ''}${trip.members.length} people · ${trip.entries.length} expenses · total NPR ${npr(settlement.total)}`, M, 23);
+  doc.text(`Generated ${new Date().toLocaleString('en-GB')}${profile?.fullName ? ` by ${latin(profile.fullName)}` : ''}`, W - M, 16, { align: 'right' });
+
+  // Who pays whom first: it's what everyone opens the PDF for.
+  autoTable(doc, {
+    startY: 30,
+    head: [['Who pays whom', 'To', 'Amount (NPR)', 'Status']],
+    body: settlement.transfers.length
+      ? settlement.transfers.map((t) => [name(t.fromMemberId), name(t.toMemberId), npr(t.amount), trip.paidTransfers?.[`${t.fromMemberId}>${t.toMemberId}`] ? 'Paid' : 'Due'])
+      : [['Everyone is settled', '', '', '']],
+    margin: { left: M, right: M },
+    styles,
+    headStyles: { ...head, fillColor: [185, 28, 28] },
+    columnStyles: { 2: { halign: 'right' } },
+  });
+
+  autoTable(doc, {
+    startY: doc.lastAutoTable.finalY + 6,
+    head: [['Person', 'Paid', 'Consumed', 'Veg', 'Non-veg', 'Drinks', 'Shared', 'Tax/SC/disc.', 'Balance']],
+    body: settlement.members.map((m) => [
+      latin(m.name), npr(m.totalPaid), npr(m.totalConsumed), npr(m.breakdown.veg), npr(m.breakdown.nonVeg),
+      npr(m.breakdown.drink), npr(m.breakdown.shared), npr(m.breakdown.tax),
+      `${m.netBalance > 0 ? 'gets ' : m.netBalance < 0 ? 'owes ' : ''}${npr(Math.abs(m.netBalance))}`,
+    ]),
+    margin: { left: M, right: M },
+    styles,
+    headStyles: head,
+    columnStyles: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((i) => [i, { halign: 'right' }])),
+  });
+
+  autoTable(doc, {
+    startY: doc.lastAutoTable.finalY + 6,
+    head: [['Date', 'Expense', 'Bill', 'Seller PAN / Invoice', 'Paid by', 'Items', 'Total (NPR)']],
+    body: [...trip.entries].sort((a, b) => (a.dateAD || '').localeCompare(b.dateAD || '')).map((e) => [
+      `${e.dateAD || ''}${e.dateBS ? `\nBS ${e.dateBS}` : ''}`,
+      latin(e.title) || '-',
+      e.hasBill ? 'Bill' : 'No bill',
+      e.hasBill ? `${e.sellerPan || '-'} / ${latin(e.invoiceNumber) || '-'}` : '-',
+      name(e.paidByMemberId),
+      (e.items || []).map((it) => `${latin(it.name) || 'Item'} ${npr(it.amount)} (${it.category}: ${it.assignedMemberIds.map(name).join(', ') || 'everyone'})`).join('\n'),
+      npr(e.totalAmount),
+    ]),
+    foot: [['', '', '', '', '', 'Total', npr(settlement.total)]],
+    margin: { left: M, right: M },
+    styles,
+    headStyles: head,
+    footStyles: { fillColor: [241, 245, 249], textColor: ink, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 24 }, 5: { cellWidth: 110 }, 6: { halign: 'right' } },
+  });
+
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(8);
+    doc.setTextColor(...muted);
+    doc.text('BillKhata · Trip Khata · made on this device', M, H - 5);
+    doc.text(`Page ${p} of ${pages}`, W - M, H - 5, { align: 'right' });
+  }
+  return doc;
+}
+
+export const tripPdfFilename = (trip) => `trip_${(latin(trip.name) || 'trip').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40)}.pdf`;

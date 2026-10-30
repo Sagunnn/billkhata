@@ -62,6 +62,12 @@ export function validateExpense(e) {
 
 const sum = (list, f) => list.reduce((s, e) => s + (Number(f(e)) || 0), 0);
 
+/**
+ * Bills added to a trip stay in the ledger (and the IRD draw) but don't count as your spending:
+ * your logged trip share does instead, so nothing is counted twice.
+ */
+export const countsAsSpend = (e) => !e.excludeFromSpend;
+
 export function summarize(expenses, { today = todayAD(), region = REGIONS.NEPAL } = {}) {
   const tBs = todayBS() || '';
   const inMonth = region === REGIONS.NEPAL
@@ -69,23 +75,25 @@ export function summarize(expenses, { today = todayAD(), region = REGIONS.NEPAL 
     : (e) => (e.billDateAD || '').slice(0, 7) === today.slice(0, 7);
   const statuses = expenses.map((e) => getIrdStatus(e));
   return {
-    today: sum(expenses.filter((e) => e.billDateAD === today), (e) => e.totalAmount),
-    month: sum(expenses.filter(inMonth), (e) => e.totalAmount),
+    today: sum(expenses.filter((e) => countsAsSpend(e) && e.billDateAD === today), (e) => e.totalAmount),
+    month: sum(expenses.filter((e) => countsAsSpend(e) && inMonth(e)), (e) => e.totalAmount),
     eligible: statuses.filter((s) => s !== IRD_STATUS.INELIGIBLE).length,
     pending: statuses.filter((s) => s === IRD_STATUS.NOT_APPLIED).length,
     applied: statuses.filter((s) => s === IRD_STATUS.APPLIED).length,
   };
 }
 
-export function reportTotals(list) {
+export function reportTotals(all) {
   const cashLike = (e) => e.paymentMethod !== PAYMENT.DIGITAL;
+  const list = all.filter(countsAsSpend);
   return {
-    count: list.length,
+    count: all.length,
+    tripBills: all.length - list.length,
     total: sum(list, (e) => e.totalAmount),
     vat: sum(list, (e) => e.vatAmount),
     cash: sum(list.filter(cashLike), (e) => e.totalAmount),
     digital: sum(list.filter((e) => !cashLike(e)), (e) => e.totalAmount),
-    coupons: list.filter((e) => /^\d{12}$/.test(e.irdCoupon || '')).length,
+    coupons: all.filter((e) => /^\d{12}$/.test(e.irdCoupon || '')).length,
     // Split bills: the full amount stays the expense (IRD), with your part and what friends owe.
     splitCount: list.filter((e) => e.split).length,
     myShare: sum(list, (e) => (e.split ? e.split.myShare : e.totalAmount)),
@@ -96,7 +104,7 @@ export function reportTotals(list) {
 
 export function byCategory(list) {
   const map = new Map();
-  for (const e of list) map.set(e.category, (map.get(e.category) || 0) + (Number(e.totalAmount) || 0));
+  for (const e of list.filter(countsAsSpend)) map.set(e.category, (map.get(e.category) || 0) + (Number(e.totalAmount) || 0));
   return [...map.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total);
 }
 

@@ -16,6 +16,8 @@ export function crc16(str) {
   return c.toString(16).toUpperCase().padStart(4, '0');
 }
 
+export const computeEMVCoCRC16 = crc16;
+
 /** Splits a payload into [{ tag, value }]. Throws on anything that isn't clean TLV. */
 export function parseTLV(s) {
   const out = [];

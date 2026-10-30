@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, LayoutDashboard, List, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
+import { FileText, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import Dashboard from './views/Dashboard.jsx';
@@ -9,12 +9,14 @@ import Reports from './views/Reports.jsx';
 import Settings from './views/Settings.jsx';
 import CouponImport from './views/CouponImport.jsx';
 import { SplitEditor, SplitHub, SplitShare } from './views/Split.jsx';
+import { TripsHub, TripView } from './views/Trips.jsx';
 
 const ROUTES = [
   { path: '', label: 'Dashboard', icon: LayoutDashboard, view: Dashboard },
   { path: 'ledger', label: 'Ledger', icon: List, view: Ledger },
   { path: 'scan', label: 'Scan', icon: ScanLine, view: Scan },
   { path: 'split', label: 'Split', icon: SplitIcon, view: SplitHub },
+  { path: 'trips', label: 'Trips', icon: Luggage, view: TripsHub, desktopOnly: true },
   { path: 'reports', label: 'Reports', icon: FileText, view: Reports, desktopOnly: true },
   { path: 'settings', label: 'Settings', icon: SettingsIcon, view: Settings },
 ];
@@ -103,6 +105,7 @@ export default function App() {
   const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);
   const shareMatch = /^split\/([A-Za-z0-9_-]+)$/.exec(route);
   const editMatch = /^split-bill\/(.+)$/.exec(route);
+  const tripMatch = /^trip\/(.+)$/.exec(route);
   let current;
   let viewProps = {};
   if (couponMatch) {
@@ -111,6 +114,9 @@ export default function App() {
   } else if (shareMatch) {
     current = { path: 'split', label: 'Shared split', view: SplitShare };
     viewProps = { token: shareMatch[1] };
+  } else if (tripMatch) {
+    current = { path: 'trips', label: 'Trip', view: TripView };
+    viewProps = { tripId: decodeURIComponent(tripMatch[1]) };
   } else if (editMatch) {
     current = { path: 'split', label: 'Split bill', view: SplitEditor };
     viewProps = { billId: decodeURIComponent(editMatch[1]) };

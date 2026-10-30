@@ -22,6 +22,17 @@ function useActions() {
   };
 }
 
+/** Trip bills (kept for the IRD draw, not counted as spending) and logged trip shares. */
+function TripNote({ e }) {
+  const tripId = e.tripId || e.tripShareOf;
+  if (!tripId) return null;
+  return (
+    <a href={`#/trip/${encodeURIComponent(tripId)}`} className="mt-0.5 inline-block text-xs font-semibold text-navy hover:underline">
+      {e.tripShareOf ? 'Trip share (your part of the trip)' : 'Trip bill · counted in your trip share'}
+    </a>
+  );
+}
+
 /** "Split · my share रु 520 · रु 1,630 to collect" under a split bill. */
 function SplitNote({ e, region }) {
   return (
@@ -63,10 +74,11 @@ export function ExpenseCards({ list }) {
                 <div className="text-xs text-slate-500">
                   {formatAD(e.billDateAD)}{e.billDateBS ? ` · ${formatBS(e.billDateBS)}` : ''} · {e.category}
                 </div>
-                {e.split && <SplitNote e={e} region={profile.region} />}
               </button>
               <div className="num shrink-0 text-right font-bold text-slate-900">{money(e.totalAmount, profile.region)}</div>
             </div>
+            {e.split && <SplitNote e={e} region={profile.region} />}
+            <TripNote e={e} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {e.isNepalBill && <IrdAction expense={e} compact />}
               {getIrdStatus(e) === 'Ineligible' && e.isNepalBill && <StatusBadge status="Ineligible" />}
@@ -111,6 +123,7 @@ export function ExpenseTable({ list }) {
               <td className="max-w-[220px] px-2 py-2.5">
                 <button type="button" onClick={() => a.edit(e)} className="block max-w-full truncate text-left font-semibold text-slate-900 hover:underline">{e.merchantName || 'Untitled bill'}</button>
                 {e.split && <SplitNote e={e} region={profile.region} />}
+                <TripNote e={e} />
                 {e.notes && <div className="truncate text-xs text-slate-500">{e.notes}</div>}
               </td>
               <td className="px-2 py-2.5">

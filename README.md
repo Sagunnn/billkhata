@@ -11,7 +11,7 @@ the OCR provider the user picked.
 ```sh
 npm install
 npm run dev       # http://localhost:5173
-npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR, splitter, portal helper
+npm test          # dates, receipt parser, IRD rules, duplicates, winners, OCR, splitter, trips, QR, portal helper
 npm run build     # writes dist/
 ```
 
@@ -98,8 +98,8 @@ digital QR/card spend (entered automatically) and total VAT paid on bills with V
 
 ## Split Khata (bill splitter)
 
-`#/split` lists splits and bills to split; `#/split-bill/<billId>` is the editor; `#/split/<token>`
-is the read-only page friends open. All logic is in `src/lib/splitter.js` (pure, unit-tested).
+`#/split` lists splits and bills to split; `#/split-bill/<billId>` is the editor. All logic is in
+`src/lib/splitter.js` (pure, unit-tested).
 
 - **Line items** come from the scan: `parseLineItemsFromText` for Tesseract text
   ("Chicken Momo 2 250 500", "Tuborg 2 x 450 900", "3 Masala Tea 150"; totals/VAT rows skipped)
@@ -120,12 +120,50 @@ is the read-only page friends open. All logic is in `src/lib/splitter.js` (pure,
 - **Ledger**: the bill keeps its full amount (for the IRD draw); `expense.split` stores the state,
   `myShare`, `recoverable` and `outstanding` (unpaid friends). Reports and the PDF show them.
 - **Payment QR** (Settings): an eSewa personal QR built from the profile
-  (`{"eSewa_id":"…","name":"…"}`; check it with the eSewa app before relying on it), or an uploaded
-  bank / Fonepay / eSewa / Khalti QR, cropped and kept under 100 KB. Uploaded QRs are read with
-  jsQR so links can carry the QR text.
-- **Sharing**: a PNG summary drawn on canvas (everyone's lines, VAT/SC share, payer QR) and a link
-  `#/split/<token>`, where the token is deflate-compressed JSON in base64url (a 4-item, 3-person split
-  is about 420 characters). Opening a link never seeds demo data.
+  (`{"eSewa_id":"…","name":"…"}`; eSewa doesn't publish its format, so check it with the eSewa app),
+  or an uploaded bank / Fonepay / eSewa / Khalti QR, cropped, kept under 100 KB and read with jsQR.
+- **Amounts aren't put into the QR.** eSewa and Nepali banking apps ignored an amount added to a
+  personal QR when tested (real fixed-amount QRs are issued by Fonepay / NEPALPAY servers), so each
+  person's **QR** button and the summary image show the payer's QR **exactly as uploaded**, with the
+  amount large and a copy button. `src/lib/emvqr.js` parses and checks NepalQR / EMVCo codes
+  (CRC-16/CCITT-FALSE, verified against the EMVCo specification's worked example) to flag a misread
+  QR, and keeps a tested `buildDynamicNepalQR` (tag 01 → `12`, tag 54 amount, new tag 63 CRC) that
+  the UI doesn't use.
+- **Sharing is local only.** The summary PNG (canvas) is made on the device and goes wherever the user
+  sends it. **Split links are switched off**: a page on this domain would show whatever payment QR a
+  `#/split/<token>` link carried, and a link can't prove who made it, so a forged one could show
+  someone else's QR. Old or crafted links land on a "links are turned off" notice that shows nothing
+  from the link. The tested encode/decode helpers (`encodeSplit`, `decodeSplit`, `sharePayload`)
+  stay for a future signed-link version.
+
+## Trip Khata (group trips, many payers)
+
+`#/trips` lists trips; `#/trip/<id>` is one trip. Logic is in `src/lib/trips.js` (pure, unit-tested).
+Trips live in their own IndexedDB store (`trips`, added in DB version 2). The upgrade only creates
+what's missing, so existing bills are kept.
+
+- **Expenses** are either a bill (scan/upload: shop, PAN, invoice, total, VAT and items are read) or
+  a no-bill cash payment (taxi, fuel, snacks, tickets), each with **who paid**. A no-bill expense is
+  one line; any expense can be split into items. Bills can also be added from the ledger.
+- **`classifyTripItem`**: `shared` (taxi, Pathao, fuel, hotel/room, tickets, toll, parking, water),
+  `non-veg` (sekuwa, choila, sukuti, pangra, egg…), `drink` (beer, rum, coke, tea, coffee, lassi,
+  juice…) or `veg`. **`getDefaultAssignedMembers`** ticks non-veg for non-vegetarians, drinks for
+  people with Drinks on, veg and shared for everyone (or "Veg members only"). Any tick can change.
+- **Shares** (`entryShares`): each item split equally among its ticks (nobody ticked → everyone,
+  with a warning); VAT / service charge / discount spread in proportion to each person's items;
+  rounded to the paisa so each expense adds up exactly. Per person: veg, non-veg, drinks, shared,
+  tax.
+- **Settlement** (`calculateTripSettlement`, `simplifyDebts`): paid − consumed = balance; the largest
+  debtor pays the largest creditor until done (balances within Rs. 0.50 count as even). At most
+  N − 1 payments. Each payment shows the receiver's own QR (theirs, uploaded or pasted, or yours from
+  Settings) with the amount and a copy button, and can be marked paid.
+- **Ledger / IRD**: a bill *you* paid is also saved in your ledger (so you can enter it in the IRD
+  draw) with `excludeFromSpend`, so it isn't counted as spending. **Log My Final Trip Share** adds
+  your real consumption as one ledger expense (`trip-share-<tripId>`, updatable). A bill someone
+  else paid stays only in the trip; they hold the paper bill.
+- **Trip PDF** (who pays whom, each person's breakdown, every expense with its items) and trips in the
+  JSON **backup / restore** (merge by id, or overwrite).
+- No trip share links, for the same reason as Split Khata.
 
 ## IRD portal helper (Tampermonkey userscript + bookmarklet)
 

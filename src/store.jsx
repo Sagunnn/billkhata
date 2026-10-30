@@ -10,6 +10,7 @@ const StoreContext = createContext(null);
 
 export function StoreProvider({ children }) {
   const [expenses, setExpenses] = useState([]);
+  const [trips, setTrips] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [profile, setProfileState] = useState(loadProfile);
@@ -33,6 +34,7 @@ export function StoreProvider({ children }) {
           }
         }
         setExpenses(await db.getAllExpenses());
+        setTrips(await db.getAllTrips());
       } catch (err) {
         setLoadError(err?.message || 'This browser blocked local storage (private mode?).');
       } finally {
@@ -80,6 +82,33 @@ export function StoreProvider({ children }) {
     setExpenses(await db.getAllExpenses());
   }, []);
 
+  const saveTrip = useCallback(async (t) => {
+    const clean = { ...t, updatedAt: new Date().toISOString() };
+    await db.putTrip(clean);
+    setTrips((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
+    return clean;
+  }, []);
+
+  const deleteTrip = useCallback(async (id) => {
+    await db.deleteTripRecord(id);
+    setTrips((list) => list.filter((x) => x.id !== id));
+  }, []);
+
+  const replaceAllTrips = useCallback(async (list) => {
+    await db.clearTrips();
+    await db.putManyTrips(list);
+    setTrips(await db.getAllTrips());
+  }, []);
+
+  /** Adds trips whose id is not already stored. Returns how many were added. */
+  const mergeTrips = useCallback(async (list) => {
+    const have = new Set((await db.getAllTrips()).map((t) => t.id));
+    const fresh = list.filter((t) => !have.has(t.id));
+    await db.putManyTrips(fresh);
+    setTrips(await db.getAllTrips());
+    return fresh.length;
+  }, []);
+
   const setProfile = useCallback((p) => {
     saveProfile(p);
     setProfileState(loadProfile());
@@ -93,13 +122,14 @@ export function StoreProvider({ children }) {
   const value = useMemo(() => ({
     ready, loadError, expenses, profile, settings,
     saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples,
+    trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips,
     setProfile, setSettings,
     modal,
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
     closeModal: () => setModal(null),
-  }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, setProfile, setSettings]);
+  }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

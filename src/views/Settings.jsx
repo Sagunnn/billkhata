@@ -112,7 +112,7 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, profile, replaceAll, mergeExpenses, setProfile, removeSamples, loadSamples } = useStore();
+  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
@@ -121,9 +121,9 @@ function DataSection() {
   const samples = expenses.filter((e) => e.isSample).length;
 
   function download() {
-    const data = buildBackup(profile, expenses);
+    const data = buildBackup(profile, expenses, trips);
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
-    toast(`Backup downloaded (${expenses.length} bills).`);
+    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}).`);
   }
 
   async function pick(file) {
@@ -140,13 +140,15 @@ function DataSection() {
   async function restore() {
     const { expenses: list, profile: p } = pending;
     if (mode === 'overwrite') {
-      if (!window.confirm(`Replace all ${expenses.length} bills in this browser with the ${list.length} bills from the backup?`)) return;
+      if (!window.confirm(`Replace all ${expenses.length} bills and ${trips.length} trips in this browser with the ${list.length} bills and ${(pending.trips || []).length} trips from the backup?`)) return;
       await replaceAll(list);
+      await replaceAllTrips(pending.trips || []);
       if (p) setProfile(p);
-      toast(`Restored ${list.length} bills.`);
+      toast(`Restored ${list.length} bills and ${(pending.trips || []).length} trips.`);
     } else {
       const added = await mergeExpenses(list);
-      toast(`Added ${added} new bill${added === 1 ? '' : 's'}; ${list.length - added} already here.`);
+      const addedTrips = await mergeTrips(pending.trips || []);
+      toast(`Added ${added} new bill${added === 1 ? '' : 's'} and ${addedTrips} trip${addedTrips === 1 ? '' : 's'}; the rest were already here.`);
     }
     setPending(null);
   }
@@ -161,7 +163,7 @@ function DataSection() {
     <Card className="p-4 md:p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><Database className="size-5" />Backup & restore</h2>
       <p className="mb-4 text-sm text-slate-600">
-        Your bills live only in this browser ({expenses.length} bills, about {bytes(sizeEstimate)} with photos). Clearing site data deletes them, so keep a backup file.
+        Your bills live only in this browser ({expenses.length} bills, {trips.length} trips, about {bytes(sizeEstimate)} with photos). Clearing site data deletes them, so keep a backup file.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={download} className="flex items-center gap-3 rounded-xl border-2 border-slate-200 p-4 text-left hover:border-slate-400">
@@ -195,7 +197,7 @@ function DataSection() {
           footer={<><Button variant="ghost" onClick={() => setPending(null)}>Cancel</Button><Button variant={mode === 'overwrite' ? 'primary' : 'dark'} onClick={restore}>{mode === 'overwrite' ? 'Overwrite and restore' : 'Merge bills'}</Button></>}
         >
           <p className="text-sm text-slate-700">
-            <b>{pending.fileName}</b>{pending.exportedAt ? `, made ${new Date(pending.exportedAt).toLocaleString('en-GB')}` : ''}: {pending.expenses.length} valid bills
+            <b>{pending.fileName}</b>{pending.exportedAt ? `, made ${new Date(pending.exportedAt).toLocaleString('en-GB')}` : ''}: {pending.expenses.length} valid bills, {(pending.trips || []).length} trips
             {pending.profile ? ` and a profile for ${pending.profile.fullName || 'someone'}` : ''}.
           </p>
           {pending.skipped.length > 0 && (

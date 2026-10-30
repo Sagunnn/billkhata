@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Beer, CircleCheck, ClipboardPaste, Divide, Drumstick, HandCoins, ImageDown, Leaf, LoaderCircle, Minus, Plus,
-  QrCode, ReceiptText, ScanText, Share2, ShieldAlert, Split as SplitIcon, Trash, UserPlus, Users, UsersRound,
+  Luggage, QrCode, ReceiptText, ScanText, Share2, ShieldAlert, Split as SplitIcon, Trash, UserPlus, Users, UsersRound,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
 import { money, downloadBlob } from '../lib/format.js';
@@ -12,7 +12,6 @@ import {
   autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember,
   newSplitForExpense, outstanding, parseLineItemsFromText, TAG_LABELS, TAGS, weightOf,
 } from '../lib/splitter.js';
-import { amountQrText } from '../lib/qr.js';
 import { drawSplitSummary } from '../lib/splitImage.js';
 import { useStore } from '../store.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
@@ -46,6 +45,11 @@ export function SplitHub() {
   return (
     <div className="space-y-5">
       <PageHeader title="Split Khata" subtitle="Split a bill between friends. Veg, non-veg and drinks are ticked for each person automatically." actions={<a href="#/scan" className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-dark"><ScanText className="size-4" />Scan a new bill</a>} />
+      <a href="#/trips" className="flex items-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white hover:bg-slate-800">
+        <Luggage className="size-5 shrink-0 text-amber-300" />
+        <span className="flex-1"><b>Trip Khata</b>: many bills, many payers. Log a whole trip and settle up in as few payments as possible.</span>
+        <span className="font-semibold underline">Open</span>
+      </a>
       {!qr && (
         <a href="#/settings" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 hover:bg-amber-100">
           <QrCode className="size-5 shrink-0" /><span className="flex-1">Set up your <b>payment QR</b> in Settings so friends can scan and pay you back.</span>
@@ -279,22 +283,20 @@ function Matrix({ split, update }) {
   );
 }
 
-/** This person's QR with their amount filled in (EMVCo tag 54 / eSewa "amount"), plus a copy chip. */
+/**
+ * Your own payment QR, exactly as uploaded, with this person's amount shown large and copyable.
+ * Banking apps and eSewa ignore an amount added to a personal QR, so the QR isn't altered.
+ */
 function MemberPayQr({ payer, amount, name, region }) {
-  let dyn = null;
-  try { dyn = payer?.text ? amountQrText(payer.text, amount) : null; } catch { dyn = null; }
-  const plain = !dyn;
+  const fixed = Number(amount).toFixed(2);
   return (
     <div className="mt-2 flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 p-3">
-      <QrBox text={dyn || payer.text} image={dyn || payer.text ? '' : payer.image} label={dyn ? `${name} · ${money(amount, region)}` : payer.label} size={176} />
+      <QrBox text={payer.image ? '' : payer.text} image={payer.image} label={payer.label} size={176} />
       <div className="min-w-[160px] flex-1 space-y-2 text-sm text-slate-700">
-        <p>
-          {plain
-            ? <>This QR can’t carry an amount, so {name || 'they'} type <b>{money(amount, region)}</b> after scanning.</>
-            : <>Scanning fills in <b>{money(amount, region)}</b> in banking and wallet apps that support it; others just ask for the amount.</>}
-        </p>
-        <CopyButton value={Number(amount).toFixed(2)} label={`Copy ${Number(amount).toFixed(2)}`} />
-        <p className="text-xs text-slate-500">Show this screen to {name || 'them'}, or send the summary image. It stays on this device.</p>
+        <div className="text-xs font-bold uppercase tracking-wide text-slate-500">{name || 'They'} pay{name ? 's' : ''}</div>
+        <div className="num text-3xl font-extrabold text-slate-900">{money(amount, region)}</div>
+        <CopyButton value={fixed} label={`Copy ${fixed}`} />
+        <p className="text-xs text-slate-500">Scan, then type this amount in the app.</p>
       </div>
     </div>
   );

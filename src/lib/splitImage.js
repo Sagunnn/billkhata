@@ -1,7 +1,6 @@
 // "Download Split Summary Image": one PNG with everyone's share and the payer's QR,
 // sized for chat apps (Viber, WhatsApp, Messenger). Drawn with canvas; nothing is uploaded.
 import { qrDataUrl, loadImage } from './qr.js';
-import { amountQrText } from './emvqr.js';
 import { formatAD, formatBS } from './nepaliDate.js';
 
 const W = 1080;
@@ -21,23 +20,9 @@ function fit(g, text, max) {
   return `${s}…`;
 }
 
-const MEMBER_QR = 190;
-
-/** Each person's QR with their amount filled in, where the payer's QR supports it. */
-function memberQrTexts(result, payer) {
-  const out = {};
-  if (!payer.qrText) return out;
-  for (const m of result.members) {
-    if (m.isPayer || m.out || !(m.share > 0)) continue;
-    try { const t = amountQrText(payer.qrText, m.share); if (t) out[m.id] = t; } catch { /* plain QR only */ }
-  }
-  return out;
-}
-
-/** Shares are drawn per member: name and amount, each item line, the VAT/SC line, and maybe a QR. */
-function blockHeight(m, hasQr) {
-  const text = 64 + m.lines.length * 34 + (m.lines.length && Math.abs(m.extra) >= 0.01 ? 34 : 0) + 24;
-  return hasQr ? Math.max(text, MEMBER_QR + 70) : text;
+/** Shares are drawn per member: name and amount, each item line, then the VAT/SC line. */
+function blockHeight(m) {
+  return 64 + m.lines.length * 34 + (m.lines.length && Math.abs(m.extra) >= 0.01 ? 34 : 0) + 24;
 }
 
 /**
@@ -45,12 +30,8 @@ function blockHeight(m, hasQr) {
  */
 export async function drawSplitSummary({ split, result, payer = {} }) {
   const people = result.members.filter((r) => !r.out);
-  const qrs = memberQrTexts(result, payer);
-  const owing = people.filter((m) => !m.isPayer && m.share > 0);
-  const everyoneHasQr = owing.length > 0 && owing.every((m) => qrs[m.id]);
-  // The shared payer QR at the bottom is only needed when some people have no amount QR.
-  const qrH = (payer.qrText || payer.qrImage) && !everyoneHasQr ? 420 : 0;
-  const H = 300 + people.reduce((h, m) => h + blockHeight(m, Boolean(qrs[m.id])), 0) + (result.unassigned ? 50 : 0) + qrH + 90;
+  const qrH = payer.qrText || payer.qrImage ? 420 : 0;
+  const H = 300 + people.reduce((h, m) => h + blockHeight(m), 0) + (result.unassigned ? 50 : 0) + qrH + 90;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -90,9 +71,7 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
 
   // Members (people left out of the split aren't shown)
   for (const m of people) {
-    const top = y;
-    const qrText = qrs[m.id];
-    const right = qrText ? W - PAD - MEMBER_QR - 30 : W - PAD; // amounts stop short of the QR
+    const right = W - PAD;
     g.strokeStyle = LINE;
     g.lineWidth = 2;
     g.beginPath();
@@ -127,18 +106,6 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
       g.textAlign = 'left';
     }
     y += 24;
-    if (qrText) {
-      const img = await loadImage(await qrDataUrl(qrText, MEMBER_QR * 2));
-      const qx = W - PAD - MEMBER_QR;
-      const qy = top + 22;
-      g.drawImage(img, qx, qy, MEMBER_QR, MEMBER_QR);
-      g.fillStyle = MUTED;
-      g.font = `600 20px ${FONT}`;
-      g.textAlign = 'center';
-      g.fillText(`Scan to pay ${npr(m.share)}`, qx + MEMBER_QR / 2, qy + MEMBER_QR + 28);
-      g.textAlign = 'left';
-      y = Math.max(y, top + MEMBER_QR + 70);
-    }
   }
   if (result.unassigned) {
     y += 40;
@@ -153,7 +120,8 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
     g.fillStyle = '#f8fafc';
     g.fillRect(PAD, y, W - 2 * PAD, qrH - 40);
     const qrSize = qrH - 100;
-    const src = payer.qrText ? await qrDataUrl(payer.qrText, qrSize * 2) : payer.qrImage;
+    // The exact QR the payer uploaded (known to work), else one drawn from the eSewa details.
+    const src = payer.qrImage || await qrDataUrl(payer.qrText, qrSize * 2);
     const img = await loadImage(src);
     const scale = Math.min(qrSize / img.width, qrSize / img.height);
     g.drawImage(img, PAD + 30, y + 30, img.width * scale, img.height * scale);
@@ -164,9 +132,8 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
     g.font = `400 28px ${FONT}`;
     g.fillStyle = MUTED;
     g.fillText(fit(g, payer.qrLabel || 'Scan to pay', W - PAD - tx - 20), tx, y + 148);
-    const esewa = /^eSewa/.test(payer.qrLabel || '');
-    g.fillText(esewa ? 'Scan with the eSewa app.' : 'Scan with your banking', tx, y + 210);
-    if (!esewa) g.fillText('or wallet app.', tx, y + 248);
+    g.fillText('Scan, then type the amount', tx, y + 210);
+    g.fillText('next to your name above.', tx, y + 248);
     y += qrH - 40;
   }
 

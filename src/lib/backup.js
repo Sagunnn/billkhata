@@ -6,14 +6,33 @@ import { todayAD } from './nepaliDate.js';
 
 export const BACKUP_VERSION = 1;
 
-export function buildBackup(profile, expenses) {
+export function buildBackup(profile, expenses, trips = []) {
   return {
     app: 'BillKhata',
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     userProfile: profile,
     expenses,
+    trips,
   };
+}
+
+/** Trips are optional in a backup (older files have none). Bad ones are skipped and reported. */
+function validateTrips(list, skipped) {
+  if (list == null) return [];
+  if (!Array.isArray(list)) { skipped.push('“trips” is not a list, so no trips were read.'); return []; }
+  const seen = new Set();
+  const out = [];
+  list.forEach((t, i) => {
+    const label = `Trip #${i + 1}${t?.name ? ` (${t.name})` : ''}`;
+    if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !t.id) return skipped.push(`${label}: missing id.`);
+    if (seen.has(t.id)) return skipped.push(`${label}: duplicate id.`);
+    if (!Array.isArray(t.members) || !Array.isArray(t.entries)) return skipped.push(`${label}: missing members or expenses.`);
+    if (t.entries.some((e) => !e || !Number.isFinite(Number(e.totalAmount)))) return skipped.push(`${label}: an expense has no valid amount.`);
+    seen.add(t.id);
+    out.push({ ...t, status: t.status === 'settled' ? 'settled' : 'active', paidTransfers: t.paidTransfers || {} });
+  });
+  return out;
 }
 
 export const backupFilename = () => `billkhata_backup_${todayAD().replace(/-/g, '_')}.json`;
@@ -64,7 +83,8 @@ export function validateBackup(obj) {
     profile = p;
   }
 
-  return { ok: true, errors, skipped, expenses, profile, exportedAt: obj.exportedAt };
+  const trips = validateTrips(obj.trips, skipped);
+  return { ok: true, errors, skipped, expenses, trips, profile, exportedAt: obj.exportedAt };
 }
 
 export async function readBackupFile(file) {

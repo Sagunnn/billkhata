@@ -92,3 +92,16 @@ test('only the later copy is blocked for IRD; the original stays enterable', () 
   const [m] = crossReferenceBill(original, [copy]);
   assert.equal(m.earlier, false, 'from the original, the copy is the later one');
 });
+
+test('same shop + same total + same day is flagged (bill entered twice by hand)', () => {
+  const saved = [bill('a', { merchantName: 'Annapurna Kirana Pasal', sellerPan: '', totalAmount: 1356 })];
+  const again = bill('new', { merchantName: 'annapurna  kirana pasal', sellerPan: '', totalAmount: 1356 });
+  assert.deepEqual(levels(again, saved), [['a', 'same-day']]);
+  assert.deepEqual(levels({ ...again, billDateAD: '2026-10-30' }, saved), [], 'another day');
+  assert.deepEqual(levels({ ...again, totalAmount: 1357 }, saved), [], 'another total');
+  assert.deepEqual(levels({ ...again, merchantName: 'Other Shop' }, saved), [], 'another shop');
+  // With PANs, the PAN decides the shop.
+  assert.deepEqual(levels(bill('n2', { totalAmount: 1036.25 }), [bill('b', { merchantName: 'Different name' })]), [['b', 'same-day']]);
+  // Both have bill numbers and they differ: two real bills.
+  assert.deepEqual(levels(bill('n3', { invoiceNumber: '205' }), [bill('c', { invoiceNumber: '101' })]), []);
+});

@@ -17,6 +17,8 @@ import {
   makeTripMember, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey,
 } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
+import { crossReferenceBill } from '../lib/dedupe.js';
+import { CrossReferenceCard, unresolvedMatches } from '../components/CrossReference.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, CopyButton, EmptyState, Field, Modal, PageHeader, Segmented, StatusBadge } from '../components/ui.jsx';
@@ -203,7 +205,7 @@ function ItemRow({ item, members, onChange, onRemove }) {
 }
 
 function EntryModal({ trip, entry, onClose, onSave }) {
-  const { settings, profile, expenses } = useStore();
+  const { settings, profile, expenses, openEditor } = useStore();
   const toast = useToast();
   const members = trip.members;
   const me = members.find((m) => m.isMe) || members[0];
@@ -233,7 +235,8 @@ function EntryModal({ trip, entry, onClose, onSave }) {
       const [{ compressImage, fileToDataUrl, prepareForOcr }, { extractBill }] = await Promise.all([import('../lib/image.js'), import('../lib/ocr/index.js')]);
       const src = await fileToDataUrl(file);
       const [stored, images] = await Promise.all([compressImage(src), prepareForOcr(src)]);
-      set({ receiptImage: stored.dataUrl });
+      const { imageHash } = await import('../lib/image.js');
+      set({ receiptImage: stored.dataUrl, imageHash: await imageHash(stored.dataUrl).catch(() => '') });
       const { fields, rawText: text } = await extractBill(images, settings, { region: profile.region });
       setRawText(text || '');
       const items = (fields.lineItems || []).map((it) => makeTripItem({ name: it.name, amount: it.amount }, members));
@@ -259,13 +262,42 @@ function EntryModal({ trip, entry, onClose, onSave }) {
     }
   }
 
+  // Is this bill already logged? Compared with your ledger and with this trip's other expenses
+  // (bills a friend paid aren't in your ledger). Only bills count, not cash with no bill.
+  const candidate = useMemo(() => ({
+    id: entry?.linkedExpenseId || entry?.id || 'new-trip-bill',
+    createdAt: entry?.createdAt || '9999',
+    merchantName: d.title,
+    sellerPan: d.sellerPan,
+    invoiceNumber: d.invoiceNumber,
+    totalAmount: Number(d.totalAmount) || 0,
+    billDateAD: d.dateAD,
+    billDateBS: adToBs(d.dateAD) || '',
+    lineItems: d.itemised ? d.items.map((it) => ({ name: it.name, amount: Number(it.amount) || 0 })) : [],
+    imageHash: d.imageHash || '',
+    receiptImage: d.receiptImage,
+    duplicateOverride: d.duplicateOverride,
+  }), [d, entry]);
+  const pool = useMemo(() => [
+    ...expenses.filter((x) => x.id !== entry?.linkedExpenseId),
+    ...trip.entries.filter((e) => e.hasBill && e.id !== entry?.id && !e.linkedExpenseId).map((e) => ({
+      id: e.id, createdAt: '', billCode: '', merchantName: `${e.title} (this trip)`, sellerPan: e.sellerPan, invoiceNumber: e.invoiceNumber,
+      totalAmount: e.totalAmount, billDateAD: e.dateAD, billDateBS: e.dateBS, lineItems: e.items, receiptImage: e.receiptImage, fromTrip: true,
+    })),
+  ], [expenses, trip.entries, entry]);
+  const matches = useMemo(() => (d.hasBill ? crossReferenceBill(candidate, pool) : []), [d.hasBill, candidate, pool]);
+
   function save() {
+    if (unresolvedMatches(matches, candidate).length) {
+      return toast('This bill looks already logged. Discard it, or choose “Save Anyway (Override)” if it really is a different bill.', 'error');
+    }
     if (!d.title.trim()) return toast('Give the expense a name.', 'error');
     if (!(total > 0)) return toast('Enter the amount paid.', 'error');
-    const items = d.itemised
+    const listed = d.itemised
       ? d.items.filter((it) => it.name.trim() || Number(it.amount) > 0).map((it) => makeTripItem({ ...it, amount: Number(it.amount) || 0 }, members))
-      : [makeTripItem({ name: d.title, amount: total, category: simpleCat, assignedMemberIds: simpleIds }, members)];
-    if (!items.length) return toast('Add at least one item, or switch back to a single line.', 'error');
+      : [];
+    // No items listed: the whole expense is one line, shared as chosen.
+    const items = listed.length ? listed : [makeTripItem({ name: d.title, amount: total, category: simpleCat, assignedMemberIds: simpleIds }, members)];
     const { itemised: _i, ...rest } = d;
     onSave(makeEntry({ ...rest, id: entry?.id, totalAmount: total, items, vatAmount: d.vatAmount === '' ? '' : Number(d.vatAmount) || 0 }, members));
   }
@@ -279,7 +311,16 @@ function EntryModal({ trip, entry, onClose, onSave }) {
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="dark" onClick={save}>Save expense</Button></>}
     >
       <div className="space-y-4">
-        <Segmented value={d.hasBill ? 'bill' : 'cash'} onChange={(v) => set({ hasBill: v === 'bill', itemised: v === 'bill' ? true : d.itemised })} options={[{ value: 'cash', label: 'No bill (cash)' }, { value: 'bill', label: 'Has a bill' }]} />
+        <Segmented value={d.hasBill ? 'bill' : 'cash'} onChange={(v) => set({ hasBill: v === 'bill', itemised: d.items.length > 0 && d.itemised })} options={[{ value: 'cash', label: 'No bill (cash)' }, { value: 'bill', label: 'Has a bill' }]} />
+        <CrossReferenceCard
+          matches={matches}
+          bill={candidate}
+          region={profile.region}
+          onView={(b) => (b.fromTrip ? toast('That bill is in this trip’s expense list.') : openEditor(b))}
+          onDiscard={onClose}
+          discardLabel="Discard this bill"
+          onOverride={(id, on) => set({ duplicateOverride: on ? [...new Set([...(d.duplicateOverride || []), id])] : (d.duplicateOverride || []).filter((x) => x !== id) })}
+        />
         {d.hasBill && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3">
             {d.receiptImage ? <img src={d.receiptImage} alt="Bill" className="h-24 rounded border border-slate-200 object-contain" /> : <Receipt className="size-8 text-slate-300" />}
@@ -347,7 +388,7 @@ function EntryModal({ trip, entry, onClose, onSave }) {
               <select className="input w-auto py-1" value={simpleCat} onChange={(e) => setSimple({ category: e.target.value, touched: true, ids: getDefaultAssignedMembers(e.target.value, members) })} aria-label="Type">
                 {TRIP_CATEGORIES.map((c) => <option key={c} value={c}>{TRIP_CATEGORY_LABELS[c]}</option>)}
               </select>
-              <button type="button" className="ml-auto text-xs font-semibold text-navy underline" onClick={() => set({ itemised: true, items: d.items.length ? d.items : [makeTripItem({ name: d.title, amount: d.totalAmount, category: simpleCat, assignedMemberIds: simpleIds }, members)] })}>Split into items</button>
+              <button type="button" className="ml-auto text-xs font-semibold text-navy underline" onClick={() => set({ itemised: true, items: d.items.length ? d.items : [d.hasBill ? makeTripItem({ name: '', amount: '' }, members) : makeTripItem({ name: d.title, amount: d.totalAmount, category: simpleCat, assignedMemberIds: simpleIds }, members)] })}>Split into items</button>
             </div>
             <MemberPills members={members} ids={simpleIds} onChange={(ids) => setSimple({ category: simpleCat, touched: true, ids })} />
           </div>
@@ -482,6 +523,8 @@ export function TripView({ tripId: id }) {
         category: base.category || (entry.items.some((it) => it.category !== 'shared') ? 'Food & Dining' : 'Other'),
         isNepalBill: base.isNepalBill ?? region === REGIONS.NEPAL,
         receiptImage: entry.receiptImage || base.receiptImage || null,
+        imageHash: entry.receiptImage ? (entry.imageHash || '') : base.imageHash || '',
+        duplicateOverride: entry.duplicateOverride || base.duplicateOverride || [],
         lineItems: entry.items.map((it) => ({ id: it.id, name: it.name, qty: 1, price: it.amount, amount: it.amount })),
         excludeFromSpend: true,
         tripId: trip.id,

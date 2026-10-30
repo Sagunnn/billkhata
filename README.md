@@ -96,7 +96,13 @@ in three independent layers, so a torn, cropped or misread scan is still caught:
    receipts were within 4 bits), so a photo match only counts with the same total. Hashes are
    computed on scan and save, and backfilled for older photos.
 
-`crossReferenceBill` returns every match, strongest first. The bill form shows a
+4. **Same shop, same total, same day** (same PAN, or the same shop name when a PAN is missing),
+   only when at least one of the two has no bill number. Two different bill numbers mean two
+   real bills. This catches a bill typed in twice, or scanned twice when nothing else read the same.
+
+`crossReferenceBill` returns every match, strongest first. It runs on the Scan screen, the bill
+editor (ledger "Add manually" included) and the trip expense form, where it also compares with
+the trip's own bills paid by friends, which aren't in your ledger. The bill form shows a
 **Cross-Reference Alert Card** ("Already logged as [KT1-07] on 2083-07-13", the reasons, a
 side-by-side comparison with both photos) with **View existing bill**, **Discard duplicate scan**
 and **Save Anyway (Override)**. Saving is held back until one is chosen; an override is stored on
@@ -161,10 +167,13 @@ digital QR/card spend (entered automatically) and total VAT paid on bills with V
 The editor is three steps, built for phones, with Back / Next pinned above the bottom bar:
 **1. Bill**: the bill (photo, code, total), then its items as a tidy list; tap an item to edit it.
 No items? One tap splits equally. **2. People**: "By what each had" or "Split equally", a − / +
-counter for how many people, and per person a name, an in/out tick and (by items only) Veg/Non-veg
-and Drinks. Saved friends and groups sit behind one disclosure. **3. Shares**: your share / to
-collect / still owed, then each person's share with Show QR and Mark paid; the per-item tick grid
-and the VAT/service-charge choice are under "Fine-tune who had what". Reopening a split with people
+counter, and one line per person: initial (tap to leave out), name (tap to rename), and in by-items
+mode a Veg/Non-veg pill and a drinks button. Saved friends and groups sit behind one disclosure.
+**3. Shares**: your share / to collect / still owed, then each person's share with Show QR and Mark
+paid. **Fine-tune who had what** opens its own window: pick a person from a dropdown (only people
+in the split), see the items grouped Veg / Non-veg / Drinks / Shared (a vegetarian's non-veg and a
+non-drinker's drinks are folded away), tick what they had, set ×2 for a shared multi-quantity item,
+and see who else is on each item. The VAT/service-charge choice is there too. Reopening a split with people
 starts on Shares.
 
 - **Line items** come from the scan: `parseLineItemsFromText` for Tesseract text

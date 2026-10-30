@@ -16,7 +16,7 @@ import { drawSplitSummary } from '../lib/splitImage.js';
 import { useStore } from '../store.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, CopyButton, EmptyState, PageHeader, Segmented } from '../components/ui.jsx';
+import { Button, Card, CopyButton, EmptyState, Modal, PageHeader, Segmented } from '../components/ui.jsx';
 
 const TAG_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -103,63 +103,123 @@ export function SplitHub() {
 
 /* ---------------- editor ---------------- */
 
-function Matrix({ split, update }) {
+const GROUPS = ['veg', 'non-veg', 'alcohol', 'shared'];
+
+/**
+ * "Who had what", one person at a time: pick someone, see the bill's items grouped into Veg,
+ * Non-veg, Drinks and Shared, and tick what they had. Items a vegetarian or non-drinker wouldn't
+ * have are folded away. Each item lists only the people actually on it.
+ */
+function FineTuneModal({ split, update, region, onClose }) {
+  const people = split.members.filter((m) => !m.out);
+  const [who, setWho] = useState(() => (people.find((m) => !m.isPayer) || people[0])?.id);
+  const [showHidden, setShowHidden] = useState({});
+  const person = people.find((m) => m.id === who) || people[0];
+  const result = computeSplit(split);
+  const row = result.members.find((r) => r.id === person?.id);
+  const partOf = Object.fromEntries((row?.lines || []).map((l) => [l.itemId, l.amount]));
+  const nameOf = Object.fromEntries(people.map((m) => [m.id, m.name || 'Person']));
+
   const setWeight = (item, member, w) => {
-    const row = { ...(split.overrides?.[item.id] || {}) };
-    if (w === autoWeight(item.tag, member)) delete row[member.id];
-    else row[member.id] = Math.max(0, w);
-    const overrides = { ...split.overrides, [item.id]: row };
-    if (!Object.keys(row).length) delete overrides[item.id];
+    const rowOverrides = { ...(split.overrides?.[item.id] || {}) };
+    if (w === autoWeight(item.tag, member)) delete rowOverrides[member.id];
+    else rowOverrides[member.id] = Math.max(0, w);
+    const overrides = { ...split.overrides, [item.id]: rowOverrides };
+    if (!Object.keys(rowOverrides).length) delete overrides[item.id];
     update({ ...split, overrides });
   };
-  const toggleUnits = (item) => update({ ...split, items: split.items.map((it) => (it.id === item.id ? { ...it, units: !it.units } : it)) });
 
-  const people = split.members.filter((m) => !m.out);
-  if (split.mode === 'equal' || !split.items.length || people.length < 2) return null;
+  if (!person) return null;
+  const hiddenReason = (tag) => {
+    if (tag === 'non-veg' && person.diet === 'veg') return `${person.name || 'They'} ${person.name ? 'is' : 'are'} vegetarian`;
+    if (tag === 'alcohol' && !person.alcohol) return `${person.name || 'They'} ${person.name ? 'doesn’t' : 'don’t'} drink`;
+    return '';
+  };
+
   return (
-    <div>
-      <p className="mb-3 text-xs text-slate-500">Ticked automatically from each person’s diet and drinks. Tap a name to change it; use “By units” when someone had 2 of something.</p>
-      <ul className="space-y-3">
-        {split.items.map((it) => {
-          const weights = people.map((m) => weightOf(split, it, m));
-          const sumW = weights.reduce((s, w) => s + w, 0);
+    <Modal open onClose={onClose} title="Who had what" size="md" footer={<Button variant="dark" className="w-full sm:w-auto" onClick={onClose}>Done</Button>}>
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="ft-person" className="label">Person</label>
+          <select id="ft-person" className="input text-base font-semibold" value={person.id} onChange={(e) => setWho(e.target.value)}>
+            {people.map((m) => <option key={m.id} value={m.id}>{m.name || 'Person'}{m.isPayer ? ' (paid)' : ''} · {m.diet === 'veg' ? 'Veg' : 'Non-veg'}{m.alcohol ? ' · drinks' : ''}</option>)}
+          </select>
+          <p className="mt-2 text-sm text-slate-600">
+            {person.name || 'They'} pay{person.name ? 's' : ''} <b className="num text-slate-900">{money(row?.share || 0, region)}</b>
+            {row && Math.abs(row.extra) >= 0.01 ? ` (items ${money(row.subtotal, region)} ${row.extra > 0 ? '+ VAT/SC' : '− discount'})` : ''}
+          </p>
+        </div>
+
+        {GROUPS.map((tag) => {
+          const items = split.items.filter((it) => it.tag === tag);
+          if (!items.length) return null;
+          const reason = hiddenReason(tag);
+          const folded = reason && !showHidden[tag];
+          const had = items.filter((it) => weightOf(split, it, person) > 0).length;
           return (
-            <li key={it.id} className={`rounded-lg border p-3 ${sumW ? 'border-slate-200' : 'border-amber-300 bg-amber-50/50'}`}>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="font-semibold">{it.name || 'Item'}</span>
-                <TagChip tag={it.tag} />
-                <span className="num ml-auto text-sm font-semibold">{money(it.amount)}</span>
-                <button type="button" onClick={() => toggleUnits(it)} className={`rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${it.units ? 'bg-navy text-white ring-navy' : 'text-slate-600 ring-slate-300'}`} aria-pressed={Boolean(it.units)}>
-                  {it.units ? 'By units (1x, 2x)' : 'Evenly'}
-                </button>
+            <section key={tag}>
+              <div className="mb-1.5 flex items-center gap-2">
+                <TagChip tag={tag} />
+                <span className="text-xs font-semibold text-slate-500">{had} of {items.length} ticked</span>
+                {reason && (
+                  <button type="button" className="ml-auto text-xs font-semibold text-navy underline" onClick={() => setShowHidden((x) => ({ ...x, [tag]: !x[tag] }))}>
+                    {folded ? 'Show' : 'Hide'}
+                  </button>
+                )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {people.map((m, i) => {
-                  const w = weights[i];
-                  const overridden = split.overrides?.[it.id]?.[m.id] != null;
-                  if (it.units) {
+              {folded ? (
+                <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Hidden: {reason}.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                  {items.map((it) => {
+                    const w = weightOf(split, it, person);
+                    const withWhom = people.filter((m) => m.id !== person.id && weightOf(split, it, m) > 0).map((m) => nameOf[m.id]);
                     return (
-                      <span key={m.id} className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-3 pr-1 text-sm ring-1 ring-inset ${w ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-500 ring-slate-300'}`}>
-                        {m.name || 'Person'}
-                        <button type="button" className="rounded-full p-1 hover:bg-white/20" aria-label={`One less for ${m.name}`} onClick={() => setWeight(it, m, w - 1)}><Minus className="size-3" /></button>
-                        <b className="num w-4 text-center">{w}</b>
-                        <button type="button" className="rounded-full p-1 hover:bg-white/20" aria-label={`One more for ${m.name}`} onClick={() => setWeight(it, m, w + 1)}><Plus className="size-3" /></button>
-                      </span>
+                      <li key={it.id} className="flex items-center gap-3 px-3 py-2.5">
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={w > 0}
+                          aria-label={`${person.name || 'Person'} had ${it.name}`}
+                          onClick={() => setWeight(it, person, w > 0 ? 0 : 1)}
+                          className={`flex size-7 shrink-0 items-center justify-center rounded-md border-2 text-sm font-bold ${w > 0 ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-transparent'}`}
+                        >
+                          ✓
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold">{it.name || 'Item'}{it.qty > 1 ? <span className="font-normal text-slate-500"> ×{it.qty}</span> : null}</div>
+                          <div className="truncate text-xs text-slate-500">
+                            {w > 0
+                              ? (withWhom.length ? `with ${withWhom.join(', ')}` : 'only them')
+                              : (withWhom.length ? `${withWhom.join(', ')}` : 'nobody yet')}
+                          </div>
+                        </div>
+                        {w > 0 && it.qty > 1 && (
+                          <span className="flex items-center gap-0.5 rounded-full bg-slate-100 p-0.5" title="How many of these they had">
+                            <button type="button" className="flex size-6 items-center justify-center rounded-full bg-white" aria-label="One less" onClick={() => setWeight(it, person, Math.max(1, w - 1))}><Minus className="size-3" /></button>
+                            <span className="num w-6 text-center text-xs font-bold">×{w}</span>
+                            <button type="button" className="flex size-6 items-center justify-center rounded-full bg-white" aria-label="One more" onClick={() => setWeight(it, person, w + 1)}><Plus className="size-3" /></button>
+                          </span>
+                        )}
+                        <span className="num w-16 text-right text-sm">
+                          <span className="block font-semibold">{money(it.amount, region)}</span>
+                          {w > 0 && <span className="block text-xs text-slate-500">{money(partOf[it.id] || 0, region)}</span>}
+                        </span>
+                      </li>
                     );
-                  }
-                  return (
-                    <button key={m.id} type="button" aria-pressed={w > 0} onClick={() => setWeight(it, m, w > 0 ? 0 : 1)} className={`rounded-full px-3 py-1 text-sm font-semibold ring-1 ring-inset transition ${w ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-500 ring-slate-300'} ${overridden ? 'underline decoration-dotted underline-offset-4' : ''}`}>
-                      {w ? '✓ ' : ''}{m.name || 'Person'}
-                    </button>
-                  );
-                })}
-              </div>
-              {!sumW && <p className="mt-2 text-xs font-semibold text-amber-900">Nobody is ticked for this item.</p>}
-            </li>
+                  })}
+                </ul>
+              )}
+            </section>
           );
         })}
-      </ul>
-    </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-sm">
+          <span className="text-slate-600">VAT / service charge</span>
+          <Segmented value={split.taxMode || 'proportional'} onChange={(taxMode) => update({ ...split, taxMode })} options={[{ value: 'proportional', label: 'By what each had' }, { value: 'equal', label: 'Equally' }]} />
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -360,69 +420,73 @@ function PeopleStep({ split, update }) {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <h2 className="mb-3 font-bold">How should it be split?</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            ['items', 'By what each had', 'Veg, non-veg and drinks are worked out per person', !hasItems],
-            ['equal', 'Split equally', 'Everyone pays the same', false],
-          ].map(([value, title, note, disabled]) => (
-            <button
-              key={value}
-              type="button"
-              disabled={disabled}
-              aria-pressed={(value === 'equal') === !byItems}
-              onClick={() => update({ ...split, mode: value })}
-              className={`rounded-xl border-2 p-3 text-left transition disabled:opacity-40 ${(value === 'equal') === !byItems ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-800'}`}
-            >
-              <span className="block text-sm font-bold">{title}</span>
-              <span className={`mt-0.5 block text-xs ${(value === 'equal') === !byItems ? 'text-slate-300' : 'text-slate-500'}`}>{disabled ? 'Add items first' : note}</span>
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-200/70 p-1" role="radiogroup" aria-label="How to split">
+        {[['items', 'By what each had', !hasItems], ['equal', 'Split equally', false]].map(([value, title, disabled]) => {
+          const on = (value === 'equal') === !byItems;
+          return (
+            <button key={value} type="button" role="radio" aria-checked={on} disabled={disabled} onClick={() => update({ ...split, mode: value })}
+              className={`rounded-lg py-2.5 text-sm font-bold transition disabled:opacity-40 ${on ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>
+              {title}
             </button>
-          ))}
-        </div>
-      </Card>
+          );
+        })}
+      </div>
 
       <Card className="p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="font-bold">How many people?</h2>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h2 className="font-bold">People</h2>
           <div className="flex items-center gap-1 rounded-full bg-slate-100 p-1">
-            <button type="button" onClick={() => setCount(split.members.length - 1)} disabled={split.members.length <= 1} className="flex size-9 items-center justify-center rounded-full bg-white shadow-sm disabled:opacity-40" aria-label="One person fewer"><Minus className="size-4" /></button>
-            <span className="num w-8 text-center text-lg font-extrabold" aria-live="polite">{split.members.length}</span>
-            <button type="button" onClick={() => setCount(split.members.length + 1)} className="flex size-9 items-center justify-center rounded-full bg-white shadow-sm" aria-label="One more person"><Plus className="size-4" /></button>
+            <button type="button" onClick={() => setCount(split.members.length - 1)} disabled={split.members.length <= 1} className="flex size-8 items-center justify-center rounded-full bg-white shadow-sm disabled:opacity-40" aria-label="One person fewer"><Minus className="size-4" /></button>
+            <span className="num w-7 text-center font-extrabold" aria-live="polite">{split.members.length}</span>
+            <button type="button" onClick={() => setCount(split.members.length + 1)} className="flex size-8 items-center justify-center rounded-full bg-white shadow-sm" aria-label="One more person"><Plus className="size-4" /></button>
           </div>
         </div>
-        <ul className="space-y-2">
+        <ul className="divide-y divide-slate-100">
           {split.members.map((m) => (
-            <li key={m.id} className={`rounded-lg border p-2.5 ${m.out ? 'border-dashed border-slate-300 opacity-60' : 'border-slate-200'}`}>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-pressed={!m.out}
-                  title={m.out ? 'Left out: tap to include' : 'In the split: tap to leave out'}
-                  onClick={() => setMember(m.id, { out: !m.out })}
-                  className={`flex size-7 shrink-0 items-center justify-center rounded-full border-2 ${m.out ? 'border-slate-300 bg-white text-transparent' : 'border-emerald-600 bg-emerald-600 text-white'}`}
-                  aria-label={`${m.name || 'Person'} ${m.out ? 'left out' : 'in the split'}`}
-                >
-                  ✓
-                </button>
-                <input className="input min-w-0 flex-1 py-1.5" value={m.name} onChange={(e) => update({ ...split, members: split.members.map((x) => (x.id === m.id ? { ...x, name: e.target.value } : x)) })} aria-label="Name" />
-                {m.isPayer ? <span className="shrink-0 rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-bold text-white">Paid</span>
-                  : <button type="button" onClick={() => remove(m.id)} className="shrink-0 rounded-md p-1.5 text-slate-400 hover:text-brand" aria-label={`Remove ${m.name}`}><Trash className="size-4" /></button>}
+            <li key={m.id} className="flex items-center gap-2.5 py-2.5">
+              <button
+                type="button"
+                aria-pressed={!m.out}
+                onClick={() => setMember(m.id, { out: !m.out })}
+                title={m.out ? 'Left out: tap to include' : 'In the split: tap to leave out'}
+                aria-label={`${m.name || 'Person'}: ${m.out ? 'left out, tap to include' : 'in the split, tap to leave out'}`}
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${m.out ? 'bg-slate-100 text-slate-400 line-through' : m.isPayer ? 'bg-brand text-white' : 'bg-slate-900 text-white'}`}
+              >
+                {(m.name.trim()[0] || '?').toUpperCase()}
+              </button>
+              <div className="min-w-0 flex-1">
+                <input
+                  className={`w-full truncate rounded bg-transparent text-sm font-semibold outline-none focus:bg-slate-50 focus:px-1 ${m.out ? 'text-slate-400' : 'text-slate-900'}`}
+                  value={m.name}
+                  onChange={(e) => update({ ...split, members: split.members.map((x) => (x.id === m.id ? { ...x, name: e.target.value } : x)) })}
+                  aria-label="Name"
+                />
+                {(m.out || m.isPayer) && <div className="text-xs text-slate-500">{m.out ? 'Left out' : 'Paid the bill'}</div>}
               </div>
               {byItems && !m.out && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 pl-9">
-                  <Segmented value={m.diet} onChange={(diet) => setMember(m.id, { diet }, true)} options={[{ value: 'veg', label: 'Veg' }, { value: 'non-veg', label: 'Non-veg' }]} />
-                  <button type="button" aria-pressed={m.alcohol} onClick={() => setMember(m.id, { alcohol: !m.alcohol }, true)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold ring-1 ring-inset ${m.alcohol ? 'bg-amber-100 text-amber-900 ring-amber-300' : 'bg-white text-slate-500 ring-slate-300'}`}>
-                    <Beer className="size-4" />{m.alcohol ? 'Drinks' : 'No drinks'}
+                <>
+                  <button type="button" onClick={() => setMember(m.id, { diet: m.diet === 'veg' ? 'non-veg' : 'veg' }, true)} aria-label={`${m.name}: ${m.diet === 'veg' ? 'veg' : 'non-veg'}, tap to switch`}
+                    className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-bold ring-1 ring-inset ${m.diet === 'veg' ? 'bg-emerald-50 text-emerald-800 ring-emerald-300' : 'bg-red-50 text-red-800 ring-red-200'}`}>
+                    {m.diet === 'veg' ? <Leaf className="size-3.5" /> : <Drumstick className="size-3.5" />}{m.diet === 'veg' ? 'Veg' : 'Non-veg'}
                   </button>
-                </div>
+                  <button type="button" aria-pressed={m.alcohol} onClick={() => setMember(m.id, { alcohol: !m.alcohol }, true)} title={m.alcohol ? 'Drinks: yes' : 'Drinks: no'} aria-label={`${m.name}: ${m.alcohol ? 'drinks' : 'no drinks'}, tap to switch`}
+                    className={`relative flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${m.alcohol ? 'bg-amber-100 text-amber-900 ring-amber-300' : 'bg-white text-slate-300 ring-slate-200'}`}>
+                    <Beer className="size-4" />
+                    {!m.alcohol && <span className="absolute h-0.5 w-5 rotate-45 rounded bg-slate-300" />}
+                  </button>
+                </>
+              )}
+              {!m.isPayer && (
+                <button type="button" onClick={() => remove(m.id)} className="shrink-0 rounded-full p-1 text-slate-300 hover:text-brand" aria-label={`Remove ${m.name}`}><Trash className="size-4" /></button>
               )}
             </li>
           ))}
         </ul>
+        <p className="mt-2 text-xs text-slate-500">Tap a name to rename, its circle to leave someone out.{byItems ? ' Veg and the beer button decide who shares which items; fine-tune it under Shares.' : ''}</p>
+
         {(friends.length > 0 || groups.length > 0 || others.length > 0) && (
-          <details className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
-            <summary className="cursor-pointer font-semibold text-slate-700">Saved friends & groups</summary>
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-semibold text-navy">Saved friends & groups</summary>
             <div className="mt-2 space-y-2">
               {groups.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -436,7 +500,7 @@ function PeopleStep({ split, update }) {
               )}
               <div className="flex flex-wrap gap-1.5">
                 {friends.filter((f) => !inSplit.has(f.name.toLowerCase())).map((f) => (
-                  <span key={f.name} className="inline-flex items-center rounded-full bg-white text-slate-800 ring-1 ring-slate-200">
+                  <span key={f.name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-800">
                     <button type="button" className="py-1 pl-3 pr-1 font-semibold" onClick={() => add([f])}>+ {f.name}</button>
                     <button type="button" className="px-2 py-1 text-slate-400" aria-label={`Forget ${f.name}`} onClick={() => { forgetFriend(f.name); setFriends(loadFriends()); }}>×</button>
                   </span>
@@ -457,6 +521,7 @@ function PeopleStep({ split, update }) {
 
 function SharesStep({ split, result, update, region, payerInfo }) {
   const [open, setOpen] = useState('');
+  const [tuning, setTuning] = useState(false);
   const [qrFor, setQrFor] = useState('');
   const byItems = split.mode !== 'equal';
   const owed = outstanding(split, result);
@@ -471,7 +536,7 @@ function SharesStep({ split, result, update, region, payerInfo }) {
         ))}
       </Card>
 
-      {result.unassigned > 0 && <p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">{money(result.unassigned, region)} isn’t assigned to anyone. Open “Fine-tune who had what” below.</p>}
+      {result.unassigned > 0 && <p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">{money(result.unassigned, region)} isn’t assigned to anyone. Tap “Fine-tune who had what” below.</p>}
 
       <Card className="px-4 py-2">
         <ul className="divide-y divide-slate-100">
@@ -509,18 +574,17 @@ function SharesStep({ split, result, update, region, payerInfo }) {
         </ul>
       </Card>
 
-      {byItems && split.items.length > 0 && (
-        <details className="card group">
-          <summary className="cursor-pointer px-4 py-3 font-bold">Fine-tune who had what</summary>
-          <div className="space-y-3 border-t border-slate-100 p-4">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-slate-600">VAT / service charge:</span>
-              <Segmented value={split.taxMode || 'proportional'} onChange={(taxMode) => update({ ...split, taxMode })} options={[{ value: 'proportional', label: 'By what each had' }, { value: 'equal', label: 'Equally' }]} />
-            </div>
-            <Matrix split={split} update={update} />
-          </div>
-        </details>
+      {byItems && split.items.length > 0 && result.members.filter((r) => !r.out).length > 1 && (
+        <button type="button" onClick={() => setTuning(true)} className="card flex w-full items-center gap-3 px-4 py-3 text-left">
+          <UsersRound className="size-5 text-slate-500" />
+          <span className="flex-1">
+            <span className="block font-bold">Fine-tune who had what</span>
+            <span className="block text-xs text-slate-500">Pick a person and tick what they had</span>
+          </span>
+          <span className="text-slate-400">›</span>
+        </button>
       )}
+      {tuning && <FineTuneModal split={split} update={update} region={region} onClose={() => setTuning(false)} />}
 
       <ShareImage split={split} result={result} payerInfo={payerInfo} />
       {!payerInfo && <a href="#/settings" className="block rounded-lg bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200"><HandCoins className="mr-1 inline size-4" />Add your payment QR in Settings so friends can scan it.</a>}
@@ -620,7 +684,7 @@ export function SplitEditor({ billId }) {
         <a href="#/split" className="text-sm font-semibold text-slate-600">← All splits</a>
         {expense.split && <button type="button" onClick={removeSplit} className="text-xs font-semibold text-slate-500 underline">Remove split</button>}
       </div>
-      <div className="sticky top-14 z-20 -mx-4 mb-4 bg-slate-100/95 px-4 pb-2 pt-1 backdrop-blur md:top-0">
+      <div className="mb-4">
         <h1 className="mb-2 truncate text-lg font-bold">Split: {expense.merchantName || 'Bill'}</h1>
         <Stepper step={step} setStep={setStep} />
       </div>

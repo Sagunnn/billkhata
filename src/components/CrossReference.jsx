@@ -9,7 +9,7 @@ import { Button, Modal } from './ui.jsx';
 /** Matches that still need a decision: earlier bills this one copies, not yet overridden. */
 export const unresolvedMatches = (matches, bill) => matches.filter((m) => m.earlier && !(bill.duplicateOverride || []).includes(m.bill.id));
 
-const LEVEL_LABEL = { exact: 'Same bill number', ocr: 'Bill number look-alike', items: 'Same item sequence', image: 'Same photo' };
+const LEVEL_LABEL = { exact: 'Same bill number', ocr: 'Bill number look-alike', items: 'Same item sequence', image: 'Same photo', 'same-day': 'Same shop, total and day' };
 
 function Photo({ src, label, onOpen }) {
   if (!src) return <span className="text-xs text-slate-400">No photo</span>;

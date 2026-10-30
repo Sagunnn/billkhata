@@ -3,12 +3,14 @@
 //   1. bill / invoice number (exact, then OCR look-alikes)
 //   2. the ordered sequence of line items (names and prices, top to bottom)
 //   3. a perceptual hash of the receipt photo (dHash, computed in image.js)
+//   4. a softer check: same shop, same total, same day
 // Pure functions only; unit-tested in dedupe.test.js.
 
 const toAscii = (v) => String(v ?? '').replace(/[०-९]/g, (c) => String(c.charCodeAt(0) - 0x0966));
 const panOf = (b) => toAscii(b?.sellerPan).replace(/\D/g, '');
 const totalOf = (b) => Math.round((Number(b?.totalAmount) || 0) * 100);
 const PAN_RE = /^\d{9}$/;
+const shopName = (b) => String(b?.merchantName || b?.title || '').toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}]+/gu, '');
 
 /* ---------- 1. bill / invoice numbers ---------- */
 
@@ -109,7 +111,7 @@ export function crossReferenceBill(candidate, existingBills = []) {
   const cInv = normalizeInvoiceStrict(candidate.invoiceNumber);
   const cCanon = normalizeInvoiceOCRCanonical(candidate.invoiceNumber);
   const cSeq = buildItemSequenceFingerprints(candidate);
-  const rank = { exact: 0, ocr: 1, items: 2, image: 3 };
+  const rank = { exact: 0, ocr: 1, items: 2, image: 3, 'same-day': 4 };
   const out = [];
 
   for (const b of existingBills) {
@@ -160,6 +162,16 @@ export function crossReferenceBill(candidate, existingBills = []) {
         level ||= 'image';
         reasons.push(d === 0 ? 'Same receipt photo and total' : `Nearly identical receipt photo (${d}/64 bits differ) and the same total`);
       }
+    }
+
+    // 4. Same shop (PAN, or name when a PAN is missing), same total, same day, and no bill number
+    //    on at least one of them. Catches a bill entered twice by hand, or scanned twice when the
+    //    bill number wasn't read and nothing else matched.
+    const sameShop = samePan || (panMissing && shopName(candidate) && shopName(candidate) === shopName(b));
+    // Two different bill numbers mean two different bills, so this only applies when one is missing.
+    if (!level && sameShop && sameTotal && (!cInv || !bInv) && candidate.billDateAD && candidate.billDateAD === b.billDateAD) {
+      level = 'same-day';
+      reasons.push(`Same shop and same total (${(cTotal / 100).toLocaleString('en-IN')}) on the same day`);
     }
 
     if (level) out.push({ bill: b, level, reasons, earlier: earlier(b, candidate) });

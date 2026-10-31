@@ -9,17 +9,48 @@ import { rowsFromWords } from './layout.js';
 
 let tesseractWorker = null;
 let tesseractLangs = '';
+let progressSink = null; // the current caller's onProgress (the worker outlives each call)
 
-async function runTesseract(images, { nepali, onProgress }) {
-  const langs = nepali ? 'eng+nep' : 'eng';
+async function getWorker(langs, onProgress) {
+  progressSink = onProgress || null;
   if (!tesseractWorker || tesseractLangs !== langs) {
     await tesseractWorker?.terminate();
     const { createWorker } = await import('tesseract.js');
     tesseractWorker = await createWorker(langs, 1, {
-      logger: (m) => onProgress?.({ status: m.status, progress: m.progress }),
+      logger: (m) => progressSink?.({ status: m.status, progress: m.progress }),
     });
     tesseractLangs = langs;
   }
+  return tesseractWorker;
+}
+
+/** Every word with its box, for layouts rebuilt from positions (scanned statement pages). */
+export async function recognizeWords(image, { psm = '6', onProgress } = {}) {
+  const worker = await getWorker('eng', onProgress);
+  await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
+  const { data } = await worker.recognize(image, {}, { blocks: true, text: true });
+  const words = [];
+  for (const block of data.blocks || []) {
+    for (const para of block.paragraphs || []) {
+      for (const line of para.lines || []) {
+        for (const w of line.words || []) if (w.confidence >= 30) words.push({ text: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1 });
+      }
+    }
+  }
+  return words;
+}
+
+/** Plain text of a clean image (a payment screenshot). */
+export async function recognizeText(image, { psm = '4', onProgress } = {}) {
+  const worker = await getWorker('eng', onProgress);
+  await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
+  const { data } = await worker.recognize(image);
+  return data.text || '';
+}
+
+async function runTesseract(images, { nepali, onProgress }) {
+  const langs = nepali ? 'eng+nep' : 'eng';
+  await getWorker(langs, onProgress);
   // Receipts are one block of rows. Mode 6 ("single uniform block") keeps "item … qty … amount"
   // on one line; the default auto mode often splits a bill into columns, losing every item row.
   const read = async (image, psm) => {

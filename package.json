@@ -1,7 +1,7 @@
 {
   "name": "billkhata",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "description": "BillKhata — local-first receipt scanner, expense tracker and Nepal IRD lucky draw helper (expense.sagunpradhan.com.np)",
   "scripts": {
@@ -20,6 +20,7 @@
     "jspdf-autotable": "^5.0.9",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.64.0",
+    "pdfjs-dist": "^6.4.299",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

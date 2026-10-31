@@ -5,12 +5,14 @@ import { openDB } from 'idb';
 const DB_NAME = 'billkhata';
 const STORE = 'expenses';
 const TRIPS = 'trips';
+const STATEMENTS = 'statements';
+const PAYMENTS = 'payments';
 
 let dbPromise;
 function db() {
-  // Version 2 adds the trips store. Each step only creates what's missing, so upgrading
-  // from version 1 keeps every saved bill.
-  dbPromise ||= openDB(DB_NAME, 2, {
+  // Version 2 adds the trips store, version 3 bank statements and payment screenshots. Each step
+  // only creates what's missing, so upgrading keeps every saved bill.
+  dbPromise ||= openDB(DB_NAME, 3, {
     upgrade(d, oldVersion) {
       if (oldVersion < 1) {
         const s = d.createObjectStore(STORE, { keyPath: 'id' });
@@ -18,6 +20,10 @@ function db() {
       }
       if (oldVersion < 2 && !d.objectStoreNames.contains(TRIPS)) {
         d.createObjectStore(TRIPS, { keyPath: 'id' });
+      }
+      if (oldVersion < 3) {
+        if (!d.objectStoreNames.contains(STATEMENTS)) d.createObjectStore(STATEMENTS, { keyPath: 'id' });
+        if (!d.objectStoreNames.contains(PAYMENTS)) d.createObjectStore(PAYMENTS, { keyPath: 'id' });
       }
     },
   });
@@ -41,6 +47,20 @@ export async function putManyTrips(trips) {
 export async function clearTrips() {
   await (await db()).clear(TRIPS);
 }
+
+/** Same operations for any store: statements and payments. */
+export const table = (name) => ({
+  all: async () => (await db()).getAll(name),
+  put: async (rec) => { await (await db()).put(name, rec); return rec; },
+  remove: async (id) => (await db()).delete(name, id),
+  putMany: async (recs) => {
+    const tx = (await db()).transaction(name, 'readwrite');
+    await Promise.all([...recs.map((r) => tx.store.put(r)), tx.done]);
+  },
+  clear: async () => (await db()).clear(name),
+});
+export const statementsTable = table(STATEMENTS);
+export const paymentsTable = table(PAYMENTS);
 
 export async function getAllExpenses() {
   return (await db()).getAll(STORE);

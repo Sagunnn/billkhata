@@ -6,7 +6,7 @@ import { todayAD } from './nepaliDate.js';
 
 export const BACKUP_VERSION = 1;
 
-export function buildBackup(profile, expenses, trips = []) {
+export function buildBackup(profile, expenses, trips = [], bank = {}) {
   return {
     app: 'BillKhata',
     version: BACKUP_VERSION,
@@ -14,7 +14,35 @@ export function buildBackup(profile, expenses, trips = []) {
     userProfile: profile,
     expenses,
     trips,
+    statements: bank.statements || [],
+    payments: bank.payments || [],
+    reconOverrides: bank.reconOverrides || { links: [], unlinks: [] },
   };
+}
+
+/** Bank statements and payment screenshots are optional in a backup (older files have none). */
+function validateBank(obj, skipped) {
+  const statements = [];
+  const payments = [];
+  if (Array.isArray(obj.statements)) {
+    obj.statements.forEach((st, i) => {
+      if (!st || typeof st.id !== 'string' || !Array.isArray(st.rows)) return skipped.push(`Statement #${i + 1}: missing id or rows.`);
+      statements.push({ ...st, rows: st.rows.filter((r) => r && DATE.test(r.date || '') && typeof r.key === 'string') });
+    });
+  }
+  if (Array.isArray(obj.payments)) {
+    obj.payments.forEach((p, i) => {
+      if (!p || typeof p.id !== 'string') return skipped.push(`Payment screenshot #${i + 1}: missing id.`);
+      if (p.image != null && !(typeof p.image === 'string' && p.image.startsWith('data:image/'))) return skipped.push(`Payment screenshot #${i + 1}: image is not embedded.`);
+      payments.push({ ...p, amount: Number.isFinite(Number(p.amount)) && p.amount !== null ? Number(p.amount) : null });
+    });
+  }
+  const ro = obj.reconOverrides && typeof obj.reconOverrides === 'object' ? obj.reconOverrides : null;
+  const reconOverrides = ro ? {
+    links: Array.isArray(ro.links) ? ro.links.filter((l) => Array.isArray(l) && l.every((x) => typeof x === 'string')) : [],
+    unlinks: Array.isArray(ro.unlinks) ? ro.unlinks.filter((x) => typeof x === 'string') : [],
+  } : null;
+  return { statements, payments, reconOverrides };
 }
 
 /** Trips are optional in a backup (older files have none). Bad ones are skipped and reported. */
@@ -84,7 +112,8 @@ export function validateBackup(obj) {
   }
 
   const trips = validateTrips(obj.trips, skipped);
-  return { ok: true, errors, skipped, expenses, trips, profile, exportedAt: obj.exportedAt };
+  const bank = validateBank(obj, skipped);
+  return { ok: true, errors, skipped, expenses, trips, ...bank, profile, exportedAt: obj.exportedAt };
 }
 
 export async function readBackupFile(file) {

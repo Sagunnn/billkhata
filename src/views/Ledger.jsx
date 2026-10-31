@@ -44,7 +44,7 @@ export default function Ledger() {
       <PageHeader
         title="Ledger"
         subtitle={`${list.length} of ${expenses.length} bills`}
-        actions={<><a href="#/reports" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">PDF report</a><Button variant="dark" icon={Plus} onClick={() => openEditor(blankExpense(profile.region))}>Add manually</Button></>}
+        actions={<><a href="#/bank" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">Bank</a><a href="#/reports" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">PDF report</a><Button variant="dark" icon={Plus} onClick={() => openEditor(blankExpense(profile.region))}>Add manually</Button></>}
       />
 
       <Card className="mb-4 p-3">

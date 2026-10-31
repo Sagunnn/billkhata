@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { FileText, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
+import { FileText, Landmark, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import Dashboard from './views/Dashboard.jsx';
 import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
 import Reports from './views/Reports.jsx';
+import Bank from './views/Bank.jsx';
 import Settings from './views/Settings.jsx';
 import CouponImport from './views/CouponImport.jsx';
 import { SplitEditor, SplitHub, SplitShare } from './views/Split.jsx';
@@ -17,6 +18,7 @@ const ROUTES = [
   { path: 'scan', label: 'Scan', icon: ScanLine, view: Scan },
   { path: 'split', label: 'Split', icon: SplitIcon, view: SplitHub },
   { path: 'trips', label: 'Trips', icon: Luggage, view: TripsHub, desktopOnly: true },
+  { path: 'bank', label: 'Bank', icon: Landmark, view: Bank, desktopOnly: true },
   { path: 'reports', label: 'Reports', icon: FileText, view: Reports, desktopOnly: true },
   { path: 'settings', label: 'Settings', icon: SettingsIcon, view: Settings },
 ];

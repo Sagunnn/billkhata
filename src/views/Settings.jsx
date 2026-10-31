@@ -112,7 +112,7 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples } = useStore();
+  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
@@ -121,9 +121,10 @@ function DataSection() {
   const samples = expenses.filter((e) => e.isSample).length;
 
   function download() {
-    const data = buildBackup(profile, expenses, trips);
+    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides });
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
-    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}).`);
+    const bank = statements.length || payments.length ? `, ${statements.length} statement${statements.length === 1 ? '' : 's'}, ${payments.length} payment screenshot${payments.length === 1 ? '' : 's'}` : '';
+    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}${bank}).`);
   }
 
   async function pick(file) {
@@ -143,11 +144,13 @@ function DataSection() {
       if (!window.confirm(`Replace all ${expenses.length} bills and ${trips.length} trips in this browser with the ${list.length} bills and ${(pending.trips || []).length} trips from the backup?`)) return;
       await replaceAll(list);
       await replaceAllTrips(pending.trips || []);
+      await restoreBankData(pending, 'overwrite');
       if (p) setProfile(p);
       toast(`Restored ${list.length} bills and ${(pending.trips || []).length} trips.`);
     } else {
       const added = await mergeExpenses(list);
       const addedTrips = await mergeTrips(pending.trips || []);
+      await restoreBankData(pending, 'merge');
       toast(`Added ${added} new bill${added === 1 ? '' : 's'} and ${addedTrips} trip${addedTrips === 1 ? '' : 's'}; the rest were already here.`);
     }
     setPending(null);

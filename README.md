@@ -11,7 +11,7 @@ the OCR provider the user picked.
 ```sh
 npm install
 npm run dev       # http://localhost:5173
-npm test          # dates, parser, IRD rules, duplicates, winners, OCR, splitter, trips, QR, voucher codes + PDF, helper
+npm test          # dates, parser, IRD rules, duplicates, winners, OCR, splitter, trips, QR, voucher codes + PDF, helper, bank
 npm run build     # writes dist/
 ```
 
@@ -31,7 +31,8 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
 | `src/lib/db.js`, `profile.js` | IndexedDB (via `idb`) and localStorage. |
 | `src/lib/backup.js`, `pdf.js` | JSON backup/restore with validation; jsPDF report with a receipt appendix. |
 | `src/lib/sample.js` | Demo bills with canvas-drawn receipts. |
-| `src/views/`, `src/components/` | Dashboard, Ledger, Scan, Reports, Settings; bill form, IRD modal, lists. |
+| `src/lib/bank/` | Bank statements (`statement.js`, `pdfText.js`), payment screenshots (`payment.js`), matching (`reconcile.js`); `importers.js` is the browser side. |
+| `src/views/`, `src/components/` | Dashboard, Ledger, Scan, Bank, Reports, Settings; bill form, IRD modal, lists. |
 
 ## IRD rules
 
@@ -241,6 +242,51 @@ starts on Shares.
   someone else's QR. Old or crafted links land on a "links are turned off" notice that shows nothing
   from the link. The tested encode/decode helpers (`encodeSplit`, `decodeSplit`, `sharePayload`)
   stay for a future signed-link version.
+
+## Bank: statement ledger, payment screenshots, one merged table
+
+`#/bank` (sidebar on desktop, **Bank** on the Ledger page on a phone). Nothing is uploaded: the PDF
+and the screenshots are read in the browser and kept in IndexedDB (`statements`, `payments`, DB
+version 3), and they're in backups.
+
+- **Statement → ledger** (`parseStatementPages`). pdf.js (the *legacy* build: the modern one needs
+  `Uint8Array.toHex`, which older phones lack) gives each text item with its position. Words are
+  grouped into lines left to right, following a slight tilt. The column header is found by name
+  (`classifyHeader`: Txn/Tran Date, Value Date, Particulars/Narration/Description, Cheque/Ref,
+  Withdrawal/Debit, Deposit/Credit, Amount + Dr/Cr, Balance), including two-line headers ("Debit /
+  Amount") and names pdf.js glued into one item ("Value Date Particulars", split by
+  `splitHeaderCell`). Text belongs to the column it starts in; an amount to the column its right edge
+  is in, so right-aligned, centred and left-aligned amounts all land correctly. A row starts at a
+  date; lines without one continue the narration. Dates: `29/10/2026`, `29-Oct-26`, `Oct 29, 2026`,
+  ISO, with a time, and BS (`2083/07/12` → AD). Day-first unless the statement's own dates say
+  otherwise. Without a header (a rough scan), a date starts a row and the last amount is the balance.
+- **The balance checks every row**: previous − debit + credit = balance. A debit printed under
+  Credit is swapped back, one Amount column gets its side from the balance change, newest-first
+  statements are checked oldest-first, and rows that still don't add up are flagged.
+- **Locked PDFs** ask for the password (used once, not saved). **Scanned PDFs** (a page with no
+  text) are drawn at 2.2× and read word by word with Tesseract, then go through the same parser.
+  **CSV** exports use the same header logic. Only the last 4 digits of the account number are kept.
+  Rows already imported from an overlapping statement are skipped (`bankRowKey`).
+- **Payment screenshots** (`parsePaymentText`): Fonepay, eSewa, Khalti, IME Pay, connectIPS and bank
+  apps. Label then value on one line or the next: amount (a total beats an amount before a fee;
+  balances, charges and cashback are ignored), date and time (12- or 24-hour), paid to, transaction /
+  trace ID, remarks, failed or successful, paid or received. Dark-mode screens are inverted first
+  (`prepareScreenshot`). The same screenshot twice (photo hash, ID, or amount + date + time) is skipped.
+- **Matching** (`reconcile`):
+  - bank row ↔ screenshot: same amount and direction, the bank date 1 day before to 4 days after
+    the payment (posting delay); the transaction ID in the narration (+60), same day (+20), same
+    time (+15) and the shop name in the narration (up to +20, cut-off names like "KOTHEYS PIM" count)
+    rank the pairs; strongest first, each used once. Two equal payments the same day with no ID to
+    tell them apart are flagged as unsure.
+  - a saved bill ↔ that pair (or a lone row/screenshot): same total, or within रु 1 when the shop
+    rounded off; same or next day; similar shop name; paid digitally. Money in never gets a bill.
+  - **Unlink** and **Link** (to anything with the same amount within a week) are stored as
+    `reconOverrides` and always win.
+- **The table** shows each payment once with where it was found (Bank / Screenshot / Bill), the
+  balance, and why a row needs a look: no bill or screenshot for a bank payment, a screenshot that's
+  not on the statement, an unsure pair, a balance that doesn't add up, a screenshot that wasn't fully
+  read. **Add bill** opens the bill form filled from the row (shop from the screenshot or narration,
+  amount, date, digital), and the new bill joins the row. **Export CSV** writes the merged table.
 
 ## Trip Khata (group trips, many payers)
 

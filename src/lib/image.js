@@ -273,3 +273,28 @@ export async function imageHash(src) {
   for (let i = 0; i < 72; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
   return dHashFromGray(gray);
 }
+
+/**
+ * A payment screenshot ready for OCR: grayscale and auto-levelled, small screenshots enlarged,
+ * and a dark-mode screen inverted to dark text on white (Tesseract reads that far better).
+ */
+export async function prepareScreenshot(src) {
+  const img = await loadImage(src);
+  const scale = Math.min(2, Math.max(1, 1400 / img.naturalWidth));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = pixels.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  if (sum / (d.length / 4) < 110) for (let i = 0; i < d.length; i += 4) { d[i] = 255 - d[i]; d[i + 1] = 255 - d[i + 1]; d[i + 2] = 255 - d[i + 2]; }
+  enhancePixelsForOCR(d);
+  ctx.putImageData(pixels, 0, 0);
+  return canvas.toDataURL('image/png');
+}

@@ -10,6 +10,20 @@ import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 
 const StoreContext = createContext(null);
 
+// Link/unlink choices on the Bank page: small, so they live in localStorage (and in backups).
+const RECON_KEY = 'billkhata_recon';
+function loadReconOverrides() {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECON_KEY) || '{}');
+    return { links: Array.isArray(v.links) ? v.links : [], unlinks: Array.isArray(v.unlinks) ? v.unlinks : [] };
+  } catch {
+    return { links: [], unlinks: [] };
+  }
+}
+function saveReconOverrides(v) {
+  try { localStorage.setItem(RECON_KEY, JSON.stringify(v)); } catch { /* storage full or blocked */ }
+}
+
 /** Gives every stored bill a valid, unique voucher code; saves only the ones that changed. */
 async function deleteSampleBills() {
   const ids = (await db.getAllExpenses()).filter((e) => e.isSample).map((e) => e.id);
@@ -44,6 +58,9 @@ export function StoreProvider({ children }) {
   const [profile, setProfileState] = useState(loadProfile);
   const [settings, setSettingsState] = useState(loadSettings);
   const [modal, setModal] = useState(null); // { type: 'editor'|'ird'|'photo', expense }
+  const [statements, setStatements] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [reconOverrides, setReconOverridesState] = useState(loadReconOverrides);
   const started = useRef(false);
 
   useEffect(() => {
@@ -65,6 +82,8 @@ export function StoreProvider({ children }) {
         if (hasProfile() && !isDemoProfile(loadProfile()) && !flag('keepSamples')) await deleteSampleBills();
         setExpenses(await syncBillCodes()); // backfills codes for bills saved before codes existed
         setTrips(await db.getAllTrips());
+        setStatements(await db.statementsTable.all());
+        setPayments(await db.paymentsTable.all());
         backfillImageHashes().then((list) => list && setExpenses(list));
       } catch (err) {
         setLoadError(err?.message || 'This browser blocked local storage (private mode?).');
@@ -160,6 +179,57 @@ export function StoreProvider({ children }) {
     return n;
   }, []);
 
+  // Bank statements, payment screenshots, and your own link/unlink choices between them.
+  const saveStatement = useCallback(async (st) => {
+    await db.statementsTable.put(st);
+    setStatements(await db.statementsTable.all());
+    return st;
+  }, []);
+  const deleteStatement = useCallback(async (id) => {
+    await db.statementsTable.remove(id);
+    setStatements((list) => list.filter((x) => x.id !== id));
+  }, []);
+  const savePayment = useCallback(async (p) => {
+    const clean = { ...p, updatedAt: new Date().toISOString() };
+    await db.paymentsTable.put(clean);
+    setPayments((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
+    return clean;
+  }, []);
+  const deletePayment = useCallback(async (id) => {
+    await db.paymentsTable.remove(id);
+    setPayments((list) => list.filter((x) => x.id !== id));
+  }, []);
+  const setReconOverrides = useCallback((next) => {
+    saveReconOverrides(next);
+    setReconOverridesState(loadReconOverrides());
+  }, []);
+  /** Restores bank data from a backup: 'overwrite' replaces it, 'merge' adds what's missing. */
+  const restoreBankData = useCallback(async ({ statements: sts = [], payments: ps = [], reconOverrides: ro }, mode) => {
+    if (mode === 'overwrite') {
+      await db.statementsTable.clear();
+      await db.paymentsTable.clear();
+    }
+    const haveS = new Set((await db.statementsTable.all()).map((x) => x.id));
+    const haveP = new Set((await db.paymentsTable.all()).map((x) => x.id));
+    await db.statementsTable.putMany(sts.filter((x) => !haveS.has(x.id)));
+    await db.paymentsTable.putMany(ps.filter((x) => !haveP.has(x.id)));
+    if (ro) {
+      const cur = mode === 'overwrite' ? { links: [], unlinks: [] } : loadReconOverrides();
+      saveReconOverrides({ links: [...cur.links, ...(ro.links || [])], unlinks: [...new Set([...cur.unlinks, ...(ro.unlinks || [])])] });
+      setReconOverridesState(loadReconOverrides());
+    }
+    setStatements(await db.statementsTable.all());
+    setPayments(await db.paymentsTable.all());
+  }, []);
+  const clearBankData = useCallback(async () => {
+    await db.statementsTable.clear();
+    await db.paymentsTable.clear();
+    saveReconOverrides({ links: [], unlinks: [] });
+    setReconOverridesState(loadReconOverrides());
+    setStatements([]);
+    setPayments([]);
+  }, []);
+
   const setSettings = useCallback((s) => {
     saveSettings(s);
     setSettingsState(loadSettings());
@@ -170,12 +240,15 @@ export function StoreProvider({ children }) {
     saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples,
     trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips,
     setProfile, setSettings,
+    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment,
+    reconOverrides, setReconOverrides, restoreBankData, clearBankData,
     modal,
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
     closeModal: () => setModal(null),
-  }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings]);
+  }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings,
+    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

@@ -1,5 +1,5 @@
 // The editable verification form for a bill. Used after a scan and when editing.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, CircleCheck, ImagePlus, ListPlus, Store, Trash } from 'lucide-react';
 import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
@@ -49,6 +49,89 @@ function DateFields({ ad, bs, onChange, error }) {
           }}
         />
       </Field>
+    </div>
+  );
+}
+
+/** Saved shops matching what's typed: name words or PAN digits. Empty: your most-used shops. */
+function shopMatches(shops, query) {
+  const q = query.trim().toLowerCase();
+  const byUse = [...shops].sort((a, b) => b.count - a.count);
+  if (!q) return byUse.slice(0, 6);
+  const digits = q.replace(/\D/g, '');
+  const scored = [];
+  for (const m of byUse) {
+    const name = m.merchantName.toLowerCase();
+    if (name === q) continue; // already typed in full
+    let score = 0;
+    if (name.startsWith(q)) score = 3;
+    else if (name.split(/[\s.&-]+/).some((w) => w.startsWith(q))) score = 2;
+    else if (name.includes(q)) score = 1;
+    else if (digits.length >= 3 && m.sellerPan.startsWith(digits)) score = 2;
+    if (score) scored.push([score, m]);
+  }
+  return scored.sort((a, b) => b[0] - a[0]).slice(0, 6).map(([, m]) => m);
+}
+
+/**
+ * Shop name with suggestions from the shops you've saved before. A real list instead of a
+ * <datalist>, which phones (iPhone especially) barely show. Picking one fills its PAN and category.
+ */
+function ShopInput({ value, onChange, onPick, shops, error }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const closing = useRef(0);
+  const list = useMemo(() => shopMatches(shops, value || ''), [shops, value]);
+  const show = open && list.length > 0;
+  const pick = (m) => { onPick(m); setOpen(false); setActive(-1); };
+  function onKeyDown(e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((i) => Math.min(list.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(-1, i - 1)); }
+    else if (e.key === 'Enter' && show && active >= 0) { e.preventDefault(); pick(list[active]); }
+    else if (e.key === 'Escape' && show) { e.preventDefault(); setOpen(false); }
+  }
+  return (
+    <div className="relative">
+      <input
+        id="f-merchant"
+        role="combobox"
+        aria-expanded={show}
+        aria-controls={`${id}-list`}
+        aria-autocomplete="list"
+        aria-activedescendant={show && active >= 0 ? `${id}-${active}` : undefined}
+        className={`input ${error ? 'input-error' : ''}`}
+        value={value}
+        onChange={(ev) => { onChange(ev.target.value); setOpen(true); setActive(-1); }}
+        onFocus={() => { clearTimeout(closing.current); setOpen(true); }}
+        onBlur={() => { closing.current = setTimeout(() => setOpen(false), 120); }}
+        onKeyDown={onKeyDown}
+        placeholder="e.g. Annapurna Kirana Pasal"
+        autoComplete="off"
+        enterKeyHint="next"
+      />
+      {show && (
+        <ul id={`${id}-list`} role="listbox" aria-label="Saved shops" className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          {!value?.trim() && <li className="px-3 pb-1 pt-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400" role="presentation">Your shops</li>}
+          {list.map((m, i) => (
+            <li
+              key={`${m.sellerPan}|${m.merchantName}`}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(m)}
+              className={`tap flex cursor-pointer items-center justify-between gap-3 px-3 py-2 ${i === active ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-slate-900">{m.merchantName}</span>
+                <span className="num block truncate text-xs text-slate-500">{[m.sellerPan && `PAN ${m.sellerPan}`, m.category].filter(Boolean).join(' · ')}</span>
+              </span>
+              <span className="num shrink-0 text-xs text-slate-400">{m.count} bill{m.count === 1 ? '' : 's'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -228,10 +311,17 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,42%)]">
       <div className="space-y-4">
         <Field label="Shop / seller name" htmlFor="f-merchant" error={errors.merchantName}>
-          <input id="f-merchant" list="known-shops" className={`input ${errors.merchantName ? 'input-error' : ''}`} value={e.merchantName} onChange={(ev) => changeMerchant(ev.target.value)} placeholder="e.g. Annapurna Kirana Pasal" autoComplete="off" />
-          <datalist id="known-shops">
-            {shops.map((m) => <option key={`${m.sellerPan}|${m.merchantName}`} value={m.merchantName}>{m.sellerPan ? `PAN ${m.sellerPan} · ` : ''}{m.category}</option>)}
-          </datalist>
+          <ShopInput
+            value={e.merchantName}
+            onChange={changeMerchant}
+            shops={shops}
+            error={errors.merchantName}
+            onPick={(m) => onChange({
+              merchantName: m.merchantName,
+              ...(m.sellerPan && !/^\d{9}$/.test(e.sellerPan || '') ? { sellerPan: m.sellerPan } : {}),
+              ...(e.category === DEFAULT_CATEGORY ? { category: m.category } : {}),
+            })}
+          />
           {memoryDiffers && (
             <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 ring-1 ring-inset ring-slate-200">
               <Store className="size-3.5 text-slate-500" />

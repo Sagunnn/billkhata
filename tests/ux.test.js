@@ -48,3 +48,39 @@ test('billStage: scanned → verified → submitted', () => {
   assert.equal(billStage({ irdCoupon: '123456789012' }, true), 'submitted');
   assert.equal(billStage({ irdCoupon: '1234' }, true), 'verified');
 });
+
+test('Medicine: pharmacies, medical halls and clinics are guessed as Medicine', async () => {
+  const { guessCategory } = await import('../src/lib/ocr/parse.js');
+  const { CATEGORIES, EXCLUDED_CATEGORIES } = await import('../src/lib/constants.js');
+  assert.ok(CATEGORIES.includes('Medicine'));
+  assert.ok(!EXCLUDED_CATEGORIES.includes('Medicine')); // medicine bills can enter the IRD draw
+  assert.equal(CATEGORIES.at(-1), 'Other');
+  for (const shop of ['Om Pharmacy', 'Sagarmatha Medical Hall', 'Kathmandu Medical Store', 'City Polyclinic', 'Everest Dental Care', 'नेपाल मेडिकल']) {
+    assert.equal(guessCategory(shop), 'Medicine', shop);
+  }
+  assert.equal(guessCategory('Annapurna Kirana Store'), 'Groceries');
+});
+
+test('a PDF e-bill is read from its own text', async () => {
+  const { extractBillFromText } = await import('../src/lib/ocr/index.js');
+  const text = [
+    'Om Pharmacy',
+    'Baneshwor, Kathmandu',
+    'PAN No: 609123456',
+    'TAX INVOICE',
+    'Bill No: OP-2083-0042   Date: 2083-07-15',
+    'Paracetamol 500mg x2     60.00',
+    'Cough Syrup 100ml        185.00',
+    'Sub Total     245.00',
+    'Grand Total   245.00',
+  ].join('\n');
+  const { fields, engine, confidence } = extractBillFromText(text, { region: 'Nepal' });
+  assert.equal(engine, 'pdf-text');
+  assert.equal(confidence, 100);
+  assert.equal(fields.merchantName, 'Om Pharmacy');
+  assert.equal(fields.sellerPan, '609123456');
+  assert.equal(Number(fields.totalAmount), 245);
+  assert.equal(fields.billDateBS, '2083-07-15');
+  assert.equal(fields.category, 'Medicine');
+  assert.equal(fields.isNepalBill, true);
+});

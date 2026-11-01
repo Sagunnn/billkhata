@@ -177,6 +177,8 @@ function findMerchant(lines) {
 
 const CATEGORY_HINTS = [
   ['Food & Dining', /(restaurant|cafe|café|momo|khaja|bakery|kitchen|dining|food|tea|coffee|resto|hotel|भोजन|खाजा)/i],
+  // Before Groceries: "Medical Store", "Pharmacy & Store".
+  ['Medicine', /(pharma\w*|medic(al|ine|o)\w*|chemist|drug|clinic|hospital|health\s*care|dental|diagnostic|path(o)?\s*lab|औषधि|औषधी|मेडिकल|फार्मेसी|अस्पताल)/i],
   ['Groceries', /(mart|kirana|grocery|grocer|supermarket|store|pasal|traders|किराना|पसल)/i],
   ['Utilities & Telecom', /(electric|nea|telecom|ncell|ntc|internet|wifi|water|khanepani|recharge|topup)/i],
   ['Transport', /(taxi|bus|ride|fuel|petrol|diesel|airline|ticket|yatayat|पेट्रोल)/i],

@@ -11,7 +11,7 @@ import { ACCOUNT_NAMES, bankRowKey } from '../lib/bank/statement.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, EmptyState, Field, Modal, PageHeader, Segmented } from '../components/ui.jsx';
+import { Button, Card, EmptyState, Field, Modal, PageHeader, Segmented, useFileDrop } from '../components/ui.jsx';
 
 // MIME types too: iPhone's file picker greys out files whose type isn't listed.
 const STATEMENT_TYPES = [
@@ -81,14 +81,18 @@ function StatementUpload({ statements, onSaved }) {
   }
 
   const { step } = state;
+  const [dragging, dropProps] = useFileDrop((files) => (step === 'idle' || step === 'preview') && read(files[0]));
   return (
-    <Card className="p-4">
+    <Card className={`p-4 transition ${dragging ? 'ring-2 ring-navy ring-offset-2' : ''}`} {...dropProps}>
       <h2 className="flex items-center gap-2 font-bold"><Landmark className="size-5 text-navy" />Bank statement</h2>
       <p className="mt-0.5 text-sm text-slate-600">The PDF your bank emails, or an Excel (.xlsx / .xls) or CSV export from your bank or wallet app. A screenshot works too, less exactly. Read on this device.</p>
       <input ref={input} type="file" accept={STATEMENT_TYPES} className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) read(f); }} />
 
       {step === 'idle' && (
-        <Button className="mt-3 w-full" variant="dark" icon={FileUp} onClick={() => input.current?.click()}>Upload statement</Button>
+        <>
+          <Button className="mt-3 w-full" variant="dark" icon={FileUp} onClick={() => input.current?.click()}>{dragging ? 'Drop it here' : 'Upload statement'}</Button>
+          <p className="mt-1.5 hidden text-center text-xs text-slate-500 md:block">or drop a PDF, Excel, CSV or screenshot on this box</p>
+        </>
       )}
       {step === 'reading' && (
         <p className="mt-3 flex items-center gap-2 text-sm text-slate-700"><LoaderCircle className="size-4 animate-spin" />{state.status}…</p>
@@ -214,15 +218,19 @@ function ScreenshotUpload({ payments }) {
     toast(`${parts.join('; ')}.`, unread ? 'error' : undefined);
   }
 
+  const [dragging, dropProps] = useFileDrop((files) => !busy && add(files));
   return (
-    <Card className="p-4">
+    <Card className={`p-4 transition ${dragging ? 'ring-2 ring-navy ring-offset-2' : ''}`} {...dropProps}>
       <h2 className="flex items-center gap-2 font-bold"><Smartphone className="size-5 text-navy" />Payment screenshots</h2>
       <p className="mt-0.5 text-sm text-slate-600">Success screens from Fonepay, eSewa, Khalti or your bank app. Pick several at once.</p>
       <input ref={input} type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { const f = e.target.files; add(f ? [...f] : []); e.target.value = ''; }} />
       {busy ? (
         <p className="mt-3 flex items-center gap-2 text-sm text-slate-700"><LoaderCircle className="size-4 animate-spin" />{busy}…</p>
       ) : (
-        <Button className="mt-3 w-full" variant="dark" icon={ImageUp} onClick={() => input.current?.click()}>Add screenshots</Button>
+        <>
+          <Button className="mt-3 w-full" variant="dark" icon={ImageUp} onClick={() => input.current?.click()}>{dragging ? 'Drop them here' : 'Add screenshots'}</Button>
+          <p className="mt-1.5 hidden text-center text-xs text-slate-500 md:block">or drop several images on this box</p>
+        </>
       )}
       {payments.length > 0 && <p className="mt-2 text-xs text-slate-500">{plural(payments.length, 'screenshot')} saved.</p>}
     </Card>

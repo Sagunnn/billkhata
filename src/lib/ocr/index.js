@@ -207,6 +207,11 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     }
   }
 
+  return finishFields(fields, { rawText, engine, confidence, region });
+}
+
+/** Shared clean-up for every way of reading a bill. */
+function finishFields(fields, { rawText, engine, confidence, region }) {
   // An item bigger than the whole bill is a misread number.
   if (fields.lineItems?.length && fields.totalAmount > 0) {
     fields.lineItems = fields.lineItems.filter((it) => it.amount <= fields.totalAmount + 0.5);
@@ -222,4 +227,13 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     // No total was printed or read; the one shown is the items' sum (or a guess).
     totalGuessed: Boolean(totalGuessed && clean.totalAmount),
   };
+}
+
+/**
+ * A digital PDF bill (an e-bill or a receipt saved as PDF) has its own text layer, so no OCR is
+ * needed: the same parser reads the exact text.
+ */
+export function extractBillFromText(text, { region } = {}) {
+  const fields = { ...parseReceiptText(text), lineItems: parseLineItemsFromText(text) };
+  return finishFields(fields, { rawText: text, engine: 'pdf-text', confidence: 100, region });
 }

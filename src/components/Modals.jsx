@@ -79,7 +79,7 @@ export function BillEditor({ expense, onClose }) {
     <Modal
       open
       onClose={viewPhoto ? () => {} : onClose}
-      title="Edit bill"
+      title={isSaved ? 'Edit bill' : 'New bill'}
       size="xl"
       footer={(
         // Phones: a full-width Save on top, the rest in one row below it (✕ closes, so no Cancel).

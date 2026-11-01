@@ -46,6 +46,16 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
   sticks under the header on phones and folds away to a thin bar; on desktop it stays in view beside
   the form. A badge says **Scanned** (read, not saved), **Verified** (saved) or **Submitted** (IRD
   coupon saved). The PAN field counts digits ("6 of 9") and turns green at 9.
+- **Adding a bill:** Scan and Add by hand sit side by side on the Scan page, the Dashboard and the
+  sidebar. Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
+  PDF has a text layer, its exact text goes through the receipt parser instead of OCR
+  (`extractBillFromText`). Drop a photo or PDF anywhere on the Scan page, a statement on the Bank
+  page's statement box, or several screenshots on its screenshots box; a file dropped anywhere else
+  is ignored instead of making the browser leave the app.
+- **Shop suggestions:** the shop field lists shops from your saved bills as you type (by name or PAN
+  digits; your most-used ones when it's empty). Picking one fills its PAN and category.
+- **Medicine** category: pharmacies, medical halls, clinics, hospitals and labs are guessed as
+  Medicine. It counts for the IRD draw like any other shop bill.
 - **Numbers line up:** tabular figures on amounts, dates, PANs and invoice numbers; each bill row
   is shop and amount on top, then date · BS date · category, then invoice and PAN, in a muted line.
 - **IRD copy:** the portal fields in a monospaced box with one Copy button (✓ and a toast), plus

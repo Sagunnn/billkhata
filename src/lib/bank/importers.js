@@ -10,7 +10,7 @@ export { PdfPasswordError } from './pdfText.js';
 // The legacy build carries fallbacks for JavaScript features older phones lack (the modern
 // build needs Uint8Array.toHex, which Chrome only gained in 2025).
 let pdfjsPromise;
-async function loadPdfjs() {
+export async function loadPdfjs() {
   pdfjsPromise ||= Promise.all([
     import('pdfjs-dist/legacy/build/pdf.min.mjs'),
     import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'),

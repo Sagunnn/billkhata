@@ -239,3 +239,28 @@ export function StageBadge({ stage, className = '' }) {
 
 /** Grey placeholder blocks shown while data loads. */
 export const Skeleton = ({ className = '' }) => <div className={`skeleton ${className}`} aria-hidden="true" />;
+
+/**
+ * Drag-and-drop of files onto an element: spread `props` on it, show `dragging` as a highlight.
+ * Only drags that carry files count, so dragging text or a link around the page does nothing.
+ */
+export function useFileDrop(onFiles) {
+  const [dragging, setDragging] = useState(false);
+  const depth = useRef(0);
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const props = {
+    onDragEnter: (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current += 1; setDragging(true); },
+    onDragOver: (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
+    onDragLeave: (e) => { if (!hasFiles(e)) return; depth.current = Math.max(0, depth.current - 1); if (!depth.current) setDragging(false); },
+    onDrop: (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      depth.current = 0;
+      setDragging(false);
+      const files = [...(e.dataTransfer.files || [])];
+      if (files.length) onFiles(files);
+    },
+  };
+  return [dragging, props];
+}

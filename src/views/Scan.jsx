@@ -1,18 +1,18 @@
 // Capture -> OCR -> verify -> save.
 import { useState } from 'react';
-import { Camera, Divide, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
+import { Camera, Divide, FileDown, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
 import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
-import { extractBill, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
+import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
 import { duplicateHold, photoFieldsFromFile, PhotoViewer } from '../components/Modals.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, PageHeader } from '../components/ui.jsx';
+import { Button, Card, PageHeader, useFileDrop } from '../components/ui.jsx';
 
 const STATUS_TEXT = {
   'loading tesseract core': 'Loading the text reader',
@@ -42,7 +42,8 @@ export default function Scan() {
     ? `${VISION_PROVIDERS[settings.visionProvider]?.label} (${settings.models[settings.visionProvider]})`
     : `Tesseract, on this device${settings.tesseractNepali ? ' (English + Nepali)' : ''}`;
 
-  async function processImage(src) {
+  /** `text`: a PDF bill's own text, read instead of running OCR on the picture. */
+  async function processImage(src, { text = '' } = {}) {
     setStep('reading');
     setPreview(src);
     setProgress({ status: 'Preparing the photo', progress: 0 });
@@ -53,11 +54,13 @@ export default function Scan() {
       let fields = {};
       let engine = settings.ocrEngine;
       try {
-        const out = await extractBill(images, settings, { region: profile.region, onProgress: setProgress });
+        const out = text
+          ? extractBillFromText(text, { region: profile.region })
+          : await extractBill(images, settings, { region: profile.region, onProgress: setProgress });
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
-        setLastRead({ engine: settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed });
+        setLastRead({ engine: text ? 'pdf-text' : settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed });
       } catch (err) {
         setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {} });
         toast(`Could not read the bill automatically: ${err.message} Fill in the details below.`, 'error');
@@ -92,10 +95,27 @@ export default function Scan() {
   }
 
   async function onFile(file) {
+    if (!file) return;
+    const { isPdf, readBillPdf } = await import('../lib/pdfBill.js');
+    if (isPdf(file)) {
+      setStep('reading');
+      setProgress({ status: 'Opening the PDF', progress: 0.05 });
+      try {
+        const { image, text, pages } = await readBillPdf(file);
+        if (pages > 1) toast(`That PDF has ${pages} pages; page 1 was read.`);
+        return processImage(image, { text });
+      } catch (e) {
+        toast(e.message, 'error');
+        return setStep('pick');
+      }
+    }
     const err = validateImageFile(file);
-    if (err) return toast(err, 'error');
+    if (err) return toast(`${err.replace(/\.$/, '')}, or a PDF.`, 'error');
     processImage(await fileToDataUrl(file));
   }
+
+  // Drop a photo or PDF anywhere on the page while choosing.
+  const [dragging, dropProps] = useFileDrop((files) => step === 'pick' && onFile(files[0]));
 
   async function save(then) {
     const errs = validateExpense(draft);
@@ -181,8 +201,8 @@ export default function Scan() {
     return (
       <div>
         <PageHeader
-          title="Check the details"
-          subtitle="OCR makes mistakes. Fix anything that looks wrong, then save."
+          title={draft.ocrEngine ? 'Check the details' : 'New bill'}
+          subtitle={draft.ocrEngine === 'pdf-text' ? 'Read from the PDF’s own text. Check it, then save.' : draft.ocrEngine ? 'OCR makes mistakes. Fix anything that looks wrong, then save.' : 'Fill in the details, then save. Shops you’ve saved before are suggested.'}
           actions={<Button variant="ghost" icon={RotateCcw} onClick={reset}>Start over</Button>}
         />
         {lastRead?.engine === OCR_ENGINES.TESSERACT && ocrImages && needsBetterRead(lastRead) && (
@@ -252,36 +272,51 @@ export default function Scan() {
     );
   }
 
+  const byHand = () => { setDraft(blankExpense(profile.region)); setStep('review'); };
+  const pickFile = (e) => { onFile(e.target.files?.[0]); e.target.value = ''; };
   return (
-    <div>
-      <PageHeader title="Scan a bill" subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="card flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed border-brand/40 bg-brand-soft px-6 py-10 text-center transition hover:border-brand">
-          <span className="flex size-14 items-center justify-center rounded-full bg-brand text-white shadow"><Camera className="size-7" /></span>
-          <span className="text-lg font-bold text-slate-900">Take a photo</span>
-          <span className="text-sm text-slate-600">Uses your phone’s back camera. Lay the bill flat, in good light.</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+    <div {...dropProps} className="relative">
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6">
+          <div className="rounded-2xl border-2 border-dashed border-white bg-slate-900/80 px-8 py-10 text-center text-white">
+            <FileDown className="mx-auto size-10" />
+            <p className="mt-2 text-lg font-bold">Drop the bill here</p>
+            <p className="text-sm text-slate-300">A photo (JPG, PNG, WEBP) or a PDF</p>
+          </div>
+        </div>
+      )}
+      <PageHeader title="Add a bill" subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
+      {/* Scan and type-it-in side by side: both are first-class ways to add a bill. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <label className="card flex cursor-pointer flex-col items-center gap-2 border-2 border-dashed border-brand/40 bg-brand-soft px-3 py-6 text-center transition hover:border-brand sm:gap-3 sm:px-6 sm:py-10">
+          <span className="flex size-12 items-center justify-center rounded-full bg-brand text-white shadow sm:size-14"><Camera className="size-6 sm:size-7" /></span>
+          <span className="text-base font-bold text-slate-900 sm:text-lg">Scan a bill</span>
+          <span className="text-xs text-slate-600 sm:text-sm">Take a photo with the back camera. Lay the bill flat, in good light.</span>
+          <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={pickFile} />
         </label>
-        <label
-          className="card flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed border-slate-300 px-6 py-10 text-center transition hover:border-slate-500"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}
-        >
-          <span className="flex size-14 items-center justify-center rounded-full bg-slate-900 text-white shadow"><Upload className="size-7" /></span>
-          <span className="text-lg font-bold text-slate-900">Upload an image</span>
-          <span className="text-sm text-slate-600">JPG, PNG or WEBP. Drop a file here or tap to choose.</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+        <button type="button" onClick={byHand} className="card flex flex-col items-center gap-2 border-2 border-dashed border-slate-300 px-3 py-6 text-center transition hover:border-slate-500 sm:gap-3 sm:px-6 sm:py-10">
+          <span className="flex size-12 items-center justify-center rounded-full bg-slate-900 text-white shadow sm:size-14"><PencilLine className="size-6 sm:size-7" /></span>
+          <span className="text-base font-bold text-slate-900 sm:text-lg">Add by hand</span>
+          <span className="text-xs text-slate-600 sm:text-sm">Type the shop, date and total. Your saved shops are suggested.</span>
+        </button>
+        <label className="card col-span-2 flex cursor-pointer items-center gap-3 border-2 border-dashed border-slate-300 px-4 py-4 text-left transition hover:border-slate-500 md:col-span-1 md:flex-col md:justify-center md:gap-3 md:px-6 md:py-10 md:text-center">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 md:size-14 md:bg-slate-900 md:text-white md:shadow"><Upload className="size-5 md:size-7" /></span>
+          <span>
+            <span className="block font-bold text-slate-900 md:text-lg">Upload a photo or PDF</span>
+            <span className="block text-xs text-slate-600 md:mt-1 md:text-sm">JPG, PNG, WEBP or a PDF e-bill. Tap to choose, or drop a file anywhere on this page.</span>
+          </span>
+          <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" className="sr-only" onChange={pickFile} />
         </label>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Button size="lg" icon={Sparkles} onClick={() => processImage(sampleReceiptForScan())}>Try with a sample receipt</Button>
-        <Button size="lg" icon={PencilLine} onClick={() => { setDraft(blankExpense(profile.region)); setStep('review'); }}>Enter a bill by hand</Button>
+      <div className="mt-3">
+        <Button size="lg" variant="ghost" icon={Sparkles} className="w-full sm:w-auto" onClick={() => processImage(sampleReceiptForScan())}>Try with a sample receipt</Button>
       </div>
       <Card className="mt-5 p-4 text-sm text-slate-600">
         <h2 className="mb-2 flex items-center gap-2 font-bold text-slate-900"><ScanText className="size-4" />Tips for a clean read</h2>
         <ul className="list-disc space-y-1 pl-5">
           <li>Fill the frame with the bill and keep the text straight.</li>
           <li>Handwritten or Nepali-script bills read best with a vision API key (Settings → OCR engine).</li>
+          <li>A PDF e-bill is read from its own text, so nothing is misread. Page 1 is kept as the bill’s photo.</li>
           <li>Photos are shrunk to under 300 KB and stored only in this browser.</li>
         </ul>
       </Card>

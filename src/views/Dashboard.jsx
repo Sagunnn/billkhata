@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { CalendarDays, ChevronRight, Coins, Hourglass, ScanLine, SearchCheck, Ticket, Trophy, UserRound, Wallet } from 'lucide-react';
+import { CalendarDays, ChevronRight, Coins, Hourglass, PencilLine, ScanLine, SearchCheck, Ticket, Trophy, UserRound, Wallet } from 'lucide-react';
 import { REGIONS } from '../lib/constants.js';
-import { byCategory, filterExpenses, reportTotals, summarize } from '../lib/expense.js';
+import { blankExpense, byCategory, filterExpenses, reportTotals, summarize } from '../lib/expense.js';
 import { money } from '../lib/format.js';
 import { CLAIM_DAYS, formatCoupon, needsCouponOnly, needsManualEntry, normalizeCouponCode } from '../lib/ird.js';
 import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, todayAD, todayBS } from '../lib/nepaliDate.js';
@@ -97,7 +97,7 @@ function CashDigitalCard({ list, region, label }) {
 }
 
 export default function Dashboard() {
-  const { expenses, profile } = useStore();
+  const { expenses, profile, openEditor } = useStore();
   const region = profile.region;
   const isNepal = region === REGIONS.NEPAL;
   const s = summarize(expenses, { region });
@@ -124,9 +124,13 @@ export default function Dashboard() {
           <p className="text-sm font-medium text-slate-500">{formatAD(todayAD())}{tBs ? ` · ${formatBS(tBs)} BS` : ''}</p>
           <h1 className="text-2xl font-bold tracking-tight">Namaste{profile.fullName && !isDemoProfile(profile) ? `, ${profile.fullName.split(' ')[0]}` : ''}</h1>
         </div>
-        <a href="#/scan" className="hidden h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark md:inline-flex">
-          <ScanLine className="size-[18px]" />Scan a bill
-        </a>
+        {/* Scan and Add by hand side by side (full width on phones). */}
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+          <a href="#/scan" className="tap inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark sm:h-10">
+            <ScanLine className="size-[18px]" />Scan a bill
+          </a>
+          <Button icon={PencilLine} className="h-11 sm:h-10" onClick={() => openEditor(blankExpense(region))}>Add by hand</Button>
+        </div>
       </div>
 
       {isDemoProfile(profile) && (

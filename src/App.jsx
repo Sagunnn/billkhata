@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { FileText, Landmark, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, Split as SplitIcon } from 'lucide-react';
+import { FileText, Landmark, LayoutDashboard, List, Luggage, PencilLine, ScanLine, Settings as SettingsIcon, Split as SplitIcon } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import { StorageIndicator, StorageNote } from './components/LocalFirst.jsx';
 import { Skeleton } from './components/ui.jsx';
+import { blankExpense } from './lib/expense.js';
 import Dashboard from './views/Dashboard.jsx';
 import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
@@ -48,13 +49,26 @@ function Logo() {
   );
 }
 
+/** Scan and Add by hand, side by side. */
+function AddButtons({ className = '' }) {
+  const { openEditor, profile } = useStore();
+  return (
+    <div className={`grid grid-cols-[1fr_auto] gap-2 ${className}`}>
+      <a href="#/scan" className="tap flex h-11 items-center justify-center gap-2 rounded-lg bg-brand px-3 font-semibold text-white shadow-sm hover:bg-brand-dark">
+        <ScanLine className="size-5" />Scan a bill
+      </a>
+      <button type="button" onClick={() => openEditor(blankExpense(profile.region))} className="tap flex h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50" title="Add a bill by hand">
+        <PencilLine className="size-4" />Add
+      </button>
+    </div>
+  );
+}
+
 function Sidebar({ route }) {
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-slate-200 bg-white px-4 py-5 md:flex">
       <Logo />
-      <a href="#/scan" className="mt-6 flex h-11 items-center justify-center gap-2 rounded-lg bg-brand font-semibold text-white shadow-sm hover:bg-brand-dark">
-        <ScanLine className="size-5" />Scan a bill
-      </a>
+      <AddButtons className="mt-6" />
       <nav className="mt-5 space-y-1">
         {ROUTES.filter((r) => r.path !== 'scan').map(({ path, label, icon: Icon }) => (
           <a
@@ -122,8 +136,19 @@ function LoadingView() {
   );
 }
 
+/** A file dropped outside a drop zone would make the browser open it and leave the app. */
+function useDropGuard() {
+  useEffect(() => {
+    const stop = (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); };
+    window.addEventListener('dragover', stop);
+    window.addEventListener('drop', stop);
+    return () => { window.removeEventListener('dragover', stop); window.removeEventListener('drop', stop); };
+  }, []);
+}
+
 export default function App() {
   const route = useHashRoute();
+  useDropGuard();
   const { ready, loadError } = useStore();
   // #/coupon/<billId>/<code> comes back from the portal helper.
   const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);

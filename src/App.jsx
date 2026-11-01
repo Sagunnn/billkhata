@@ -49,16 +49,16 @@ function Logo() {
   );
 }
 
-/** Scan and Add by hand, side by side. */
+/** Scan and Add by hand, one per line, full width. */
 function AddButtons({ className = '' }) {
   const { openEditor, profile } = useStore();
   return (
-    <div className={`grid grid-cols-[1fr_auto] gap-2 ${className}`}>
-      <a href="#/scan" className="tap flex h-11 items-center justify-center gap-2 rounded-lg bg-brand px-3 font-semibold text-white shadow-sm hover:bg-brand-dark">
+    <div className={`grid gap-2 ${className}`}>
+      <a href="#/scan" className="tap flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-brand px-3 font-semibold text-white shadow-sm hover:bg-brand-dark">
         <ScanLine className="size-5" />Scan a bill
       </a>
-      <button type="button" onClick={() => openEditor(blankExpense(profile.region))} className="tap flex h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50" title="Add a bill by hand">
-        <PencilLine className="size-4" />Add
+      <button type="button" onClick={() => openEditor(blankExpense(profile.region))} className="tap flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 font-semibold text-slate-800 hover:bg-slate-50">
+        <PencilLine className="size-[18px]" />Add by hand
       </button>
     </div>
   );

@@ -108,10 +108,12 @@ export function BankMatchCard({ bill, match: m, region, onChange, onUseFor }) {
 
 /** "In bank" / "Screenshot" tag under a bill in the ledger. */
 export function BankTag({ e }) {
-  const { bankRecon } = useStore();
+  const { bankRecon, statements } = useStore();
   const x = bankRecon.byExpense.get(e.id);
   if (!x) return null;
-  const label = x.bank && x.payment ? 'In bank · screenshot' : x.bank ? 'In bank statement' : 'Payment screenshot';
+  const source = x.bank && statements.find((st) => st.id === x.bank.statementId)?.bank;
+  const where = source ? `In ${source}` : 'In bank';
+  const label = x.bank && x.payment ? `${where} · screenshot` : x.bank ? (source ? where : 'In bank statement') : 'Payment screenshot';
   return (
     <a href="#/bank" className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 hover:underline" title={x.bank?.description || x.payment?.merchant || ''}>
       <CircleCheck className="size-3.5" />{label}{x.bank ? ` · ${formatAD(x.bank.date)}` : ''}

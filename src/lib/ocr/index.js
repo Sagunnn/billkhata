@@ -25,6 +25,10 @@ async function getWorker(langs, onProgress) {
 }
 
 /** Every word with its box, for layouts rebuilt from positions (scanned statement pages). */
+// Low-confidence words are usually noise (grid lines, smudges), but a clean number next to a table
+// line often scores low too: keep words that are plainly an amount, date or time.
+const keepWord = (w) => w.confidence >= 30 || (w.confidence >= 10 && /\d/.test(w.text) && /^[\d.,:/-]+$/.test(w.text));
+
 export async function recognizeWords(image, { psm = '6', onProgress } = {}) {
   const worker = await getWorker('eng', onProgress);
   await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
@@ -33,7 +37,7 @@ export async function recognizeWords(image, { psm = '6', onProgress } = {}) {
   for (const block of data.blocks || []) {
     for (const para of block.paragraphs || []) {
       for (const line of para.lines || []) {
-        for (const w of line.words || []) if (w.confidence >= 30) words.push({ text: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1 });
+        for (const w of line.words || []) if (keepWord(w)) words.push({ text: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1 });
       }
     }
   }

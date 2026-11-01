@@ -124,3 +124,27 @@ test('a phone screenshot of a wallet statement (OCR words): two-line headers, "D
   assert.deepEqual(st.checks, { checked: 1, ok: 1, fixed: 0 });
   assert.doesNotMatch(st.rows[1].description, /COMPLETE|App/);
 });
+
+test('a real wallet screenshot whose header OCR garbles (thick borders): rows still found', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { parseStatementPages } = await import('../src/lib/bank/statement.js');
+  // Tesseract's words from an iPhone screenshot (personal numbers replaced). The header row comes
+  // out as "a Time [pescrpifor. Cr. Status rea”", so the no-header path has to read the rows.
+  const words = JSON.parse(readFileSync(new URL('./fixtures/wallet-screenshot-real.words.json', import.meta.url)));
+  const st = parseStatementPages([words]);
+  assert.deepEqual(st.rows.map((r) => [r.date, r.ref, r.debit, r.credit, r.balance]), [
+    ['2026-10-31', '1WXYZ34', 650, null, 647.4],
+    ['2026-11-01', '1ABCD12', 135, null, 512.4],
+  ]);
+  assert.deepEqual(st.checks, { checked: 1, ok: 1, fixed: 0 });
+  assert.equal(st.rows[1].description, 'Paid for Bag');
+  assert.deepEqual(st.warnings, []);
+});
+
+test('wallet names: found at the top of a statement, not from a payment row in a bank statement', async () => {
+  const { statementMeta } = await import('../src/lib/bank/statement.js');
+  assert.equal(statementMeta('eSewa Transaction Statement\nFrom NOV 1 2026').bank, 'eSewa');
+  const rows = Array.from({ length: 12 }, (_, i) => `0${i}/10/2026 ATM WITHDRAWAL 500.00 10,000.00`).join('\n');
+  assert.equal(statementMeta(`Statement of account\n${rows}\n05/11/2026 ESEWA LOAD 1,000.00 9,000.00`).bank, '');
+  assert.equal(statementMeta('Laxmi Sunrise Bank Ltd\nA/C No: 01234567890123\nESEWA LOAD').bank, 'Laxmi Sunrise Bank');
+});

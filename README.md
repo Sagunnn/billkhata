@@ -297,7 +297,15 @@ version 3), and they're in backups.
   of the description, and failed, cancelled or pending rows are left out with a note.
   A **screenshot** of a statement is read with OCR like a scanned page: two-line headers are
   stacked line by line, a date with a reference in front of it in one cell is still found, and a row
-  whose date is cut off is reported instead of guessed. Only the last 4 digits of the account number are kept.
+  whose date is cut off is reported instead of guessed. When the header itself is garbled (thick
+  borders), each line with a date and amounts is still read: reference before the date, words up to
+  the first amount as the description, then Dr / Cr / Balance, with status words set aside. Numbers
+  OCR reads with low confidence are kept if they are plainly numbers.
+- **Bank or wallet name:** files often don't say whose they are, so the preview asks (eSewa,
+  Khalti, Laxmi Sunrise Bank… or anything typed; names used before come first), and a statement
+  can be renamed later. The name shows on statement chips, Bank rows, the bill form's match card
+  and the ledger tag ("In eSewa · 1 Nov"). Wallet names are only detected near the top of a file,
+  so an "ESEWA LOAD" payment doesn't label a bank statement. Only the last 4 digits of the account number are kept.
   Rows already imported from an overlapping statement are skipped (`bankRowKey`).
 - **Payment screenshots** (`parsePaymentText`): Fonepay, eSewa, Khalti, IME Pay, connectIPS and bank
   apps. Label then value on one line or the next: amount (a total beats an amount before a fee;

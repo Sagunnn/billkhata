@@ -1,13 +1,13 @@
 // Bank: a statement PDF becomes a ledger, payment screenshots are read, and both are matched
 // with your saved bills into one table. Everything stays in this browser.
 import { useMemo, useRef, useState } from 'react';
-import { CircleCheck, Download, FileUp, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert } from 'lucide-react';
+import { CircleCheck, Download, FileUp, Pencil, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert } from 'lucide-react';
 import { PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { downloadBlob, money } from '../lib/format.js';
 import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import { newId } from '../lib/db.js';
-import { bankRowKey } from '../lib/bank/statement.js';
+import { ACCOUNT_NAMES, bankRowKey } from '../lib/bank/statement.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -55,7 +55,7 @@ function StatementUpload({ statements, onSaved }) {
     }
   }
 
-  async function save() {
+  async function save(name) {
     const { st, file } = state;
     const id = newId();
     const have = new Set(statements.flatMap((s) => s.rows.map((r) => r.key)));
@@ -70,7 +70,7 @@ function StatementUpload({ statements, onSaved }) {
     const fresh = rows.filter((r) => !have.has(r.key));
     if (!fresh.length) { toast('Every row in this statement is already imported.', 'error'); setState({ step: 'idle' }); return; }
     await saveStatement({
-      id, fileName: file.name, bank: st.bank, account: st.account, from: st.from, to: st.to,
+      id, fileName: file.name, bank: name.trim(), account: st.account, from: st.from, to: st.to,
       openingBalance: st.openingBalance, closingBalance: st.closingBalance, checks: st.checks, warnings: st.warnings,
       rows: fresh, importedAt: new Date().toISOString(),
     });
@@ -104,19 +104,46 @@ function StatementUpload({ statements, onSaved }) {
           </div>
         </form>
       )}
-      {step === 'preview' && <StatementPreview st={state.st} onSave={save} onCancel={() => setState({ step: 'idle' })} />}
+      {step === 'preview' && <StatementPreview st={state.st} statements={statements} onSave={save} onCancel={() => setState({ step: 'idle' })} />}
     </Card>
   );
 }
 
-function StatementPreview({ st, onSave, onCancel }) {
+/** Names to offer: ones you used before first, then common wallets and banks. */
+function nameOptions(statements) {
+  return [...new Set([...statements.map((s) => s.bank).filter(Boolean), ...ACCOUNT_NAMES])];
+}
+
+/** "Bank or wallet" box with suggestions, and quick picks for the likely ones. */
+function AccountName({ id, value, onChange, statements, autoFocus }) {
+  const options = nameOptions(statements);
+  const quick = [...new Set([...statements.map((s) => s.bank).filter(Boolean), 'eSewa', 'Khalti', 'Laxmi Sunrise Bank'])].slice(0, 5);
+  return (
+    <div>
+      <input id={id} list={`${id}-list`} className="input py-2" value={value} onChange={(e) => onChange(e.target.value)} placeholder="eSewa, Khalti, Laxmi Sunrise Bank…" autoComplete="off" autoFocus={autoFocus} maxLength={40} />
+      <datalist id={`${id}-list`}>{options.map((o) => <option key={o} value={o} />)}</datalist>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {quick.map((q) => (
+          <button key={q} type="button" onClick={() => onChange(q)} className={`tap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${value === q ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>{q}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatementPreview({ st, statements, onSave, onCancel }) {
   const { profile } = useStore();
+  const [name, setName] = useState(st.bank || '');
   const out = st.rows.reduce((s, r) => s + (r.debit || 0), 0);
   const inn = st.rows.reduce((s, r) => s + (r.credit || 0), 0);
   const good = st.checks.checked > 0 && st.checks.ok === st.checks.checked;
   return (
     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-      <p className="font-semibold text-slate-900">{st.bank || 'Statement'}{st.account ? ` ••${st.account}` : ''}</p>
+      <label htmlFor="st-name" className="mb-1 block text-xs font-semibold text-slate-700">
+        Bank or wallet{st.bank ? '' : ': not named in the file, so pick or type it'}
+      </label>
+      <AccountName id="st-name" value={name} onChange={setName} statements={statements} />
+      <p className="mt-2 font-semibold text-slate-900">{name.trim() || 'Statement'}{st.account ? ` ••${st.account}` : ''}</p>
       <p className="text-slate-600">{st.from ? `${formatAD(st.from)} – ${formatAD(st.to)}` : 'No dates found'} · {plural(st.rows.length, 'transaction')}</p>
       <p className="mt-1 text-slate-700">Out <b className="num">{money(out, profile.region)}</b> · In <b className="num">{money(inn, profile.region)}</b>{st.closingBalance != null && <> · Balance <b className="num">{money(st.closingBalance, profile.region)}</b></>}</p>
       {st.checks.checked > 0 && (
@@ -138,7 +165,7 @@ function StatementPreview({ st, onSave, onCancel }) {
         </div>
       )}
       <div className="mt-3 flex gap-2">
-        <Button variant="dark" onClick={onSave} disabled={!st.rows.length}>Add to ledger</Button>
+        <Button variant="dark" onClick={() => onSave(name)} disabled={!st.rows.length}>Add to ledger</Button>
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -266,10 +293,12 @@ function Sources({ x, compact }) {
 }
 
 function Details({ x }) {
+  const { statements } = useStore();
+  const source = x.bank && statements.find((s) => s.id === x.bank.statementId)?.bank;
   const lines = [];
   if (x.expense) lines.push(['Bill', `${x.expense.merchantName}${x.expense.billCode ? ` · ${x.expense.billCode}` : ''}`]);
   if (x.payment) lines.push(['Paid to', `${x.payment.merchant || '—'}${x.payment.app ? ` · ${x.payment.app}` : ''}${x.payment.ref ? ` · ${x.payment.ref}` : ''}`]);
-  if (x.bank) lines.push(['Bank', x.bank.description || '—']);
+  if (x.bank) lines.push([source || 'Bank', x.bank.description || '—']);
   return (
     <div className="min-w-0">
       {lines.map(([k, v], i) => (
@@ -327,7 +356,8 @@ function LinkPicker({ entry, candidates, region, onPick, onClose }) {
 }
 
 export default function Bank() {
-  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, clearBankData, openEditor, bankRecon } = useStore();
+  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, bankRecon } = useStore();
+  const [renaming, setRenaming] = useState(null); // { id, name }
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -389,6 +419,11 @@ export default function Bank() {
     await deleteStatement(s.id);
     toast('Statement removed.');
   }
+  async function rename() {
+    const s = statements.find((x) => x.id === renaming.id);
+    if (s) await saveStatement({ ...s, bank: renaming.name.trim() });
+    setRenaming(null);
+  }
   async function clearAll() {
     if (!window.confirm('Delete every statement and payment screenshot in this browser? Bills stay.')) return;
     await clearBankData();
@@ -415,12 +450,28 @@ export default function Bank() {
           {[...statements].sort((a, b) => a.from.localeCompare(b.from)).map((s) => (
             <span key={s.id} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pl-3 pr-1 text-sm">
               <Landmark className="size-4 text-slate-500" />
-              <span><b>{s.bank || 'Statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.length} rows</span></span>
+              <span><b>{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.length} rows</span></span>
               {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-amber-600" aria-label="Some balances don't add up" />}
-              <button type="button" onClick={() => removeStatement(s)} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>
+              <button type="button" onClick={() => setRenaming({ id: s.id, name: s.bank || '' })} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800" aria-label={`Rename ${s.bank || 'this'} statement`}><Pencil className="size-4" /></button>
+              <button type="button" onClick={() => removeStatement(s)} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>
             </span>
           ))}
         </div>
+      )}
+
+      {renaming && (
+        <Modal
+          open
+          size="md"
+          title="Bank or wallet"
+          onClose={() => setRenaming(null)}
+          footer={<><Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button><Button variant="dark" onClick={rename}>Save</Button></>}
+        >
+          <form onSubmit={(e) => { e.preventDefault(); rename(); }}>
+            <label htmlFor="rn-name" className="label">Which account is this statement from?</label>
+            <AccountName id="rn-name" value={renaming.name} onChange={(name) => setRenaming((r) => ({ ...r, name }))} statements={statements} autoFocus />
+          </form>
+        </Modal>
       )}
 
       {empty ? (

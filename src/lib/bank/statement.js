@@ -33,8 +33,8 @@ export function parseAmount(raw) {
   return Number.isFinite(v) ? { value: neg ? -v : v, side } : null;
 }
 
-/** Looks like a statement amount: two decimals, optional grouping, sign or Dr/Cr. */
-export const isAmountToken = (t) => /^\(?-?(\d{1,3}(,\d{2,3})+|\d+)\.\d{2}\)?-?(\s*(cr|dr)\.?)?$/i.test(toAsciiDigits(String(t).trim()));
+/** Looks like a statement amount: one or two decimals ("135.0" in wallet exports), optional grouping, sign or Dr/Cr. */
+export const isAmountToken = (t) => /^\(?-?(\d{1,3}(,\d{2,3})+|\d+)\.\d{1,2}\)?-?(\s*(cr|dr)\.?)?$/i.test(toAsciiDigits(String(t).trim()));
 
 /* ---------- dates ---------- */
 
@@ -455,7 +455,8 @@ function settle(raw, opening) {
       else r.unsided = Math.abs(a.value);
     }
     const balance = nums.balance ? (nums.balance.side === 'dr' ? -Math.abs(nums.balance.value) : nums.balance.value) : null;
-    return { date: r.date, time: r.time, description: r.description.replace(/\s+/g, ' ').trim(), ref: r.ref.trim(), debit, credit, balance, unsided: r.unsided };
+    // A cut-off word in a screenshot often ends in a stray quote mark ("Trans’").
+    return { date: r.date, time: r.time, description: r.description.replace(/\s+/g, ' ').trim().replace(/[’‘'"`]+$/, ''), ref: r.ref.trim(), debit, credit, balance, unsided: r.unsided };
   });
 
   // Newest-first statements are checked oldest-first.
@@ -523,13 +524,18 @@ const BANKS = [
   'Everest Bank', 'Kumari Bank', 'Laxmi Sunrise Bank', 'Siddhartha Bank', 'Prabhu Bank', 'Sanima Bank',
   'Machhapuchchhre Bank', 'NMB Bank', 'Prime Commercial Bank', 'Citizens Bank', 'Agricultural Development Bank',
   'Rastriya Banijya Bank', 'Nepal Bank', 'Nepal SBI Bank', 'Mega Bank', 'Sunrise Bank', 'Century Bank', 'Civil Bank',
-  'eSewa', 'Khalti', 'IME Pay', 'connectIPS',
 ];
+const WALLETS = ['eSewa', 'Khalti', 'IME Pay', 'connectIPS', 'Prabhu Pay', 'MyPay', 'CellPay', 'Namaste Pay'];
+
+/** Names offered when you say which bank or wallet a statement is from. */
+export const ACCOUNT_NAMES = [...WALLETS, ...BANKS.filter((b) => b !== 'Sunrise Bank' && b !== 'Century Bank' && b !== 'Civil Bank')];
 
 /** Bank name and the last 4 digits of the account number (nothing more is kept). */
 export function statementMeta(text = '') {
   const flat = text.replace(/\s+/g, ' ');
-  const known = BANKS.find((b) => new RegExp(b.replace(/\s+/g, '\\s*'), 'i').test(flat));
+  const has = (name, t) => new RegExp(name.replace(/\s+/g, '\\s*'), 'i').test(t);
+  // A wallet's name counts only near the top: in a bank statement's rows "ESEWA LOAD" is a payment.
+  const known = BANKS.find((b) => has(b, flat)) || WALLETS.find((w) => has(w, flat.slice(0, 200)));
   const generic = !known && /([A-Z][A-Za-z.&]*(?:\s+[A-Z][A-Za-z.&]*){0,4}\s+Bank(?:\s+Limited|\s+Ltd\.?)?)/.exec(flat);
   const acc = /\b(?:a\/?c|account)\s*(?:no\.?|number|#)?\s*[:.\-]?\s*([0-9Xx*•\- ]{6,24}\d)/i.exec(flat);
   const digits = acc ? acc[1].replace(/[^\dXx*•]/g, '') : '';
@@ -599,35 +605,63 @@ export function parseStatementPages(pages) {
 }
 
 /** No header found (e.g. a rough OCR scan): a date starts a row, the last amount is the balance. */
+const STATUS_WORD = /^(complete[d]?|success(ful)?|succeeded|failed|failure|pending|cancel+ed|rejected|reversed|timeout)$/i;
+
+/** The first date in a line, at a word start: { date, at } with `at` its character index. */
+function dateInLine(text, order) {
+  const re = /(^|\s)(?=\S)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const at = m.index + m[1].length;
+    const date = parseDate(text.slice(at), order);
+    if (date) return { date, at };
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+  return null;
+}
+
+/**
+ * No header found (a rough OCR scan, a screenshot with a garbled header). Each line with a date
+ * and an amount is a row: words before the date are a reference, words up to the first amount
+ * are the description, then the amounts (debit, credit, balance; or amount, balance). Status
+ * words ("COMPLETE") are kept apart and anything after the amounts ("App") is dropped.
+ */
 function fallbackLines(prepared, order) {
   const out = [];
   let offset = 0;
   for (const p of prepared) {
     for (const l of p.lines) {
-      const date = parseDate(l.text, order);
+      const found = dateInLine(l.text, order);
       const cells = {};
-      let rest = l.text;
-      if (date) {
-        cells.date = l.text.slice(0, date.length);
-        rest = l.text.slice(date.length);
-      }
+      const before = found ? l.text.slice(0, found.at).trim() : '';
+      const rest = found ? l.text.slice(found.at + found.date.length) : l.text;
       const toks = rest.trim().split(/\s+/).filter(Boolean);
-      // Amounts at the end of the line, right to left; "Dr"/"Cr" after an amount belongs to it.
+      const first = toks.findIndex((t) => isAmountToken(t));
+      const desc = first < 0 ? toks : toks.slice(0, first);
       const amounts = [];
       let side = '';
-      while (toks.length && (isAmountToken(toks.at(-1)) || /^(cr|dr)\.?$/i.test(toks.at(-1)) || /^[-–]$/.test(toks.at(-1)))) {
-        const t = toks.pop();
-        if (/^(cr|dr)\.?$/i.test(t)) { side = t; continue; }
-        amounts.unshift(side ? `${t} ${side}` : t);
-        side = '';
+      if (first >= 0) {
+        for (const t of toks.slice(first)) {
+          if (isAmountToken(t)) amounts.push(t);
+          else if (/^(cr|dr)\.?$/i.test(t) && amounts.length) amounts[amounts.length - 1] += ` ${t}`;
+          else if (STATUS_WORD.test(t)) cells.status = t;
+          else if (/^[-–]$/.test(t)) side = t; // an empty column: keeps nothing
+        }
       }
-      const real = amounts.filter((a) => !/^[-–]$/.test(a));
-      if (real.length >= 2) {
-        cells.balance = real.at(-1);
-        const moves = real.slice(0, -1);
+      if (found && amounts.length) {
+        cells.date = l.text.slice(found.at, found.at + found.date.length);
+        if (before) {
+          if (/^[A-Za-z0-9\-/]+$/.test(before) && /\d/.test(before)) cells.ref = before;
+          else desc.unshift(before);
+        }
+      }
+      if (amounts.length >= 2) {
+        cells.balance = amounts.at(-1);
+        const moves = amounts.slice(0, -1);
         if (moves.length >= 2) { cells.debit = moves[0]; cells.credit = moves[1]; } else cells.amount = moves[0];
-      } else if (real.length === 1) cells.amount = real[0];
-      cells.desc = toks.join(' ');
+      } else if (amounts.length === 1) cells.amount = amounts[0];
+      cells.desc = desc.join(' ');
+      void side;
       out.push({ cells, text: l.text, y: (offset + l.cy) / p.h });
     }
     offset += 1e6;

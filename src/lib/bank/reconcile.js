@@ -265,3 +265,54 @@ export function mergedCsv(entries, range) {
   ].map(csvCell).join(','));
   return `${[head.join(','), ...lines].join('\n')}\n`;
 }
+
+const shiftDay = (d, n) => new Date(Date.parse(d) + n * DAY).toISOString().slice(0, 10);
+
+/**
+ * The whole picture, as the Bank page and the bill form see it: every statement row, every
+ * screenshot, and the saved bills near their dates (not samples or trip shares).
+ * @returns {{ result, range, byExpense: Map<string, entry> }}
+ */
+export function reconcileAll({ statements = [], payments = [], expenses = [], overrides = {} }) {
+  const bankRows = statements.flatMap((s) => s.rows || []);
+  const ds = statements.flatMap((s) => [s.from, s.to]).filter(Boolean).sort();
+  const range = ds.length ? { from: ds[0], to: ds.at(-1) } : null;
+  const dates = [...ds, ...payments.map((p) => p.dateAD)].filter(Boolean).sort();
+  const lo = dates.length ? shiftDay(dates[0], -5) : '';
+  const hi = dates.length ? shiftDay(dates.at(-1), 5) : '';
+  const near = lo ? expenses.filter((e) => !e.isSample && !e.tripShareOf && e.billDateAD >= lo && e.billDateAD <= hi) : [];
+  const result = reconcile({ bankRows, payments, expenses: near, overrides });
+  const byExpense = new Map();
+  for (const x of result.entries) if (x.expense && (x.bank || x.payment)) byExpense.set(x.expense.id, x);
+  return { result, range, byExpense };
+}
+
+/**
+ * What the bank and screenshots say about one bill (saved, or a scan not saved yet).
+ * @returns {null | { entry, taken, missing, range }}
+ *   entry: the bank row / screenshot this bill matches (null if none);
+ *   taken: when it matches nothing, a bank row / screenshot that fits it but already has another
+ *          bill, e.g. one added from the Bank page before the paper bill was scanned;
+ *   missing: a digital bill inside a statement's dates that isn't on it.
+ */
+export function bankMatchFor(bill, data) {
+  if (!bill || !(data.statements?.length || data.payments?.length)) return null;
+  // Matched against everything else first, so a saved bill and a fresh scan get the same answer.
+  const others = (data.expenses || []).filter((e) => e.id !== bill.id);
+  const { result, range } = reconcileAll({ ...data, expenses: others });
+  const fit = (x) => {
+    if (!(x.bank || x.payment) || x.direction !== 'out') return 0;
+    const ids = [x.bank && nodeId.bank(x.bank), x.payment && nodeId.payment(x.payment)].filter(Boolean);
+    const blocked = new Set(data.overrides?.unlinks || []);
+    if (ids.some((id) => blocked.has(pairKey(id, nodeId.expense(bill))))) return 0;
+    return Math.max(
+      x.payment ? scoreExpense(bill, { date: x.payment.dateAD, amount: x.payment.amount, name: x.payment.merchant, maxLag: 1 }).score || 0 : 0,
+      x.bank ? scoreExpense(bill, { date: x.bank.date, amount: amountOf(x.bank), name: x.bank.description, maxLag: 4 }).score || 0 : 0,
+    );
+  };
+  const best = (list) => list.map((x) => [x, fit(x)]).filter(([, sc]) => sc >= 40).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const entry = best(result.entries.filter((x) => !x.expense));
+  const taken = entry ? null : best(result.entries.filter((x) => x.expense));
+  const missing = !entry && !taken && isDigital(bill) && Boolean(range) && within(bill.billDateAD, range) && dayDiff(range.to, bill.billDateAD) >= 3;
+  return { entry, taken, missing, range };
+}

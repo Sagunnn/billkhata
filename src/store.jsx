@@ -7,6 +7,7 @@ import { assignBillCode, ensureBillCodes, tripInitials } from './lib/billCode.js
 import { imageHash } from './lib/image.js';
 import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
+import { reconcileAll } from './lib/bank/reconcile.js';
 
 const StoreContext = createContext(null);
 
@@ -235,20 +236,26 @@ export function StoreProvider({ children }) {
     setSettingsState(loadSettings());
   }, []);
 
+  // Bank rows ↔ screenshots ↔ bills, worked out once for the Bank page and the ledger tags.
+  const bankRecon = useMemo(
+    () => reconcileAll({ statements, payments, expenses, overrides: reconOverrides }),
+    [statements, payments, expenses, reconOverrides],
+  );
+
   const value = useMemo(() => ({
     ready, loadError, expenses, profile, settings,
     saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples,
     trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips,
     setProfile, setSettings,
     statements, saveStatement, deleteStatement, payments, savePayment, deletePayment,
-    reconOverrides, setReconOverrides, restoreBankData, clearBankData,
+    reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon,
     modal,
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
     closeModal: () => setModal(null),
   }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings,
-    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData]);
+    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

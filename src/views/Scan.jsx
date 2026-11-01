@@ -105,7 +105,7 @@ export default function Scan() {
       return;
     }
     if (duplicateHold(draft, expenses).length) {
-      toast('This looks like a bill you already saved. Discard the scan, or choose “Save Anyway (Override)” if it really is a different bill.', 'error');
+      toast('This looks like a bill you already saved. Choose what to do in the box at the top: discard the scan, put it on the saved bill, or keep both.', 'error');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -117,6 +117,31 @@ export default function Scan() {
       if (then === true || then === 'apply') openIrd(saved);
       else if (then === 'split') window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`;
       else window.location.hash = '#/ledger';
+    } catch (e) {
+      toast(e.message || 'Could not save.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * The bank row this scan belongs to already has a photo-less bill (added from the Bank page).
+   * The scan's details go onto that bill, which keeps its code, split, trip and IRD state.
+   */
+  async function useScanFor(other) {
+    const SCAN_FIELDS = ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'totalAmount', 'vatAmount', 'category', 'lineItems', 'receiptImage', 'imageHash', 'isNepalBill', 'isEstimate', 'ocrEngine'];
+    const fromScan = Object.fromEntries(SCAN_FIELDS.filter((k) => draft[k] !== undefined && draft[k] !== '' && draft[k] !== null).map((k) => [k, draft[k]]));
+    setSaving(true);
+    try {
+      const saved = await saveExpense({
+        ...other,
+        ...fromScan,
+        source: 'scan',
+        notes: [other.notes, draft.notes].filter(Boolean).join(' · '),
+      });
+      toast(`Scan added to bill ${saved.billCode || ''}: one bill, now with its photo.`);
+      reset();
+      window.location.hash = '#/ledger';
     } catch (e) {
       toast(e.message || 'Could not save.', 'error');
     } finally {
@@ -199,6 +224,7 @@ export default function Scan() {
             onViewPhoto={() => setViewPhoto(true)}
             onDiscard={() => { reset(); toast('Duplicate scan discarded.'); }}
             discardLabel="Discard Duplicate Scan"
+            onUseFor={useScanFor}
           />
           {rawText && (
             <details className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">

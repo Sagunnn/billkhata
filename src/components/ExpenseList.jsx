@@ -5,6 +5,7 @@ import { getIrdStatus } from '../lib/ird.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
 import { IrdAction } from './Ird.jsx';
+import { BankTag } from './BankMatch.jsx';
 import { useToast } from './Toast.jsx';
 import { StatusBadge } from './ui.jsx';
 
@@ -83,6 +84,7 @@ export function ExpenseCards({ list }) {
             </div>
             {e.split && <SplitNote e={e} region={profile.region} />}
             <TripNote e={e} />
+            <BankTag e={e} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {e.isNepalBill && <IrdAction expense={e} compact />}
               {getIrdStatus(e) === 'Ineligible' && e.isNepalBill && <StatusBadge status="Ineligible" />}
@@ -128,6 +130,7 @@ export function ExpenseTable({ list }) {
                 <button type="button" onClick={() => a.edit(e)} className="block max-w-full truncate text-left font-semibold text-slate-900 hover:underline">{e.billCode && <CodeChip code={e.billCode} />}{e.merchantName || 'Untitled bill'}</button>
                 {e.split && <SplitNote e={e} region={profile.region} />}
                 <TripNote e={e} />
+                <div><BankTag e={e} /></div>
                 {e.notes && <div className="truncate text-xs text-slate-500">{e.notes}</div>}
               </td>
               <td className="px-2 py-2.5">

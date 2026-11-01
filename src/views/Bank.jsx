@@ -5,10 +5,10 @@ import { CircleCheck, Download, FileUp, ImageUp, Landmark, Link2, Link2Off, Load
 import { PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { downloadBlob, money } from '../lib/format.js';
-import { addDaysAD, adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
+import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import { newId } from '../lib/db.js';
 import { bankRowKey } from '../lib/bank/statement.js';
-import { afterStatement, linkCandidates, mergedCsv, needsLook, reconcile, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
+import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, EmptyState, Field, Modal, PageHeader, Segmented } from '../components/ui.jsx';
@@ -317,7 +317,7 @@ function LinkPicker({ entry, candidates, region, onPick, onClose }) {
 }
 
 export default function Bank() {
-  const { statements, payments, expenses, profile, reconOverrides, setReconOverrides, deleteStatement, clearBankData, openEditor } = useStore();
+  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, clearBankData, openEditor, bankRecon } = useStore();
   const toast = useToast();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -325,18 +325,7 @@ export default function Bank() {
   const [linking, setLinking] = useState(null);
   const region = profile.region;
 
-  const bankRows = useMemo(() => statements.flatMap((s) => s.rows), [statements]);
-  const range = useMemo(() => {
-    const ds = statements.flatMap((s) => [s.from, s.to]).filter(Boolean).sort();
-    return ds.length ? { from: ds[0], to: ds.at(-1) } : null;
-  }, [statements]);
-  const result = useMemo(() => {
-    const dates = [...(range ? [range.from, range.to] : []), ...payments.map((p) => p.dateAD)].filter(Boolean).sort();
-    const lo = dates[0] ? addDaysAD(dates[0], -5) : '';
-    const hi = dates.at(-1) ? addDaysAD(dates.at(-1), 5) : '';
-    const near = expenses.filter((e) => !e.isSample && !e.tripShareOf && lo && e.billDateAD >= lo && e.billDateAD <= hi);
-    return reconcile({ bankRows, payments, expenses: near, overrides: reconOverrides });
-  }, [bankRows, payments, expenses, reconOverrides, range]);
+  const { result, range } = bankRecon;
   const shown = useMemo(() => visibleEntries(result.entries, range), [result, range]);
   const look = shown.filter((x) => needsLook(x, range));
   const q = search.trim().toLowerCase();
@@ -378,6 +367,7 @@ export default function Bank() {
       billDateAD: date,
       billDateBS: adToBs(date) || '',
       paymentMethod: PAYMENT.DIGITAL,
+      source: 'bank', // no paper bill yet: a later scan of it can take this bill's place
       notes: [x.bank && `Bank: ${x.bank.description}`, x.payment?.ref && `Txn ${x.payment.ref}`].filter(Boolean).join(' · '),
     });
   }

@@ -11,6 +11,7 @@ import { useStore } from '../store.jsx';
 import { Field, Toggle } from './ui.jsx';
 import { EligibilityPanel } from './Ird.jsx';
 import { CrossReferenceCard } from './CrossReference.jsx';
+import { BankMatchCard, canReplace, useBankMatch } from './BankMatch.jsx';
 import { crossReferenceBill } from '../lib/dedupe.js';
 import { itemsMatchTotal } from '../lib/ocr/index.js';
 
@@ -84,14 +85,19 @@ function LineItems({ items = [], total, onChange }) {
   );
 }
 
-export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel }) {
+export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel, onUseFor }) {
   const { expenses, trips, openEditor } = useStore();
   const saved = expenses.some((x) => x.id === e.id);
   const code = assignBillCode(e, expenses, trips);
   const set = (k) => (ev) => onChange({ [k]: ev.target.value });
   const isNepal = region === REGIONS.NEPAL;
   // Live cross-reference against saved bills: bill number, item sequence and photo.
-  const matches = useMemo(() => crossReferenceBill(e, expenses), [e, expenses]);
+  const allMatches = useMemo(() => crossReferenceBill(e, expenses), [e, expenses]);
+  const bankMatch = useBankMatch(e);
+  // A photo-less bill added from the bank statement: the bank card offers to put this scan on it,
+  // so the duplicate warning about that same bill would only repeat it.
+  const replacing = canReplace(bankMatch, e, onUseFor) ? bankMatch.taken.expense.id : '';
+  const matches = replacing ? allMatches.filter((m) => m.bill.id !== replacing) : allMatches;
   const shops = useMemo(() => merchantDirectory(expenses.filter((b) => b.id !== e.id)), [expenses, e.id]);
   const memory = lookupMerchant(e, expenses);
   const memoryDiffers = memory && (memory.merchantName !== e.merchantName || memory.category !== e.category || (memory.sellerPan && memory.sellerPan !== e.sellerPan));
@@ -131,6 +137,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
       discardLabel={discardLabel}
       onOverride={(id, on) => onChange({ duplicateOverride: on ? [...new Set([...(e.duplicateOverride || []), id])] : (e.duplicateOverride || []).filter((x) => x !== id) })}
     />
+    <BankMatchCard bill={e} match={bankMatch} region={region} onChange={onChange} onUseFor={onUseFor} />
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono font-bold tracking-wide text-white" title="Voucher code">{code}</span>
       <span className="text-xs text-slate-500">

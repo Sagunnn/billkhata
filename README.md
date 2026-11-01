@@ -287,6 +287,18 @@ version 3), and they're in backups.
   not on the statement, an unsure pair, a balance that doesn't add up, a screenshot that wasn't fully
   read. **Add bill** opens the bill form filled from the row (shop from the screenshot or narration,
   amount, date, digital), and the new bill joins the row. **Export CSV** writes the merged table.
+- **Bills scanned anywhere are cross-referenced** (`bankMatchFor`, `BankMatchCard` on the bill form):
+  as soon as a scan has a total and a date it's matched against the statements and screenshots
+  (against everything except itself, so a fresh scan and the saved bill get the same answer):
+  - found → "Found in your bank statement" with the row and screenshot, and a one-click
+    "Paid by: Digital QR / Card" if it was left as Cash;
+  - the row already has a **photo-less bill added from the Bank page** → "Use this scan for
+    [code]" puts the scan's photo, items, PAN, bill number and dates onto that bill (code, split,
+    trip and IRD state kept), so there's one bill, not two; the duplicate warning for that same bill
+    is folded into this card, with "Keep both" for a different purchase;
+  - a digital bill inside a statement's dates that isn't on it → a quiet note.
+  Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
+  in the store and shared with the Bank page).
 
 ## Trip Khata (group trips, many payers)
 

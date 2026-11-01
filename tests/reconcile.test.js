@@ -98,3 +98,25 @@ test('what needs a look, and the CSV', async () => {
   assert.match(csv, /"ATM, THAMEL"/);
   assert.match(csv, /2000\.00,,8000\.00,statement/);
 });
+
+test('a scanned bill finds its bank row; a bill added from the bank row first is offered for the scan', async () => {
+  const { bankMatchFor, reconcileAll } = await import('../src/lib/bank/reconcile.js');
+  const b = row({ date: '2026-10-29', description: 'FONEPAY/712345678/KOTHEYS PIMBAL', refs: ['712345678'], debit: 630, balance: 9370 });
+  const statements = [{ id: 's1', from: '2026-10-24', to: '2026-10-31', rows: [b] }];
+  const scan = bill({ id: 'scan', totalAmount: 630, billDateAD: '2026-10-29', merchantName: 'Kotheys Pimbal', paymentMethod: 'Cash' });
+  const m = bankMatchFor(scan, { statements, payments: [], expenses: [] });
+  assert.equal(m.entry.bank.key, b.key);
+
+  const fromBank = bill({ id: 'fb', totalAmount: 630, billDateAD: '2026-10-29', merchantName: 'KOTHEYS PIMBAL', source: 'bank' });
+  const m2 = bankMatchFor(scan, { statements, payments: [], expenses: [fromBank] });
+  assert.equal(m2.entry, null);
+  assert.equal(m2.taken.bank.key, b.key);
+  assert.equal(m2.taken.expense.id, 'fb');
+  // Editing the saved bill itself: its own row, not "taken".
+  assert.equal(bankMatchFor(fromBank, { statements, payments: [], expenses: [fromBank] }).entry.bank.key, b.key);
+  assert.equal(reconcileAll({ statements, payments: [], expenses: [fromBank] }).byExpense.get('fb').bank.key, b.key);
+
+  const qrElsewhere = bill({ id: 'q', totalAmount: 999, billDateAD: '2026-10-25', merchantName: 'Nowhere' });
+  assert.equal(bankMatchFor(qrElsewhere, { statements, payments: [], expenses: [] }).missing, true);
+  assert.equal(bankMatchFor(qrElsewhere, { statements: [], payments: [], expenses: [] }), null);
+});

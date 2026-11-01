@@ -91,3 +91,21 @@ test('a credited statement row: guessed source, cash deposits are moves, added o
   money = addEntry(money, dep, at);
   assert.deepEqual([moneyNow(money, []).cash, moneyNow(money, []).bank], [-19000, 106000]);
 });
+
+test('a credit titled on the Bank page: the title wins over the guess and follows into Cash & bank', async () => {
+  const { creditSource, entryFromCredit, retitleCredit, guessSource } = await import('../src/lib/money.js');
+  const row = { key: 'k9', date: '2026-11-03', credit: 5000, description: 'IPS TRF FROM 0123XXXX RAM' };
+  assert.equal(guessSource(row.description), '');
+  assert.equal(creditSource(row), '');
+  assert.equal(creditSource({ ...row, source: 'Ram paid back' }), 'Ram paid back');
+  assert.equal(entryFromCredit({ ...row, source: 'Ram paid back' }).source, 'Ram paid back');
+  assert.equal(entryFromCredit(row).source, 'Other');
+  let money = setStart(EMPTY_MONEY, { cash: 0, bank: 0 }, at);
+  money = addEntry(money, entryFromCredit(row), at);
+  money = retitleCredit(money, 'k9', 'Ram paid back');
+  assert.equal(money.entries[0].source, 'Ram paid back');
+  money = retitleCredit(money, 'k9', 'Cash deposit');
+  assert.deepEqual([money.entries[0].kind, money.entries[0].from, money.entries[0].to], ['move', 'cash', 'bank']);
+  money = retitleCredit(money, 'k9', 'Salary');
+  assert.deepEqual([money.entries[0].kind, money.entries[0].pot, money.entries[0].source], ['in', 'bank', 'Salary']);
+});

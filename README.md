@@ -311,9 +311,13 @@ have once ("रु 5,000 cash, रु 40,000 in bank and wallets"), and from the
 
 Kept in localStorage (`billkhata_money`) and in backups. On the Bank page, money in from a
 statement shows in green (filter **In**), with a **Money in** tile for the total credited and,
-under the In filter, how much of it is already in Cash & bank plus **Add the rest**. Each row has
-**Add to Cash & bank**: salary, refunds and interest
-go in as money in with a guessed source; a cash deposit moves cash into the bank. Each row can be
+under the In filter, how much of it is already in Cash & bank, totals by where it came from, and
+**Add the rest**. Each credit can be **titled** with where it came from (Where from? / Change: Salary,
+Ram paid back, From Dad…; titles you've used are offered first); the title leads the row, the
+bank's narration sits under it, a guess from the narration is marked "(guessed)", and the title is
+saved with the statement (so it's in backups). Each row has **Add to Cash & bank**: salary, refunds and interest
+go in as money in with the row's title (or the guess); a credit titled "Cash deposit" moves cash
+into the bank. Retitling a credit already in Cash & bank updates it there. Each row can be
 added once; one dated before your starting amounts is already in them, so it can't be added. The
 running balance is not shown (it is still used to check each row was read right).
 

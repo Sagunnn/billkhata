@@ -9,7 +9,7 @@ import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import { newId } from '../lib/db.js';
 import { ACCOUNT_NAMES, bankRowKey } from '../lib/bank/statement.js';
 import { overlapWith, withoutOverlaps } from '../lib/bank/overlap.js';
-import { addEntry, creditState, entryFromCredit } from '../lib/money.js';
+import { addEntry, creditSource, creditState, entryFromCredit, retitleCredit, sourceOptions } from '../lib/money.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -322,9 +322,77 @@ function Sources({ x, compact }) {
   );
 }
 
+/** Titles offered for a credit: ones you've given before, then the common ones. */
+function useCreditTitles() {
+  const { statements, money: m } = useStore();
+  return useMemo(() => {
+    const given = statements.flatMap((st) => st.rows.filter((r) => r.credit && r.source).map((r) => r.source));
+    return [...new Set([...given.reverse(), ...sourceOptions(m)])];
+  }, [statements, m]);
+}
+
+/** "Where did this money come from?": a title for a credited row, kept with the statement. */
+function CreditTitle({ row }) {
+  const { statements, saveStatement, money: m, setMoney } = useStore();
+  const toast = useToast();
+  const options = useCreditTitles();
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const current = creditSource(row);
+  function start() { setTitle(row.source || current); setOpen(true); }
+  async function save() {
+    const st = statements.find((x) => x.id === row.statementId);
+    if (!st) { setOpen(false); return; }
+    const value = title.trim().slice(0, 40);
+    await saveStatement({ ...st, rows: st.rows.map((r) => (r.key === row.key ? { ...r, source: value } : r)) });
+    // Already in Cash & bank: its entry takes the new title too.
+    if ((m.entries || []).some((x) => x.bankKey === row.key)) setMoney((cur) => retitleCredit(cur, row.key, value));
+    toast(value ? `Titled “${value}”.` : 'Title removed.');
+    setOpen(false);
+  }
+  return (
+    <>
+      <button type="button" onClick={start} className="tap inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold text-navy hover:bg-blue-50" aria-label={current ? `Change where ${money(row.credit)} came from` : `Say where ${money(row.credit)} came from`}>
+        <Pencil className="size-3" />{current ? 'Change' : 'Where from?'}
+      </button>
+      {open && (
+        <Modal open size="md" title="Where did this money come from?" onClose={() => setOpen(false)} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button variant="dark" onClick={save}>Save</Button></>}>
+          <form onSubmit={(e) => { e.preventDefault(); save(); }}>
+            <p className="mb-3 text-sm text-slate-600"><b className="num text-emerald-700">+{money(row.credit)}</b> on {formatAD(row.date)} · <span className="break-words">{row.description}</span></p>
+            <label htmlFor="cr-title" className="label">Title</label>
+            <input id="cr-title" list="cr-title-list" className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={40} autoFocus autoComplete="off" placeholder="Salary, Ram paid back, from Dad…" />
+            <datalist id="cr-title-list">{options.map((o) => <option key={o} value={o} />)}</datalist>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {options.slice(0, 8).map((o) => (
+                <button key={o} type="button" onClick={() => setTitle(o)} className={`tap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${title === o ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>{o}</button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-slate-500">“Cash deposit” means you put your own cash in: in Cash &amp; bank it moves money from cash to bank instead of counting as new money.</p>
+            <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function Details({ x }) {
   const { statements } = useStore();
   const source = x.bank && statements.find((s) => s.id === x.bank.statementId)?.bank;
+  // Money in: its title (where it came from) leads, the bank's narration below it.
+  if (x.direction === 'in' && x.bank) {
+    const title = creditSource(x.bank);
+    return (
+      <div className="min-w-0">
+        <p className="flex min-w-0 flex-wrap items-center gap-x-1">
+          <span className={`truncate font-semibold ${title ? 'text-slate-900' : 'italic text-slate-500'}`}>{title || 'Untitled money in'}</span>
+          {title && !x.bank.source && <span className="text-xs text-slate-400">(guessed)</span>}
+          <CreditTitle row={x.bank} />
+        </p>
+        <p className="truncate text-xs text-slate-500" title={x.bank.description}><span className="font-semibold text-slate-600">{source || 'Bank'}: </span>{x.bank.description || '—'}</p>
+      </div>
+    );
+  }
   const lines = [];
   if (x.expense) lines.push(['Bill', `${x.expense.merchantName}${x.expense.billCode ? ` · ${x.expense.billCode}` : ''}`]);
   if (x.payment) lines.push(['Paid to', `${x.payment.merchant || '—'}${x.payment.app ? ` · ${x.payment.app}` : ''}${x.payment.ref ? ` · ${x.payment.ref}` : ''}`]);
@@ -426,7 +494,7 @@ export default function Bank() {
     if (filter === 'out' && x.direction !== 'out') return false;
     if (filter === 'in' && x.direction !== 'in') return false;
     if (!q) return true;
-    const hay = [x.bank?.description, x.payment?.merchant, x.payment?.ref, x.expense?.merchantName, x.expense?.billCode, x.amount].join(' ').toLowerCase();
+    const hay = [x.bank?.description, x.bank && creditSource(x.bank), x.payment?.merchant, x.payment?.ref, x.expense?.merchantName, x.expense?.billCode, x.amount].join(' ').toLowerCase();
     return hay.includes(q);
   });
   const totals = list.reduce((t, x) => { if (x.bank || x.payment) t[x.direction] += x.amount; return t; }, { in: 0, out: 0 });
@@ -573,6 +641,11 @@ export default function Bank() {
                 <span>Credited <b className="num">{money(creditTotal, region)}</b> in {plural(credits.length, 'row')}</span>
                 <span className="text-emerald-800">·</span>
                 <span><b className="num">{money(addedTotal, region)}</b> in Cash &amp; bank</span>
+                <span className="basis-full text-xs text-emerald-900">
+                  {Object.entries(credits.reduce((by, x) => { const k = creditSource(x.bank) || 'Untitled'; by[k] = (by[k] || 0) + x.amount; return by; }, {}))
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => `${k} ${money(v, region)}`).join(' · ')}
+                </span>
                 {creditStates.some((c) => c.state === 'before') && <span className="text-xs text-emerald-800">(rows before your start are already in your amounts)</span>}
                 {ready.length > 0 && <Button size="sm" variant="outline" icon={Plus} className="ml-auto" onClick={addAllCredits}>Add the rest ({ready.length})</Button>}
                 {!cashBank.since && <a href="#/" className="ml-auto text-xs font-semibold text-navy underline">Set up Cash &amp; bank to track it</a>}

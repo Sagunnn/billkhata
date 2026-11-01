@@ -77,7 +77,7 @@ export function addEntry(money, entry, now = new Date()) {
 }
 
 /** Common sources of money in, offered as quick picks (with the ones you've used first). */
-export const MONEY_SOURCES = ['Salary', 'Family', 'Friend paid back', 'Refund', 'Business', 'Interest'];
+export const MONEY_SOURCES = ['Salary', 'Family', 'Friend paid back', 'Refund', 'Business', 'Interest', 'Cash deposit'];
 
 /** Sources you've used before (most recent first), then the common ones. */
 export function sourceOptions(money) {
@@ -102,19 +102,48 @@ export function creditsBySource(money) {
   return [...by.values()].sort((a, b) => b.amount - a.amount);
 }
 
+/** A source for a credit, guessed from the bank's narration ('' when nothing fits). */
+export function guessSource(text = '') {
+  const t = String(text);
+  if (/cash\s*dep/i.test(t)) return 'Cash deposit';
+  if (/salary|payroll|\bsal\b/i.test(t)) return 'Salary';
+  if (/refund|reversal|\brev\b|cash\s*back/i.test(t)) return 'Refund';
+  if (/interest|\bint\.?\s*(cr|paid|pay)/i.test(t)) return 'Interest';
+  return '';
+}
+
+/** Where a credited row came from: the title you gave it, else a guess, else ''. */
+export const creditSource = (row) => String(row?.source || '').trim() || guessSource(row?.description);
+
 /**
  * A credited statement row as a Cash & bank entry: a cash deposit moves cash into the bank (it isn't
- * new money); anything else is money in, with a source guessed from the narration.
+ * new money); anything else is money in, titled with the row's source (yours, or a guess).
  */
 export function entryFromCredit(row) {
   const text = String(row.description || '');
   const base = { amount: row.credit, date: row.date, note: text.replace(/\s+/g, ' ').trim().slice(0, 80), bankKey: row.key };
-  if (/cash\s*dep/i.test(text)) return { ...base, kind: 'move', from: 'cash', to: 'bank' };
-  const source = /salary|payroll|\bsal\b/i.test(text) ? 'Salary'
-    : /refund|reversal|\brev\b|cash\s*back/i.test(text) ? 'Refund'
-      : /interest|\bint\.?\s*(cr|paid|pay)/i.test(text) ? 'Interest'
-        : 'Other';
-  return { ...base, kind: 'in', pot: 'bank', source };
+  const source = creditSource(row);
+  if (source === 'Cash deposit') return { ...base, kind: 'move', from: 'cash', to: 'bank' };
+  return { ...base, kind: 'in', pot: 'bank', source: source || 'Other' };
+}
+
+/**
+ * A credit's title changed on the Bank page: its Cash & bank entry follows (a cash deposit is a
+ * cash → bank move; anything else is money in with that source).
+ */
+export function retitleCredit(money, bankKey, source) {
+  const title = String(source || '').trim().slice(0, 40);
+  return {
+    ...money,
+    entries: (money.entries || []).map((x) => {
+      if (x.bankKey !== bankKey) return x;
+      const { from, to, pot, source: old, ...rest } = x;
+      void from; void to; void pot; void old;
+      return title === 'Cash deposit'
+        ? { ...rest, kind: 'move', from: 'cash', to: 'bank' }
+        : { ...rest, kind: 'in', pot: 'bank', source: title || 'Other' };
+    }),
+  };
 }
 
 /**

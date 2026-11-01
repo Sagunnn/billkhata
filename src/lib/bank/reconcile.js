@@ -219,12 +219,11 @@ const isDigital = (e) => /digital|qr|card/i.test(e?.paymentMethod || '');
 const within = (d, range, pad = 0) => Boolean(range?.from && d) && dayDiff(d, range.from) >= -pad && dayDiff(range.to, d) >= -pad;
 
 /**
- * Rows worth showing: expenses only (money that came in is left out; it goes in Cash & bank),
- * everything spent from the bank and the screenshots, and saved bills only when they matched
- * something or were paid digitally inside a statement's dates (so should be there).
+ * Rows worth showing: everything from the bank (money out and in) and the screenshots, and saved
+ * bills only when they matched something or were paid digitally inside a statement's dates.
  */
 export function visibleEntries(entries, range) {
-  return entries.filter((x) => x.direction !== 'in' && (x.bank || x.payment || (x.expense && isDigital(x.expense) && within(x.date, range))));
+  return entries.filter((x) => x.bank || x.payment || (x.expense && isDigital(x.expense) && within(x.date, range)));
 }
 
 /** Why an entry needs a look, or '' when it's fine. */
@@ -244,7 +243,7 @@ export const afterStatement = (x, range) => !x.bank && Boolean(range?.to) && day
 
 /** The merged table as CSV, for a spreadsheet. */
 export function mergedCsv(entries, range) {
-  const head = ['Date', 'Time', 'Bank posted', 'Bank narration', 'Paid to (screenshot)', 'App', 'Transaction ID', 'Bill: shop', 'Bill code', 'Category', 'Amount', 'Found in', 'Note'];
+  const head = ['Date', 'Time', 'Bank posted', 'Bank narration', 'Paid to (screenshot)', 'App', 'Transaction ID', 'Bill: shop', 'Bill code', 'Category', 'Money out', 'Money in', 'Found in', 'Note'];
   const lines = entries.map((x) => [
     x.date,
     x.time,
@@ -256,7 +255,8 @@ export function mergedCsv(entries, range) {
     x.expense?.merchantName || '',
     x.expense?.billCode || '',
     x.expense?.category || '',
-    x.amount.toFixed(2),
+    x.direction === 'out' ? x.amount.toFixed(2) : '',
+    x.direction === 'in' ? x.amount.toFixed(2) : '',
     [x.bank && 'statement', x.payment && 'screenshot', x.expense && 'bill'].filter(Boolean).join(' + '),
     needsLook(x, range),
   ].map(csvCell).join(','));

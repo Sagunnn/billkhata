@@ -70,3 +70,24 @@ test('money in keeps its source; totals by source; used sources offered first', 
   assert.deepEqual(sourceOptions(money).slice(0, 3), ['Friend paid back', 'Salary', 'Other']);
   assert.ok(sourceOptions(EMPTY_MONEY).includes('Salary'));
 });
+
+test('a credited statement row: guessed source, cash deposits are moves, added once, not before the start', async () => {
+  const { entryFromCredit, creditState } = await import('../src/lib/money.js');
+  const salary = { key: 'k1', date: '2026-11-03', credit: 85000, description: 'SALARY OCT 2026' };
+  assert.deepEqual(
+    (({ kind, pot, source, amount }) => ({ kind, pot, source, amount }))(entryFromCredit(salary)),
+    { kind: 'in', pot: 'bank', source: 'Salary', amount: 85000 },
+  );
+  const dep = entryFromCredit({ key: 'k2', date: '2026-11-03', credit: 20000, description: 'CASH DEPOSIT' });
+  assert.deepEqual([dep.kind, dep.from, dep.to], ['move', 'cash', 'bank']);
+  assert.equal(entryFromCredit({ key: 'k3', credit: 50, description: 'REVERSAL FP123' }).source, 'Refund');
+  assert.equal(creditState(EMPTY_MONEY, salary), 'not-set');
+  let money = setStart(EMPTY_MONEY, { cash: 1000, bank: 1000 }, at); // since 2026-11-02
+  assert.equal(creditState(money, { ...salary, date: '2026-11-01' }), 'before');
+  assert.equal(creditState(money, salary), 'ready');
+  money = addEntry(money, entryFromCredit(salary), at);
+  assert.equal(creditState(money, salary), 'added');
+  assert.equal(moneyNow(money, []).bank, 86000);
+  money = addEntry(money, dep, at);
+  assert.deepEqual([moneyNow(money, []).cash, moneyNow(money, []).bank], [-19000, 106000]);
+});

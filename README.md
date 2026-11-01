@@ -309,9 +309,11 @@ have once ("रु 5,000 cash, रु 40,000 in bank and wallets"), and from the
 - **History** lists it all with the bills taken off; an entry can be removed. **Set the amounts
   again** starts over from now (old entries are kept in the record).
 
-Kept in localStorage (`billkhata_money`) and in backups. The Bank page shows expenses only: money
-that came in and running balances are left out there (the balance is still used to check each
-row was read right).
+Kept in localStorage (`billkhata_money`) and in backups. On the Bank page, money in from a
+statement shows in green (filter **In**) with **Add to Cash & bank**: salary, refunds and interest
+go in as money in with a guessed source; a cash deposit moves cash into the bank. Each row can be
+added once; one dated before your starting amounts is already in them, so it can't be added. The
+running balance is not shown (it is still used to check each row was read right).
 
 ## Bank: spending from statements, payment screenshots, one merged table
 

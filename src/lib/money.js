@@ -72,6 +72,7 @@ export function addEntry(money, entry, now = new Date()) {
   if (entry.kind === 'move') Object.assign(clean, { from: entry.from, to: entry.to });
   else clean.pot = entry.pot;
   if (entry.kind === 'in') clean.source = String(entry.source || '').trim().slice(0, 40) || 'Other';
+  if (entry.bankKey) clean.bankKey = String(entry.bankKey); // added from a statement row (only once)
   return { ...money, entries: [...(money.entries || []), clean] };
 }
 
@@ -101,12 +102,39 @@ export function creditsBySource(money) {
   return [...by.values()].sort((a, b) => b.amount - a.amount);
 }
 
+/**
+ * A credited statement row as a Cash & bank entry: a cash deposit moves cash into the bank (it isn't
+ * new money); anything else is money in, with a source guessed from the narration.
+ */
+export function entryFromCredit(row) {
+  const text = String(row.description || '');
+  const base = { amount: row.credit, date: row.date, note: text.replace(/\s+/g, ' ').trim().slice(0, 80), bankKey: row.key };
+  if (/cash\s*dep/i.test(text)) return { ...base, kind: 'move', from: 'cash', to: 'bank' };
+  const source = /salary|payroll|\bsal\b/i.test(text) ? 'Salary'
+    : /refund|reversal|\brev\b|cash\s*back/i.test(text) ? 'Refund'
+      : /interest|\bint\.?\s*(cr|paid|pay)/i.test(text) ? 'Interest'
+        : 'Other';
+  return { ...base, kind: 'in', pot: 'bank', source };
+}
+
+/**
+ * Whether a credited statement row can go into Cash & bank: 'added' (already there), 'not-set'
+ * (no starting amounts yet), 'before' (dated before them, so already counted in them), or 'ready'.
+ */
+export function creditState(money, row) {
+  if ((money.entries || []).some((x) => x.bankKey && x.bankKey === row.key)) return 'added';
+  if (!money.since) return 'not-set';
+  if ((row.date || '') < money.since) return 'before';
+  return 'ready';
+}
+
 export const removeEntry = (money, id) => ({ ...money, entries: (money.entries || []).filter((x) => x.id !== id) });
 
 /** Reads a stored or backed-up value, dropping anything malformed. */
 export function cleanMoney(v) {
   if (!v || typeof v !== 'object') return { ...EMPTY_MONEY };
   const entries = Array.isArray(v.entries) ? v.entries.filter((x) => x && typeof x.id === 'string' && num(x.amount) > 0 && ['in', 'out', 'move'].includes(x.kind)) : [];
+  // (each entry keeps its fields, including source and bankKey)
   return {
     setAt: typeof v.setAt === 'string' ? v.setAt : '',
     since: /^\d{4}-\d{2}-\d{2}$/.test(v.since || '') ? v.since : '',

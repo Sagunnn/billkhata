@@ -13,6 +13,16 @@ import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, EmptyState, Field, Modal, PageHeader, Segmented } from '../components/ui.jsx';
 
+// MIME types too: iPhone's file picker greys out files whose type isn't listed.
+const STATEMENT_TYPES = [
+  '.pdf', '.csv', '.xlsx', '.xls', '.ods',
+  'application/pdf', 'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'image/*',
+].join(',');
+
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const shortDate = (d) => formatAD(d).replace(/ \d{4}$/, '');
 
@@ -74,8 +84,8 @@ function StatementUpload({ statements, onSaved }) {
   return (
     <Card className="p-4">
       <h2 className="flex items-center gap-2 font-bold"><Landmark className="size-5 text-navy" />Bank statement</h2>
-      <p className="mt-0.5 text-sm text-slate-600">The PDF your bank emails, or a CSV export. Read on this device.</p>
-      <input ref={input} type="file" accept=".pdf,.csv,application/pdf,text/csv" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) read(f); }} />
+      <p className="mt-0.5 text-sm text-slate-600">The PDF your bank emails, or an Excel (.xlsx / .xls) or CSV export from your bank or wallet app. A screenshot works too, less exactly. Read on this device.</p>
+      <input ref={input} type="file" accept={STATEMENT_TYPES} className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) read(f); }} />
 
       {step === 'idle' && (
         <Button className="mt-3 w-full" variant="dark" icon={FileUp} onClick={() => input.current?.click()}>Upload statement</Button>

@@ -1,6 +1,6 @@
 // The expense record: creation, cleanup, summaries and filters.
 import { CATEGORIES, IRD_STATUS, PAYMENT, PAYMENT_METHODS, REGIONS } from './constants.js';
-import { getIrdStatus } from './ird.js';
+import { COUPON_RE, getIrdStatus } from './ird.js';
 import { addDaysAD, adToBs, parseYmd, toAsciiDigits, todayAD, todayBS } from './nepaliDate.js';
 import { newId } from './db.js';
 
@@ -138,4 +138,14 @@ export function filterExpenses(list, f) {
     .filter((e) => !f.status || getIrdStatus(e) === f.status)
     .filter((e) => !q || [e.billCode, e.merchantName, e.invoiceNumber, e.sellerPan, e.irdCoupon, e.notes].some((v) => String(v || '').toLowerCase().includes(q)))
     .sort((a, b) => (b.billDateAD || '').localeCompare(a.billDateAD || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+/**
+ * Where a bill is: 'scanned' (read by OCR, not saved yet), 'verified' (checked and saved),
+ * 'submitted' (IRD coupon saved), or '' for an unsaved bill typed by hand.
+ */
+export function billStage(e, saved) {
+  if (COUPON_RE.test(String(e?.irdCoupon || ''))) return 'submitted';
+  if (saved) return 'verified';
+  return e?.ocrEngine ? 'scanned' : '';
 }

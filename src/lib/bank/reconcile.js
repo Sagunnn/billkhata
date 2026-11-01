@@ -5,6 +5,7 @@
 // Each item is used once; the strongest pairs are taken first. You can unlink a wrong pair or
 // link two items by hand, and that choice wins over the scores. Pure; tests/reconcile.test.js.
 import { toAsciiDigits } from '../nepaliDate.js';
+import { csvCell } from '../format.js';
 
 const DAY = 864e5;
 const dayDiff = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / DAY);
@@ -238,10 +239,6 @@ export function needsLook(x, range) {
 /** Rows past the statement's last date (the bank hasn't sent them yet). */
 export const afterStatement = (x, range) => !x.bank && Boolean(range?.to) && dayDiff(x.date, range.to) > 0;
 
-const csvCell = (v) => {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 
 /** The merged table as CSV, for a spreadsheet. */
 export function mergedCsv(entries, range) {

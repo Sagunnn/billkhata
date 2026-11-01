@@ -12,7 +12,7 @@ import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { validateProfile } from '../lib/profile.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
-import { Button, CopyButton, Field, Modal, StatusBadge } from './ui.jsx';
+import { Button, CopyButton, Field, Modal, PayloadBlock, StatusBadge } from './ui.jsx';
 import { DuplicateBanner } from './DuplicateBanner.jsx';
 
 export function EligibilityPanel({ expense }) {
@@ -69,7 +69,7 @@ export function IrdAction({ expense, compact = false }) {
   }
   if (status === IRD_STATUS.APPLIED) {
     return (
-      <button type="button" onClick={() => openIrd(expense)} title="Coupon saved" className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 font-mono text-xs font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100">
+      <button type="button" onClick={() => openIrd(expense)} title="Coupon saved" className="tap inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 font-mono text-xs font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100">
         {isAutoEnrolled(expense) ? <QrCode className="size-3.5" /> : <BadgeCheck className="size-3.5" />}{expense.irdCoupon}
       </button>
     );
@@ -118,7 +118,7 @@ export function HelperSetup({ defaultOpen = false }) {
             <p className="mt-1">Drag this to your bookmarks bar. After <b>Open portal &amp; auto-fill</b>, click the bookmark on the portal and it fills the form straight away.</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <BookmarkletLink href={bookmarklet()}>BillKhata → IRD</BookmarkletLink>
-              <CopyButton value={bookmarklet()} label="Copy bookmarklet" />
+              <CopyButton value={bookmarklet()} label="Copy bookmarklet" toastText="Bookmarklet copied." />
             </div>
             <p className="mt-1 text-xs text-slate-500">On a phone: copy it, add any bookmark, then edit the bookmark’s URL and paste.</p>
           </div>
@@ -137,10 +137,10 @@ function CopyRow({ label, value, display, warn }) {
     <div className="flex items-center justify-between gap-3 py-2">
       <div className="min-w-0">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-        <div className={`truncate font-semibold ${value ? 'text-slate-900' : 'text-brand'}`}>{display ?? (value || 'Missing')}</div>
+        <div className={`num truncate font-semibold ${value ? 'text-slate-900' : 'text-brand'}`}>{display ?? (value || 'Missing')}</div>
         {warn && <div className="text-xs text-amber-800">{warn}</div>}
       </div>
-      <CopyButton value={value} />
+      <CopyButton value={value} toastText={`${label} copied.`} />
     </div>
   );
 }
@@ -229,17 +229,18 @@ function CashApplyModal({ expense: current, onClose }) {
   const billNumberChanged = current.invoiceNumber && fields.bill_number !== current.invoiceNumber.trim();
   const warnings = checkEligibility(current).warnings;
 
-  const allText = [
-    'Payment method: Cash',
-    `Bill number: ${fields.bill_number}`,
-    `Seller PAN: ${fields.seller_pan_no}`,
-    `Bill date (BS): ${current.billDateBS || ''}`,
-    `Bill date (AD): ${current.billDateAD || ''}`,
-    `Billed total amount: ${fields.billed_total_amount}`,
-    `Name: ${fields.name}`,
-    `Mobile number: ${fields.mobile_number}`,
-    `Address: ${fields.address}`,
-  ].join('\n');
+  const payload = [
+    ['Payment method', 'Cash'],
+    ['Bill number', fields.bill_number],
+    ['Seller PAN', fields.seller_pan_no],
+    ['Bill date (BS)', current.billDateBS || ''],
+    ['Bill date (AD)', current.billDateAD || ''],
+    ['Billed total amount', fields.billed_total_amount],
+    ['Name', fields.name],
+    ['Mobile number', fields.mobile_number],
+    ['Address', fields.address],
+  ];
+  const allText = payload.map(([k, v]) => `${k}: ${v}`).join('\n');
 
   return (
     <Modal open onClose={onClose} title="IRD Quick-Apply" size="xl" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
@@ -300,7 +301,11 @@ function CashApplyModal({ expense: current, onClose }) {
               <ClipboardList className="size-4" />Copy fields by hand
               <ChevronDown className="ml-auto size-4 text-slate-500 transition group-open:rotate-180" />
             </summary>
-            <div className="divide-y divide-slate-100 border-t border-slate-100">
+            <div className="border-t border-slate-100 pt-3">
+              <PayloadBlock title="Fields for prize.ird.gov.np" rows={payload} value={allText} copyLabel="Copy all" toastText="All fields copied. Paste them wherever you need." />
+            </div>
+            <p className="pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Or one field at a time</p>
+            <div className="divide-y divide-slate-100">
               <CopyRow label="Payment method" value="Cash" />
               <CopyRow label="Bill number" value={fields.bill_number} warn={billNumberChanged ? `Cleaned from “${current.invoiceNumber}”: the portal accepts only letters, digits and . / _ -` : ''} />
               <CopyRow label="Seller PAN number" value={fields.seller_pan_no} />
@@ -310,8 +315,7 @@ function CashApplyModal({ expense: current, onClose }) {
               <CopyRow label="Mobile number" value={fields.mobile_number} />
               <CopyRow label="Address" value={fields.address} />
               <div className="flex flex-wrap gap-2 py-3">
-                <CopyButton value={allText} label="Copy all as text" icon={ClipboardList} />
-                <CopyButton value={consoleScript(current, profile)} label="Copy console script" icon={Terminal} />
+                <CopyButton value={consoleScript(current, profile)} label="Copy console script" icon={Terminal} toastText="Console script copied." />
               </div>
               <p className="pb-3 text-xs text-slate-500">The console script fills the form when pasted into the browser’s developer console on prize.ird.gov.np, if you opened the portal some other way.</p>
             </div>

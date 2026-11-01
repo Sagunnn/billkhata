@@ -13,6 +13,7 @@ import BillForm from './BillForm.jsx';
 import { IrdModal } from './Ird.jsx';
 import { useToast } from './Toast.jsx';
 import { Button, Modal } from './ui.jsx';
+import { ReceiptViewer } from './ReceiptViewer.jsx';
 
 /** Reads, checks and compresses a picked photo. Returns a data URL or throws. */
 export async function photoFromFile(file) {
@@ -81,13 +82,14 @@ export function BillEditor({ expense, onClose }) {
       title="Edit bill"
       size="xl"
       footer={(
-        <>
-          <Button variant="danger" icon={Trash} onClick={remove} className="mr-auto">Delete</Button>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" icon={Divide} disabled={busy} onClick={() => save('split')}>{draft.split ? 'Edit split' : 'Split'}</Button>
-          {canApply && <Button variant="outline" icon={Ticket} onClick={() => save(true)} disabled={busy}>Save & apply</Button>}
-          <Button variant="dark" icon={Save} onClick={() => save(false)} disabled={busy}>Save</Button>
-        </>
+        // Phones: a full-width Save on top, the rest in one row below it (✕ closes, so no Cancel).
+        <div className="flex w-full flex-wrap gap-2 sm:justify-end">
+          <Button variant="dark" size="lg" icon={Save} onClick={() => save(false)} disabled={busy} className="w-full sm:order-last sm:h-10 sm:w-auto sm:text-sm">Save</Button>
+          <Button variant="danger" icon={Trash} onClick={remove} aria-label="Delete this bill" className="sm:order-first sm:mr-auto"><span className="hidden sm:inline">Delete</span></Button>
+          <span className="hidden sm:contents"><Button variant="ghost" onClick={onClose}>Cancel</Button></span>
+          <Button variant="outline" icon={Divide} disabled={busy} onClick={() => save('split')} className="flex-1 sm:flex-none">{draft.split ? 'Edit split' : 'Split'}</Button>
+          {canApply && <Button variant="outline" icon={Ticket} onClick={() => save(true)} disabled={busy} className="flex-1 sm:flex-none">Save &amp; apply</Button>}
+        </div>
       )}
     >
       <BillForm
@@ -118,7 +120,7 @@ export function PhotoViewer({ expense, onClose }) {
   const { profile } = useStore();
   return (
     <Modal open onClose={onClose} title={expense.merchantName || 'Bill photo'} size="lg">
-      <img src={expense.receiptImage} alt={`Bill from ${expense.merchantName}`} className="mx-auto max-h-[70dvh] rounded-lg border border-slate-200 object-contain" />
+      <ReceiptViewer src={expense.receiptImage} alt={`Bill from ${expense.merchantName || 'this shop'}`} className="h-[68dvh] rounded-lg border border-slate-200" />
       <p className="mt-3 text-center text-sm text-slate-600">
         {formatAD(expense.billDateAD)}{expense.billDateBS ? ` · ${formatBS(expense.billDateBS)} BS` : ''} · <span className="num font-semibold text-slate-900">{money(expense.totalAmount, profile.region)}</span>
       </p>

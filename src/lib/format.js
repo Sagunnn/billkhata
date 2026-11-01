@@ -45,3 +45,16 @@ export function downloadBlob(blob, filename) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * One CSV cell. Text that a spreadsheet would run as a formula (=, +, -, @ at the start) gets a
+ * leading apostrophe; plain numbers like -12.50 are left alone.
+ */
+export function csvCell(v) {
+  let s = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Rows (arrays) → CSV text with a header row. */
+export const toCsv = (head, rows) => `${[head, ...rows].map((r) => r.map(csvCell).join(',')).join('\n')}\n`;

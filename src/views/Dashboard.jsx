@@ -6,7 +6,7 @@ import { money } from '../lib/format.js';
 import { CLAIM_DAYS, formatCoupon, needsCouponOnly, needsManualEntry, normalizeCouponCode } from '../lib/ird.js';
 import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { isDemoProfile, useStore } from '../store.jsx';
-import { ExpenseList } from '../components/ExpenseList.jsx';
+import { ExpenseList, NoBillsYet } from '../components/ExpenseList.jsx';
 import { IrdAction } from '../components/Ird.jsx';
 import { Button, Card, EmptyState } from '../components/ui.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
@@ -173,7 +173,7 @@ export default function Dashboard() {
                 <li key={e.id} className="flex flex-col items-start gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-semibold">{e.merchantName}</div>
-                    <div className="text-xs text-slate-500">{formatBS(e.billDateBS) || formatAD(e.billDateAD)} · Bill {e.invoiceNumber || '—'} · <span className="num">{money(e.totalAmount, region)}</span></div>
+                    <div className="num text-[0.8rem] text-slate-500">{formatBS(e.billDateBS) || formatAD(e.billDateAD)} · Bill {e.invoiceNumber || '—'} · <span className="font-semibold text-slate-700">{money(e.totalAmount, region)}</span></div>
                   </div>
                   <IrdAction expense={e} compact={needsCouponOnly(e)} />
                 </li>
@@ -210,11 +210,7 @@ export default function Dashboard() {
           <h2 className="font-bold">Recent bills</h2>
           <a href="#/ledger" className="flex items-center gap-1 text-sm font-semibold text-navy hover:underline">Open ledger<ChevronRight className="size-4" /></a>
         </div>
-        {recent.length ? <ExpenseList list={recent} /> : (
-          <EmptyState icon={ScanLine} title="No bills yet" action={<a href="#/scan" className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white">Scan your first bill</a>}>
-            Snap a photo of a bill and BillKhata will read it for you.
-          </EmptyState>
-        )}
+        {recent.length ? <ExpenseList list={recent} /> : <NoBillsYet />}
       </Card>
       {winnerModal && <WinnerCheckModal initial={winnerModal} onClose={() => setWinnerModal(null)} />}
     </div>

@@ -3,6 +3,8 @@ import { CATEGORIES, PAYMENT_METHODS } from './constants.js';
 import { finalizeExpense } from './expense.js';
 import { EMPTY_PROFILE, validateProfile } from './profile.js';
 import { todayAD } from './nepaliDate.js';
+import { getIrdStatus } from './ird.js';
+import { toCsv } from './format.js';
 
 export const BACKUP_VERSION = 1;
 
@@ -61,6 +63,44 @@ function validateTrips(list, skipped) {
     out.push({ ...t, status: t.status === 'settled' ? 'settled' : 'active', paidTransfers: t.paidTransfers || {} });
   });
   return out;
+}
+
+/** Bills as a spreadsheet (no photos). For Excel or Google Sheets; restoring needs the JSON backup. */
+export function expensesCsv(expenses = []) {
+  const head = ['Bill code', 'Date (AD)', 'Date (BS)', 'Shop', 'Seller PAN', 'Invoice no.', 'Category', 'Paid by', 'Total', 'VAT', 'IRD draw', 'IRD coupon', 'Notes'];
+  const rows = [...expenses]
+    .sort((a, b) => String(a.billDateAD || '').localeCompare(String(b.billDateAD || '')) || String(a.billCode || '').localeCompare(String(b.billCode || '')))
+    .map((e) => [
+      e.billCode || '',
+      e.billDateAD || '',
+      e.billDateBS || '',
+      e.merchantName || '',
+      e.sellerPan || '',
+      e.invoiceNumber || '',
+      e.category || '',
+      e.paymentMethod || '',
+      Number(e.totalAmount || 0).toFixed(2),
+      e.vatAmount ? Number(e.vatAmount).toFixed(2) : '',
+      e.isNepalBill ? getIrdStatus(e) : 'Not a Nepal bill',
+      e.irdCoupon || '',
+      e.notes || '',
+    ]);
+  return toCsv(head, rows);
+}
+
+export const csvFilename = () => `billkhata_bills_${todayAD().replace(/-/g, '_')}.csv`;
+
+/**
+ * How fresh the last backup is, for the "saved on this device" indicator.
+ * `stale` when there are bills of your own and no backup in the last 14 days.
+ */
+export function backupStatus(lastAt, ownBills, now = Date.now()) {
+  if (!ownBills) return { stale: false, text: lastAt ? 'Backed up' : 'Nothing to back up yet' };
+  const t = Date.parse(lastAt || '');
+  if (!Number.isFinite(t)) return { stale: true, text: 'Not backed up yet' };
+  const days = Math.max(0, Math.floor((now - t) / 864e5));
+  const text = days === 0 ? 'Backed up today' : days === 1 ? 'Backed up yesterday' : `Backed up ${days} days ago`;
+  return { stale: days >= 14, text, days };
 }
 
 export const backupFilename = () => `billkhata_backup_${todayAD().replace(/-/g, '_')}.json`;

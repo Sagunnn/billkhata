@@ -1,6 +1,6 @@
 // Capture -> OCR -> verify -> save.
 import { useState } from 'react';
-import { Camera, Divide, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, Sparkles, Ticket, Upload } from 'lucide-react';
+import { Camera, Divide, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
@@ -112,7 +112,7 @@ export default function Scan() {
     setSaving(true);
     try {
       const saved = await saveExpense(draft);
-      toast('Bill saved to your ledger.');
+      toast('Bill saved to your ledger, on this device.');
       reset();
       if (then === true || then === 'apply') openIrd(saved);
       else if (then === 'split') window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`;
@@ -232,11 +232,19 @@ export default function Scan() {
               <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap font-mono text-xs text-slate-700">{rawText}</pre>
             </details>
           )}
-          <div className="sticky bottom-20 mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white pt-4 md:static">
-            <Button variant="ghost" onClick={reset}>Discard</Button>
-            <Button variant="outline" icon={Divide} disabled={saving} onClick={() => save('split')}>Save &amp; split{draft.lineItems?.length ? ` (${draft.lineItems.length} items)` : ''}</Button>
-            {canApply && <Button variant="outline" icon={Ticket} disabled={saving} onClick={() => save('apply')}>Save & apply to IRD</Button>}
-            <Button variant="dark" icon={Save} disabled={saving} onClick={() => save(false)}>Save bill</Button>
+          {/* Phones: one row just above the bottom nav, in thumb reach; Save takes most of it. */}
+          <div className="above-nav sticky z-10 -mx-4 mt-5 flex items-center gap-2 border-t border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur md:static md:mx-0 md:flex-wrap md:justify-end md:bg-white md:px-0 md:pb-0 md:pt-4">
+            <span className="mr-auto hidden items-center gap-1.5 text-xs text-slate-500 md:inline-flex"><ShieldCheck className="size-3.5 text-emerald-700" />Saved only on this device</span>
+            <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
+            <Button variant="outline" icon={Divide} disabled={saving} onClick={() => save('split')} aria-label="Save and split">
+              <span className="md:hidden">Split</span><span className="hidden md:inline">Save &amp; split{draft.lineItems?.length ? ` (${draft.lineItems.length})` : ''}</span>
+            </Button>
+            {canApply && (
+              <Button variant="outline" icon={Ticket} disabled={saving} onClick={() => save('apply')} aria-label="Save and apply to the IRD draw">
+                <span className="md:hidden">IRD</span><span className="hidden md:inline">Save &amp; apply to IRD</span>
+              </Button>
+            )}
+            <Button variant="dark" size="lg" icon={Save} disabled={saving} onClick={() => save(false)} className="order-first flex-1 md:order-last md:h-10 md:flex-none md:text-sm">Save bill</Button>
           </div>
         </Card>
         {viewPhoto && <PhotoViewer expense={draft} onClose={() => setViewPhoto(false)} />}

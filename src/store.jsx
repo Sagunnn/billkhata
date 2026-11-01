@@ -25,6 +25,12 @@ function saveReconOverrides(v) {
   try { localStorage.setItem(RECON_KEY, JSON.stringify(v)); } catch { /* storage full or blocked */ }
 }
 
+// When the last backup file was downloaded (ISO string), for the "saved on this device" indicator.
+const BACKUP_KEY = 'billkhata_last_backup';
+function loadLastBackup() {
+  try { return localStorage.getItem(BACKUP_KEY) || ''; } catch { return ''; }
+}
+
 /** Gives every stored bill a valid, unique voucher code; saves only the ones that changed. */
 async function deleteSampleBills() {
   const ids = (await db.getAllExpenses()).filter((e) => e.isSample).map((e) => e.id);
@@ -62,6 +68,7 @@ export function StoreProvider({ children }) {
   const [statements, setStatements] = useState([]);
   const [payments, setPayments] = useState([]);
   const [reconOverrides, setReconOverridesState] = useState(loadReconOverrides);
+  const [lastBackupAt, setLastBackupAt] = useState(loadLastBackup);
   const started = useRef(false);
 
   useEffect(() => {
@@ -242,6 +249,12 @@ export function StoreProvider({ children }) {
     [statements, payments, expenses, reconOverrides],
   );
 
+  const markBackedUp = useCallback(() => {
+    const at = new Date().toISOString();
+    try { localStorage.setItem(BACKUP_KEY, at); } catch { /* storage blocked */ }
+    setLastBackupAt(at);
+  }, []);
+
   const value = useMemo(() => ({
     ready, loadError, expenses, profile, settings,
     saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples,
@@ -249,13 +262,14 @@ export function StoreProvider({ children }) {
     setProfile, setSettings,
     statements, saveStatement, deleteStatement, payments, savePayment, deletePayment,
     reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon,
+    lastBackupAt, markBackedUp,
     modal,
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
     closeModal: () => setModal(null),
   }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings,
-    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon]);
+    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon, lastBackupAt, markBackedUp]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

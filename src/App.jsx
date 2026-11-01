@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FileText, Landmark, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, ShieldCheck, Split as SplitIcon } from 'lucide-react';
+import { FileText, Landmark, LayoutDashboard, List, Luggage, ScanLine, Settings as SettingsIcon, Split as SplitIcon } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
+import { StorageIndicator, StorageNote } from './components/LocalFirst.jsx';
+import { Skeleton } from './components/ui.jsx';
 import Dashboard from './views/Dashboard.jsx';
 import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
@@ -39,7 +41,7 @@ function useHashRoute() {
 
 function Logo() {
   return (
-    <a href="#/" className="flex items-center gap-2.5">
+    <a href="#/" className="tap flex items-center gap-2.5">
       <img src="/favicon.svg" alt="" className="size-8" />
       <span className="text-lg font-extrabold tracking-tight">Bill<span className="text-brand">Khata</span></span>
     </a>
@@ -65,10 +67,7 @@ function Sidebar({ route }) {
           </a>
         ))}
       </nav>
-      <div className="mt-auto rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
-        <ShieldCheck className="mb-1 size-4 text-emerald-700" />
-        Your bills never leave this browser. Download a backup in Settings now and then.
-      </div>
+      <div className="mt-auto"><StorageNote /></div>
     </aside>
   );
 }
@@ -81,7 +80,7 @@ function BottomNav({ route }) {
           const active = route === path;
           if (path === 'scan') {
             return (
-              <a key={path} href="#/scan" className="flex flex-col items-center" aria-current={active ? 'page' : undefined}>
+              <a key={path} href="#/scan" className="flex flex-col items-center" aria-current={active ? 'page' : undefined} aria-label="Scan a bill">
                 <span className="-mt-5 flex size-14 items-center justify-center rounded-full bg-brand text-white shadow-lg ring-4 ring-white">
                   <ScanLine className="size-6" />
                 </span>
@@ -90,13 +89,36 @@ function BottomNav({ route }) {
             );
           }
           return (
-            <a key={path} href={`#/${path}`} aria-current={active ? 'page' : undefined} className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${active ? 'text-slate-900' : 'text-slate-500'}`}>
+            <a key={path} href={`#/${path}`} aria-current={active ? 'page' : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-semibold ${active ? 'text-slate-900' : 'text-slate-500'}`}>
               <Icon className="size-5" strokeWidth={active ? 2.5 : 2} />{label}
             </a>
           );
         })}
       </div>
     </nav>
+  );
+}
+
+/** Placeholder shapes while the bills load from IndexedDB, so the page doesn't jump. */
+function LoadingView() {
+  return (
+    <div aria-busy="true" aria-label="Loading your bills">
+      <Skeleton className="h-4 w-40" />
+      <Skeleton className="mt-2 h-7 w-56" />
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => <div key={i} className="card p-4"><Skeleton className="h-3 w-20" /><Skeleton className="mt-3 h-7 w-28" /></div>)}
+      </div>
+      <div className="card mt-5 divide-y divide-slate-100">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-3">
+            <Skeleton className="size-11" />
+            <div className="flex-1"><Skeleton className="h-4 w-1/2" /><Skeleton className="mt-2 h-3 w-3/4" /></div>
+            <Skeleton className="h-4 w-16" />
+          </div>
+        ))}
+      </div>
+      <span className="sr-only">Loading your bills…</span>
+    </div>
   );
 }
 
@@ -134,17 +156,20 @@ export default function App() {
   return (
     <div className="min-h-dvh">
       <Sidebar route={current.path} />
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:hidden">
-        <Logo />
+      <header className="pt-safe gutter sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur md:hidden">
+        <div className="flex h-14 items-center justify-between gap-3">
+          <Logo />
+          <StorageIndicator />
+        </div>
       </header>
-      <main className="px-4 pb-28 pt-5 md:ml-60 md:px-8 md:pb-10 md:pt-8">
+      <main className="gutter main-pad pt-5 md:ml-60 md:pt-8">
         <div className="mx-auto max-w-6xl">
           {loadError && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
               Could not open local storage: {loadError} Bills will not be saved in this window.
             </div>
           )}
-          {ready ? <View key={route} {...viewProps} /> : <div className="py-20 text-center text-slate-500">Loading your bills…</div>}
+          {ready ? <View key={route} {...viewProps} /> : <LoadingView />}
         </div>
       </main>
       <BottomNav route={current.path} />

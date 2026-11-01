@@ -31,8 +31,31 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
 | `src/lib/db.js`, `profile.js` | IndexedDB (via `idb`) and localStorage. |
 | `src/lib/backup.js`, `pdf.js` | JSON backup/restore with validation; jsPDF report with a receipt appendix. |
 | `src/lib/sample.js` | Demo bills with canvas-drawn receipts. |
-| `src/lib/bank/` | Bank statements (`statement.js`, `pdfText.js`), payment screenshots (`payment.js`), matching (`reconcile.js`); `importers.js` is the browser side. |
+| `src/lib/bank/` | Bank statements (`statement.js`, `pdfText.js`, `sheet.js` for spreadsheets), payment screenshots (`payment.js`), matching (`reconcile.js`); `importers.js` is the browser side. |
 | `src/views/`, `src/components/` | Dashboard, Ledger, Scan, Bank, Reports, Settings; bill form, IRD modal, lists. |
+
+## Mobile, trust and first load
+
+- **Thumb reach:** the raised Scan button in the bottom bar; on the review screen Save is a wide
+  button in a one-row bar just above it, and the bill editor puts Save full width on top. Every
+  button is at least 44 × 44 px on touch screens (`.tap`).
+- **Safe areas:** `viewport-fit=cover` with `env(safe-area-inset-*)` on the header, bottom bar,
+  sticky bars, toasts and bottom sheets (sized with `dvh`), so nothing hides behind the notch, the
+  home bar or the browser's toolbars.
+- **Checking a scan:** the bill photo (pinch, double-tap, drag; Ctrl + scroll and +/− on desktop)
+  sticks under the header on phones and folds away to a thin bar; on desktop it stays in view beside
+  the form. A badge says **Scanned** (read, not saved), **Verified** (saved) or **Submitted** (IRD
+  coupon saved). The PAN field counts digits ("6 of 9") and turns green at 9.
+- **Numbers line up:** tabular figures on amounts, dates, PANs and invoice numbers; each bill row
+  is shop and amount on top, then date · BS date · category, then invoice and PAN, in a muted line.
+- **IRD copy:** the portal fields in a monospaced box with one Copy button (✓ and a toast), plus
+  each field on its own.
+- **Saved on this device:** a pill in the mobile header and a note in the sidebar show where bills
+  live and when the last backup was downloaded; an amber dot after 14 days without one. Settings has
+  JSON backup / restore and a CSV export for spreadsheets (no photos, not restorable).
+- **First load:** `index.html` carries a CSS-only skeleton of the app inside `#root`, so there is
+  no blank page while the JavaScript loads; React replaces it. With no bills, the Dashboard and
+  Ledger offer Scan, Add by hand and Load sample bills.
 
 ## IRD rules
 
@@ -265,7 +288,16 @@ version 3), and they're in backups.
   statements are checked oldest-first, and rows that still don't add up are flagged.
 - **Locked PDFs** ask for the password (used once, not saved). **Scanned PDFs** (a page with no
   text) are drawn at 2.2× and read word by word with Tesseract, then go through the same parser.
-  **CSV** exports use the same header logic. Only the last 4 digits of the account number are kept.
+  **CSV** exports use the same header logic, and so do **spreadsheets** (`.xlsx`, `.xls`, `.ods`,
+  and HTML tables saved as `.xls`): SheetJS (from cdn.sheetjs.com, loaded only when a spreadsheet
+  is opened) gives each cell's text, date cells are written as `YYYY-MM-DD HH:MM` so day and month
+  are never guessed, and the sheet with the most transactions wins (`sheet.js`). Wallet exports
+  (eSewa-style: a filter block, `Reference Code | Date Time | Description | Dr. | Cr. | Status |
+  Balance | Channel`, a Total row and status counts) work as they are: Status and Channel stay out
+  of the description, and failed, cancelled or pending rows are left out with a note.
+  A **screenshot** of a statement is read with OCR like a scanned page: two-line headers are
+  stacked line by line, a date with a reference in front of it in one cell is still found, and a row
+  whose date is cut off is reported instead of guessed. Only the last 4 digits of the account number are kept.
   Rows already imported from an overlapping statement are skipped (`bankRowKey`).
 - **Payment screenshots** (`parsePaymentText`): Fonepay, eSewa, Khalti, IME Pay, connectIPS and bank
   apps. Label then value on one line or the next: amount (a total beats an amount before a fee;

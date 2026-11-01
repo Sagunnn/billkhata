@@ -5,7 +5,7 @@ import { blankExpense, filterExpenses, rangeFor, reportTotals } from '../lib/exp
 import { money } from '../lib/format.js';
 import { formatAD } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
-import { ExpenseList } from '../components/ExpenseList.jsx';
+import { ExpenseList, NoBillsYet } from '../components/ExpenseList.jsx';
 import { Button, Card, EmptyState, PageHeader, Segmented } from '../components/ui.jsx';
 
 const RANGES = [
@@ -44,7 +44,7 @@ export default function Ledger() {
       <PageHeader
         title="Ledger"
         subtitle={`${list.length} of ${expenses.length} bills`}
-        actions={<><a href="#/bank" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">Bank</a><a href="#/reports" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">PDF report</a><Button variant="dark" icon={Plus} onClick={() => openEditor(blankExpense(profile.region))}>Add manually</Button></>}
+        actions={<><a href="#/bank" className="tap inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">Bank</a><a href="#/reports" className="tap inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">PDF report</a><Button variant="dark" icon={Plus} onClick={() => openEditor(blankExpense(profile.region))}>Add manually</Button></>}
       />
 
       <Card className="mb-4 p-3">
@@ -88,7 +88,7 @@ export default function Ledger() {
       </div>
 
       <Card className="overflow-hidden">
-        {list.length ? <ExpenseList list={list} /> : (
+        {!expenses.length ? <NoBillsYet /> : list.length ? <ExpenseList list={list} /> : (
           <EmptyState icon={Search} title="No bills match" action={active ? <Button onClick={() => update(EMPTY)} icon={RotateCcw}>Clear filters</Button> : null}>
             Try a wider date range or fewer filters.
           </EmptyState>

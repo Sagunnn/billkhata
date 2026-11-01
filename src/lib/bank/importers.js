@@ -33,7 +33,8 @@ async function ocrPage(page, onProgress) {
   return recognizeWords(canvas, { psm: '6', onProgress });
 }
 
-export const STATEMENT_TYPES = '.pdf,.csv,application/pdf,text/csv';
+const SHEET_RE = /\.(xlsx|xlsm|xls|ods)$/i;
+const SHEET_TYPES = /spreadsheet|ms-excel|officedocument\.spreadsheetml/i;
 
 /**
  * @returns parsed statement ({ bank, account, from, to, rows, checks, warnings, … }) plus fileName and scannedPages.
@@ -44,7 +45,21 @@ export async function readStatementFile(file, { password, onProgress } = {}) {
   if (file.size > 30 * 1024 * 1024) throw new Error('That file is over 30 MB.');
   const isCsv = /\.csv$/i.test(file.name) || file.type === 'text/csv';
   if (isCsv) return { ...parseStatementCsv(await file.text()), fileName: file.name, scannedPages: 0 };
-  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') throw new Error('Choose the statement as a PDF or CSV file.');
+  if (SHEET_RE.test(file.name) || SHEET_TYPES.test(file.type)) {
+    const [XLSX, { parseStatementSheet }] = await Promise.all([import('xlsx'), import('./sheet.js')]);
+    onProgress?.({ status: 'Reading the spreadsheet', progress: 0.5 });
+    return { ...parseStatementSheet(XLSX, new Uint8Array(await file.arrayBuffer())), fileName: file.name, scannedPages: 0 };
+  }
+  if (/^image\//.test(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name)) {
+    // A screenshot of the statement: read word by word, like a scanned PDF page.
+    onProgress?.({ status: 'Reading the picture with OCR', progress: 0.05 });
+    const img = await prepareScreenshot(await fileToDataUrl(file));
+    const { recognizeWords } = await import('../ocr/index.js');
+    const st = parseStatementPages([await recognizeWords(img, { psm: '6', onProgress })]);
+    st.warnings.unshift('Read from a picture with OCR, which can misread numbers, and cut-off text stays cut off. The statement file itself (Excel or PDF) reads exactly.');
+    return { ...st, fileName: file.name, scannedPages: 1 };
+  }
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') throw new Error('Choose the statement as a PDF, Excel (.xlsx / .xls), CSV or a screenshot.');
   const pdfjs = await loadPdfjs();
   const { pages, scannedPages } = await readPdfTokens(pdfjs, await file.arrayBuffer(), {
     password,

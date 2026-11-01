@@ -1,6 +1,6 @@
 // The editable verification form for a bill. Used after a scan and when editing.
 import { useEffect, useMemo, useState } from 'react';
-import { ImagePlus, ListPlus, Store, Trash, ZoomIn } from 'lucide-react';
+import { ChevronDown, CircleCheck, ImagePlus, ListPlus, Store, Trash } from 'lucide-react';
 import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
 import { makeItem } from '../lib/splitter.js';
@@ -8,7 +8,9 @@ import { assignBillCode } from '../lib/billCode.js';
 import { money } from '../lib/format.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
-import { Field, Toggle } from './ui.jsx';
+import { Field, StageBadge, Toggle } from './ui.jsx';
+import { ReceiptViewer } from './ReceiptViewer.jsx';
+import { billStage } from '../lib/expense.js';
 import { EligibilityPanel } from './Ird.jsx';
 import { CrossReferenceCard } from './CrossReference.jsx';
 import { BankMatchCard, canReplace, useBankMatch } from './BankMatch.jsx';
@@ -47,6 +49,83 @@ function DateFields({ ad, bs, onChange, error }) {
           }}
         />
       </Field>
+    </div>
+  );
+}
+
+/** Seller PAN: digits only, a live "6 of 9" count, and a check mark once all 9 are in. */
+function PanField({ value, error, onChange, knownShop }) {
+  const n = String(value || '').length;
+  const done = n === 9;
+  const hint = done
+    ? <span className="inline-flex items-center gap-1 font-medium text-emerald-700"><CircleCheck className="size-3.5" />9 digits{knownShop ? ` · ${knownShop}` : ''}</span>
+    : n > 0
+      ? <span className="num font-medium text-amber-700">{n} of 9 digits</span>
+      : '9 digits, printed near “PAN” or “प्यान”';
+  return (
+    <Field label="Seller PAN / VAT" htmlFor="f-pan" error={error} hint={hint}>
+      <div className="relative">
+        <input
+          id="f-pan"
+          inputMode="numeric"
+          autoComplete="off"
+          enterKeyHint="next"
+          maxLength={9}
+          pattern="\d{9}"
+          aria-invalid={error ? true : undefined}
+          aria-describedby="f-pan-hint"
+          className={`input pr-9 font-mono tracking-[0.12em] ${error ? 'input-error' : done ? 'input-ok' : ''}`}
+          value={value}
+          onChange={(ev) => onChange(ev.target.value)}
+          placeholder="601234567"
+        />
+        {done && !error && <CircleCheck className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-emerald-600" aria-hidden="true" />}
+      </div>
+    </Field>
+  );
+}
+
+const PANEL_KEY = 'billkhata_photo_panel';
+function readPanel() {
+  try { return localStorage.getItem(PANEL_KEY) !== 'closed'; } catch { return true; }
+}
+
+/**
+ * Phones: the bill photo sticks under the header while you scroll through the fields, so each
+ * one can be checked against the paper. It folds away to a thin bar when it's in the way.
+ */
+function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto }) {
+  const [open, setOpen] = useState(readPanel);
+  const toggle = () => {
+    setOpen((v) => {
+      try { localStorage.setItem(PANEL_KEY, v ? 'closed' : 'open'); } catch { /* ignore */ }
+      return !v;
+    });
+  };
+  return (
+    <div className="sticky-top sticky z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-md shadow-slate-900/5 backdrop-blur lg:hidden">
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={toggle} aria-expanded={open} className="tap flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left">
+          {!open && <img src={src} alt="" className="size-8 shrink-0 rounded object-cover object-top" />}
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-900">Bill photo</span>
+            <span className="block truncate text-xs text-slate-500">{open ? 'Check each field against it' : 'Tap to show while you check'}</span>
+          </span>
+          <ChevronDown className={`ml-auto size-4 shrink-0 text-slate-500 transition ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+        </button>
+        {onPhoto && (
+          <label className="tap flex cursor-pointer items-center justify-center rounded-lg px-2 text-slate-600 hover:bg-slate-100" title="Replace photo">
+            <ImagePlus className="size-4" /><span className="sr-only">Replace photo</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} />
+          </label>
+        )}
+        {onRemovePhoto && (
+          <button type="button" onClick={onRemovePhoto} className="tap flex items-center justify-center rounded-lg px-2 text-slate-500 hover:bg-red-50 hover:text-brand" aria-label="Remove photo">
+            <Trash className="size-4" />
+          </button>
+        )}
+      </div>
+      {open && <ReceiptViewer src={src} onExpand={onViewPhoto} className="mt-1.5 h-[26dvh] max-h-64 min-h-36 rounded-lg" />}
     </div>
   );
 }
@@ -138,13 +217,15 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
       onOverride={(id, on) => onChange({ duplicateOverride: on ? [...new Set([...(e.duplicateOverride || []), id])] : (e.duplicateOverride || []).filter((x) => x !== id) })}
     />
     <BankMatchCard bill={e} match={bankMatch} region={region} onChange={onChange} onUseFor={onUseFor} />
+    {e.receiptImage && <MobilePhoto src={e.receiptImage} onViewPhoto={onViewPhoto} onPhoto={onPhoto} onRemovePhoto={onRemovePhoto} />}
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="rounded-md bg-slate-900 px-2 py-0.5 font-mono font-bold tracking-wide text-white" title="Voucher code">{code}</span>
-      <span className="text-xs text-slate-500">
+      <span className="min-w-0 flex-1 text-xs text-slate-500">
         {saved ? 'Voucher code' : 'Voucher code it gets when saved'}. Write it on the paper bill so it matches your PDF report.
       </span>
+      <StageBadge stage={billStage(e, saved)} />
     </div>
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,42%)]">
       <div className="space-y-4">
         <Field label="Shop / seller name" htmlFor="f-merchant" error={errors.merchantName}>
           <input id="f-merchant" list="known-shops" className={`input ${errors.merchantName ? 'input-error' : ''}`} value={e.merchantName} onChange={(ev) => changeMerchant(ev.target.value)} placeholder="e.g. Annapurna Kirana Pasal" autoComplete="off" />
@@ -167,19 +248,9 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Seller PAN / VAT" htmlFor="f-pan" error={errors.sellerPan} hint="9 digits, printed near “PAN” or “प्यान”">
-            <input
-              id="f-pan"
-              inputMode="numeric"
-              maxLength={9}
-              className={`input num ${errors.sellerPan ? 'input-error' : ''}`}
-              value={e.sellerPan}
-              onChange={(ev) => changePan(ev.target.value)}
-              placeholder="601234567"
-            />
-          </Field>
+          <PanField value={e.sellerPan} error={errors.sellerPan} onChange={changePan} knownShop={/^\d{9}$/.test(e.sellerPan || '') && memory?.matchedBy === 'pan' ? memory.merchantName : ''} />
           <Field label="Bill / invoice no." htmlFor="f-inv">
-            <input id="f-inv" className="input" maxLength={40} value={e.invoiceNumber} onChange={set('invoiceNumber')} placeholder="बिल नं" autoComplete="off" />
+            <input id="f-inv" className="input font-mono" maxLength={40} value={e.invoiceNumber} onChange={set('invoiceNumber')} placeholder="बिल नं" autoComplete="off" />
           </Field>
         </div>
 
@@ -226,31 +297,28 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
         </div>
       </div>
 
+      {/* The aside is as tall as the form, so the photo can stay in view while you scroll. */}
       <aside className="space-y-4">
-        <div className="card overflow-hidden">
-          {e.receiptImage ? (
-            <>
-              <button type="button" onClick={onViewPhoto} className="group relative block w-full bg-slate-100">
-                <img src={e.receiptImage} alt="Bill photo" className="max-h-72 w-full object-contain" />
-                <span className="absolute right-2 top-2 rounded-md bg-slate-900/70 p-1.5 text-white opacity-0 transition group-hover:opacity-100"><ZoomIn className="size-4" /></span>
-              </button>
-              <div className="flex gap-2 border-t border-slate-200 p-2">
-                {onPhoto && <label className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"><ImagePlus className="size-4" />Replace<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} /></label>}
-                {onRemovePhoto && <button type="button" onClick={onRemovePhoto} className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-semibold text-brand hover:bg-red-50"><Trash className="size-4" />Remove</button>}
-              </div>
-            </>
-          ) : (
-            onPhoto && (
-              <label className="flex cursor-pointer flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-600 hover:bg-slate-50">
-                <ImagePlus className="size-6 text-slate-400" />
-                <span className="font-semibold text-slate-800">Attach bill photo</span>
-                <span className="text-xs">Kept as proof, compressed under 300 KB</span>
-                <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} />
-              </label>
-            )
-          )}
-        </div>
         <EligibilityPanel expense={e} />
+        {e.receiptImage ? (
+          // Phones show the photo in the sticky panel above the form instead.
+          <div className="card sticky-top hidden overflow-hidden lg:sticky lg:block">
+            <ReceiptViewer src={e.receiptImage} onExpand={onViewPhoto} className="h-[min(58dvh,560px)]" />
+            <div className="flex gap-2 border-t border-slate-200 p-2">
+              {onPhoto && <label className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"><ImagePlus className="size-4" />Replace<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} /></label>}
+              {onRemovePhoto && <button type="button" onClick={onRemovePhoto} className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-semibold text-brand hover:bg-red-50"><Trash className="size-4" />Remove</button>}
+            </div>
+          </div>
+        ) : (
+          onPhoto && (
+            <label className="card flex cursor-pointer flex-col items-center gap-2 px-4 py-8 text-center text-sm text-slate-600 hover:bg-slate-50">
+              <ImagePlus className="size-6 text-slate-400" />
+              <span className="font-semibold text-slate-800">Attach bill photo</span>
+              <span className="text-xs">Kept as proof, compressed under 300 KB</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} />
+            </label>
+          )
+        )}
       </aside>
     </div>
     </div>

@@ -1,5 +1,6 @@
 // Bills as a table (desktop) or cards (mobile), with photo, edit, delete and IRD actions.
-import { Image as ImageIcon, Pencil, Trash } from 'lucide-react';
+import { Image as ImageIcon, PencilLine, Pencil, ScanLine, Sparkles, Trash } from 'lucide-react';
+import { blankExpense } from '../lib/expense.js';
 import { money } from '../lib/format.js';
 import { getIrdStatus } from '../lib/ird.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
@@ -7,7 +8,7 @@ import { useStore } from '../store.jsx';
 import { IrdAction } from './Ird.jsx';
 import { BankTag } from './BankMatch.jsx';
 import { useToast } from './Toast.jsx';
-import { StatusBadge } from './ui.jsx';
+import { Button, EmptyState, StatusBadge } from './ui.jsx';
 
 function useActions() {
   const { openEditor, openPhoto, removeExpense } = useStore();
@@ -58,8 +59,20 @@ function Thumb({ e, onClick }) {
   );
 }
 
+/** The muted lines under a bill: "1 Nov 2026 · 15 Kartik 2083 · Groceries", then "Inv … · PAN …". */
+function Meta({ e }) {
+  const line = (parts) => parts.filter(Boolean).join(' · ');
+  const ids = line([e.invoiceNumber && `Inv ${e.invoiceNumber}`, e.sellerPan && `PAN ${e.sellerPan}`]);
+  return (
+    <div className="num mt-0.5 text-[0.8rem] leading-snug text-slate-500">
+      <div className="truncate">{line([formatAD(e.billDateAD), e.billDateBS && formatBS(e.billDateBS), e.category])}</div>
+      {ids && <div className="truncate">{ids}</div>}
+    </div>
+  );
+}
+
 const IconBtn = ({ label, icon: Icon, onClick, danger }) => (
-  <button type="button" onClick={onClick} aria-label={label} title={label} className={`rounded-md p-2 ${danger ? 'text-slate-500 hover:bg-red-50 hover:text-brand' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>
+  <button type="button" onClick={onClick} aria-label={label} title={label} className={`tap inline-flex items-center justify-center rounded-md p-2 ${danger ? 'text-slate-500 hover:bg-red-50 hover:text-brand' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>
     <Icon className="size-4" />
   </button>
 );
@@ -76,19 +89,17 @@ export function ExpenseCards({ list }) {
             <div className="flex items-start justify-between gap-2">
               <button type="button" onClick={() => a.edit(e)} className="min-w-0 text-left">
                 <div className="truncate font-semibold text-slate-900">{e.billCode && <CodeChip code={e.billCode} />}{e.merchantName || 'Untitled bill'}</div>
-                <div className="text-xs text-slate-500">
-                  {formatAD(e.billDateAD)}{e.billDateBS ? ` · ${formatBS(e.billDateBS)}` : ''} · {e.category}
-                </div>
+                <Meta e={e} />
               </button>
-              <div className="num shrink-0 text-right font-bold text-slate-900">{money(e.totalAmount, profile.region)}</div>
+              <div className="num shrink-0 text-right text-[15px] font-bold text-slate-900">{money(e.totalAmount, profile.region)}</div>
             </div>
             {e.split && <SplitNote e={e} region={profile.region} />}
             <TripNote e={e} />
             <BankTag e={e} />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
               {e.isNepalBill && <IrdAction expense={e} compact />}
               {getIrdStatus(e) === 'Ineligible' && e.isNepalBill && <StatusBadge status="Ineligible" />}
-              <span className="ml-auto flex">
+              <span className="-mr-2 ml-auto flex">
                 <IconBtn label="Edit" icon={Pencil} onClick={() => a.edit(e)} />
                 <IconBtn label="Delete" icon={Trash} onClick={() => a.remove(e)} danger />
               </span>
@@ -123,7 +134,7 @@ export function ExpenseTable({ list }) {
             <tr key={e.id} className="align-middle hover:bg-slate-50/70">
               <td className="py-2.5 pl-4 pr-2"><Thumb e={e} onClick={() => a.photo(e)} /></td>
               <td className="whitespace-nowrap px-2 py-2.5">
-                <div className="font-medium text-slate-900">{formatAD(e.billDateAD)}</div>
+                <div className="num font-medium text-slate-900">{formatAD(e.billDateAD)}</div>
                 <div className="num text-xs text-slate-500">{e.billDateBS ? `BS ${e.billDateBS}` : ''}</div>
               </td>
               <td className="max-w-[220px] px-2 py-2.5">
@@ -134,8 +145,8 @@ export function ExpenseTable({ list }) {
                 {e.notes && <div className="truncate text-xs text-slate-500">{e.notes}</div>}
               </td>
               <td className="px-2 py-2.5">
-                <div className="num font-mono text-xs text-slate-800">{e.sellerPan || '—'}</div>
-                <div className="truncate text-xs text-slate-500">{e.invoiceNumber || '—'}</div>
+                <div className="font-mono text-xs text-slate-800">{e.sellerPan || '—'}</div>
+                <div className="num max-w-[140px] truncate text-xs text-slate-500">{e.invoiceNumber || '—'}</div>
               </td>
               <td className="px-2 py-2.5">
                 <div className="text-slate-800">{e.category}</div>
@@ -171,5 +182,28 @@ export function ExpenseList({ list }) {
       <div className="md:hidden"><ExpenseCards list={list} /></div>
       <div className="hidden md:block"><ExpenseTable list={list} /></div>
     </>
+  );
+}
+
+/** No bills at all yet: what to do first. */
+export function NoBillsYet() {
+  const { loadSamples, openEditor, profile } = useStore();
+  const toast = useToast();
+  return (
+    <EmptyState
+      icon={ScanLine}
+      title="No bills yet"
+      action={(
+        <div className="flex flex-col items-center gap-2 sm:flex-row">
+          <a href="#/scan" className="tap inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark">
+            <ScanLine className="size-[18px]" />Scan a bill
+          </a>
+          <Button icon={PencilLine} onClick={() => openEditor(blankExpense(profile.region))}>Add by hand</Button>
+          <Button variant="ghost" icon={Sparkles} onClick={async () => { await loadSamples(); toast('Sample bills added. Remove them any time in Settings.'); }}>Load sample bills</Button>
+        </div>
+      )}
+    >
+      Take a photo of a paper bill and BillKhata reads the shop, PAN, date and total for you. It stays on this device.
+    </EmptyState>
   );
 }

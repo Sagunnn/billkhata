@@ -135,13 +135,17 @@ export function classifyHeader(text) {
   const t = String(text).toLowerCase().replace(/[^a-z/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return '';
   if (/^(dr\s*\/\s*cr|cr\s*\/\s*dr|d\s*\/\s*c|c\s*\/\s*d|type|txn type|tran type)$/.test(t)) return 'drcr';
-  if (/balance/.test(t)) return 'balance';
+  // Wallet exports (eSewa, Khalti…) add these; they are not part of the description.
+  if (/^(status|txn status|transaction status|state)$/.test(t)) return 'status';
+  if (/^(channel|mode|txn mode|tran mode|branch|user|initiated by|service)$/.test(t)) return 'skip';
+  // Cut-off headers count too (a narrow column in a screenshot shows "Balanc", "Descrip").
+  if (/balanc/.test(t)) return 'balance';
   if (/withdraw|debit|^dr$|paid out|money out|^out$/.test(t)) return 'debit';
   if (/deposit|credit|^cr$|paid in|money in|^in$/.test(t)) return 'credit';
   if (/value date|val date/.test(t)) return 'valueDate';
   if (/date/.test(t)) return 'date';
   if (/^time$/.test(t)) return 'time';
-  if (/particular|description|narration|remark|detail|transaction$|^details?$/.test(t)) return 'desc';
+  if (/particul|descrip|narrat|remark|detail|transaction$|^details?$/.test(t)) return 'desc';
   if (/cheque|chq|^ref|reference|instrument|tran id|txn id|transaction id|voucher/.test(t)) return 'ref';
   if (/amount|^amt$/.test(t)) return 'amount';
   if (/^(s ?n|sn|sr|sl|s no|sr no|sl no|serial)$/.test(t)) return 'sn';
@@ -163,7 +167,9 @@ function toWords(tokens) {
     const re = /\S+/g;
     let m;
     while ((m = re.exec(text))) {
-      out.push({ text: m[0], x0: t.x0 + m.index * per, x1: t.x0 + (m.index + m[0].length) * per, y0: t.y0, y1: t.y1 });
+      // OCR reads a table's grid lines as "|": drop them.
+      const word = m[0].replace(/^[|¦]+|[|¦]+$/g, '');
+      if (word) out.push({ text: word, x0: t.x0 + m.index * per, x1: t.x0 + (m.index + m[0].length) * per, y0: t.y0, y1: t.y1 });
     }
   }
   return out;
@@ -198,8 +204,8 @@ function groupLines(words, h) {
   return lines.sort((a, b) => a.cy - b.cy);
 }
 
-/** Header words into cells: words closer than ~half a line apart (or stacked) are one cell. */
-function headerCells(words, h) {
+/** One header line's words into cells: words closer than about half a line height are one cell. */
+function lineCells(words, h) {
   const cells = [];
   for (const w of [...words].sort((a, b) => a.x0 - b.x0)) {
     const c = cells.find((x) => w.x0 <= x.x1 + h * 0.6 && w.x1 >= x.x0 - h * 0.6);
@@ -210,15 +216,42 @@ function headerCells(words, h) {
     } else cells.push({ words: [w], x0: w.x0, x1: w.x1 });
   }
   for (const c of cells) {
+    c.text = c.words.map((w) => w.text).join(' ');
+    c.kind = classifyHeader(c.text);
+  }
+  return cells.flatMap((c) => splitHeaderCell(c, h));
+}
+
+/**
+ * Header cells from one line, or two stacked lines ("Reference" over "Code", "Balance" over "(NPR)").
+ * Each line is split into cells first, then a lower cell joins the upper cell it sits under.
+ */
+function headerCells(lineWords, h) {
+  const [top, ...rest] = lineWords.map((ws) => lineCells(ws, h));
+  const cells = top.map((c) => ({ ...c, words: [...c.words] }));
+  for (const lower of rest.flat()) {
+    let best = null;
+    let bestOverlap = 0;
+    for (const c of cells) {
+      const overlap = Math.min(c.x1, lower.x1) - Math.max(c.x0, lower.x0);
+      if (overlap > bestOverlap) { best = c; bestOverlap = overlap; }
+    }
+    if (best) {
+      best.words.push(...lower.words);
+      best.x0 = Math.min(best.x0, lower.x0);
+      best.x1 = Math.max(best.x1, lower.x1);
+    } else cells.push({ ...lower, words: [...lower.words] });
+  }
+  for (const c of cells) {
     c.words.sort((a, b) => (a.y0 - b.y0) || (a.x0 - b.x0));
     c.text = c.words.map((w) => w.text).join(' ');
     c.kind = classifyHeader(c.text);
   }
-  return cells.flatMap((c) => splitHeaderCell(c, h)).sort((a, b) => a.x0 - b.x0);
+  return cells.sort((a, b) => a.x0 - b.x0);
 }
 
 // Words that end a column name rather than start one: "Debit Amount", "Cheque No", "Value Date".
-const SUFFIX_WORD = /^(amount|amt|no\.?|number|#|id|date|\(npr\)|npr|rs\.?|details?|code)$/i;
+const SUFFIX_WORD = /^(amount|amt|no\.?|number|#|id|date|time|\(npr\)|npr|rs\.?|details?|code)$/i;
 
 /**
  * Narrow column gaps get merged into one text item ("Value Date Particulars"). Split a one-line
@@ -256,10 +289,10 @@ const validHeader = (cells) => {
 /** The column header on a page: one line, or two stacked lines ("Withdrawal" over "Amount"). */
 function findHeader(lines, h) {
   for (let i = 0; i < lines.length; i++) {
-    const one = headerCells(lines[i].words, h);
+    const one = headerCells([lines[i].words], h);
     const next = lines[i + 1];
     if (next && next.cy - lines[i].cy < h * 1.9 && !/\d/.test(next.text)) {
-      const two = headerCells([...lines[i].words, ...next.words], h);
+      const two = headerCells([lines[i].words, next.words], h);
       const named = (cells) => cells.filter((c) => c.kind).length;
       if (validHeader(two) && (!validHeader(one) || named(two) > named(one))) {
         return { cells: two, index: i + 1 };
@@ -318,11 +351,25 @@ function assemble(lines, { order, h = 1 }) {
   let closing = null;
   let cur = null;
   let lastY = -Infinity;
+  let notDone = 0;
+  let unreadable = 0;
   for (const line of lines) {
     const { cells, text } = line;
     const dateText = cells.date || '';
     let date = parseDate(dateText, order);
+    let before = '';
+    if (!date && dateText) {
+      // "1ABCD12 2026-11-01": a reference squeezed into the date column ahead of the date.
+      const m = /\s(?=\S)/g;
+      let hit;
+      while (!date && (hit = m.exec(dateText))) {
+        const d = parseDate(dateText.slice(hit.index + 1), order);
+        if (d) { date = { ...d, length: d.length + hit.index + 1 }; before = dateText.slice(0, hit.index).trim(); }
+      }
+    }
     if (!date && !cells.date && cells.valueDate) date = parseDate(cells.valueDate, order);
+    // A "Date Time" column read as two: the date sits under "Time".
+    if (!date && !cells.date && cells.time) date = parseDate(cells.time, order);
     const descText = [cells.desc, cells.other].filter(Boolean).join(' ').trim();
     const nums = {};
     for (const k of ['debit', 'credit', 'balance', 'amount']) {
@@ -342,15 +389,34 @@ function assemble(lines, { order, h = 1 }) {
     }
     if (SUMMARY_RE.test(text.trim()) || SUMMARY_RE.test(descText)) { cur = null; continue; }
 
+    // Failed, cancelled or pending payments never moved money: leave them out.
+    if (date && /\b(fail\w*|cancel+ed|rejected|declined|time\s*out|timed\s*out|pending|unsuccessful)\b/i.test(cells.status || '')) {
+      notDone++;
+      cur = null;
+      continue;
+    }
     if (date) {
       let time = date.time || '';
       if (!time && cells.time) time = findTime(cells.time);
       const restOfDate = dateText.slice(date.length).trim();
       const desc = [restOfDate && !/^[\d:\s.apm]+$/i.test(restOfDate) ? restOfDate : '', descText].filter(Boolean).join(' ');
       if (!time) time = findTime(desc);
-      cur = { date: date.ad, time, description: desc, ref: cells.ref || '', nums, drcr: cells.drcr || '' };
+      const codeBefore = /^[A-Za-z0-9\-/]+$/.test(before) && /\d/.test(before);
+      cur = {
+        date: date.ad,
+        time,
+        description: codeBefore || !before ? desc : `${before} ${desc}`.trim(),
+        ref: [cells.ref, codeBefore ? before : ''].filter(Boolean).join(' '),
+        nums,
+        drcr: cells.drcr || '',
+      };
       rows.push(cur);
       lastY = line.y;
+    } else if (cur && (nums.debit || nums.credit || nums.amount) && nums.balance && (cur.nums.debit || cur.nums.credit || cur.nums.amount)) {
+      // Its own amount and balance but no readable date (cut off or misread): a transaction we
+      // can't place. Say so rather than guess the date.
+      unreadable++;
+      cur = null;
     } else if (cur && line.y - lastY <= h * 2.6) {
       // A wrapped description (or amounts that wrapped onto the next line).
       if (descText) cur.description = `${cur.description} ${descText}`.trim();
@@ -362,7 +428,7 @@ function assemble(lines, { order, h = 1 }) {
       cur = null;
     }
   }
-  return { rows, opening, closing };
+  return { rows, opening, closing, notDone, unreadable };
 }
 
 const DEBIT_WORDS = /\b(withdraw\w*|atm|pos|purchase|payment|paid|transfer\s+to|trf\s+to|to\s+a\/?c|fonepay|esewa|khalti|qr|bill\s*pay|charge|fee|debit)\b/i;
@@ -457,6 +523,7 @@ const BANKS = [
   'Everest Bank', 'Kumari Bank', 'Laxmi Sunrise Bank', 'Siddhartha Bank', 'Prabhu Bank', 'Sanima Bank',
   'Machhapuchchhre Bank', 'NMB Bank', 'Prime Commercial Bank', 'Citizens Bank', 'Agricultural Development Bank',
   'Rastriya Banijya Bank', 'Nepal Bank', 'Nepal SBI Bank', 'Mega Bank', 'Sunrise Bank', 'Century Bank', 'Civil Bank',
+  'eSewa', 'Khalti', 'IME Pay', 'connectIPS',
 ];
 
 /** Bank name and the last 4 digits of the account number (nothing more is kept). */
@@ -471,7 +538,7 @@ export function statementMeta(text = '') {
 
 /* ---------- entry points ---------- */
 
-function finish({ rows, opening, closing }, meta, source) {
+function finish({ rows, opening, closing, notDone = 0, unreadable = 0 }, meta, source) {
   const settled = settle(rows, opening);
   const out = settled.rows.map((r) => ({ ...r, refs: findRefs(`${r.description} ${r.ref}`) }));
   const warnings = [];
@@ -479,6 +546,8 @@ function finish({ rows, opening, closing }, meta, source) {
   if (settled.checked && settled.ok < settled.checked) {
     warnings.push(`${settled.checked - settled.ok} of ${settled.checked} rows don't follow from the balance above them. Check those rows.`);
   }
+  if (unreadable) warnings.push(`${unreadable} row${unreadable === 1 ? '' : 's'} had an amount but no readable date and ${unreadable === 1 ? 'was' : 'were'} left out. Add the statement file itself (Excel or PDF) to get every row.`);
+  if (notDone) warnings.push(`${notDone} failed, cancelled or pending transaction${notDone === 1 ? ' was' : 's were'} left out: no money moved.`);
   if (out.some((r) => r.sideGuessed)) warnings.push('Some rows had no balance to check whether money went in or out; that was guessed from the description.');
   const dates = out.map((r) => r.date).sort();
   return {
@@ -590,10 +659,18 @@ export function parseCsv(text) {
 
 /** A statement exported as CSV (or pasted from a spreadsheet). */
 export function parseStatementCsv(text) {
-  const rows = parseCsv(text);
+  return parseStatementTable(parseCsv(text), 'csv');
+}
+
+/**
+ * A statement from rows of cell text: a CSV, or a spreadsheet (see sheet.js). Title, filter and
+ * summary rows around the table are skipped; the column header row says what each column is.
+ */
+export function parseStatementTable(table, source = 'table') {
+  const rows = table.map((r) => r.map((c) => (c == null ? '' : String(c))));
   const meta = statementMeta(rows.slice(0, 15).map((r) => r.join(' ')).join('\n'));
   const hi = rows.findIndex((r) => validHeader(r.map((c) => ({ kind: classifyHeader(c) }))));
-  if (hi < 0) return finish({ rows: [], opening: null, closing: null }, meta, 'csv');
+  if (hi < 0) return finish({ rows: [], opening: null, closing: null }, meta, source);
   const kinds = rows[hi].map(classifyHeader);
   const body = rows.slice(hi + 1);
   const order = detectDateOrder(body.map((r) => r[kinds.indexOf('date')] || ''));
@@ -601,11 +678,11 @@ export function parseStatementCsv(text) {
     const cells = {};
     r.forEach((c, j) => {
       const k = kinds[j] || 'other';
-      if (k !== 'sn' && c.trim()) cells[k] = cells[k] ? `${cells[k]} ${c.trim()}` : c.trim();
+      if (k !== 'sn' && k !== 'skip' && c.trim()) cells[k] = cells[k] ? `${cells[k]} ${c.trim()}` : c.trim();
     });
-    return { cells, text: r.join(' '), y: i };
+    return { cells, text: r.join(' ').replace(/\s+/g, ' '), y: i };
   });
-  return finish(assemble(lines, { order, h: 1 }), meta, 'csv');
+  return finish(assemble(lines, { order, h: 1 }), meta, source);
 }
 
 /** Stable key for a bank row, so the same row from two overlapping statements is kept once. */

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Database, Download, Eye, EyeOff, HardDriveUpload, KeyRound, ScanText, Sparkles, Trash, UserRound,
+  Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, ScanText, ShieldCheck, Sparkles, Trash, UserRound,
 } from 'lucide-react';
 import { OCR_ENGINES, REGIONS, VISION_PROVIDERS } from '../lib/constants.js';
-import { backupFilename, buildBackup, readBackupFile, validateBackup } from '../lib/backup.js';
+import { backupFilename, backupStatus, buildBackup, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
 import { bytes, downloadBlob } from '../lib/format.js';
 import { validateProfile } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
@@ -112,19 +112,27 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData } = useStore();
+  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
   const [mode, setMode] = useState('merge');
   const sizeEstimate = new Blob([JSON.stringify(expenses)]).size;
   const samples = expenses.filter((e) => e.isSample).length;
+  const status = backupStatus(lastBackupAt, expenses.length - samples);
 
   function download() {
     const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides });
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
+    markBackedUp();
     const bank = statements.length || payments.length ? `, ${statements.length} statement${statements.length === 1 ? '' : 's'}, ${payments.length} payment screenshot${payments.length === 1 ? '' : 's'}` : '';
     toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}${bank}).`);
+  }
+
+  function downloadCsv() {
+    // The byte-order mark makes Excel read Nepali text as UTF-8.
+    downloadBlob(new Blob(['\uFEFF', expensesCsv(expenses)], { type: 'text/csv;charset=utf-8' }), csvFilename());
+    toast(`Spreadsheet downloaded (${expenses.length} bills).`);
   }
 
   async function pick(file) {
@@ -163,32 +171,41 @@ function DataSection() {
   }
 
   return (
-    <Card className="p-4 md:p-5">
+    <Card id="backup" className="scroll-mt-[calc(var(--header-h)+1rem)] p-4 md:scroll-mt-6 md:p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><Database className="size-5" />Backup & restore</h2>
-      <p className="mb-4 text-sm text-slate-600">
-        Your bills live only in this browser ({expenses.length} bills, {trips.length} trips, about {bytes(sizeEstimate)} with photos). Clearing site data deletes them, so keep a backup file.
+      <p className="mb-3 text-sm text-slate-600">
+        Your bills live only in this browser. Clearing site data deletes them, so keep a backup file somewhere safe.
       </p>
+      <div className={`mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ring-1 ring-inset ${status.stale ? 'bg-amber-50 text-amber-950 ring-amber-200' : 'bg-emerald-50 text-emerald-950 ring-emerald-200'}`}>
+        <span className="flex items-center gap-1.5 font-semibold"><ShieldCheck className="size-4" />Saved on this device</span>
+        <span className="num text-xs">{expenses.length} bills · {trips.length} trips · about {bytes(sizeEstimate)}</span>
+        <span className="text-xs font-semibold sm:ml-auto">{status.text}</span>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={download} className="flex items-center gap-3 rounded-xl border-2 border-slate-200 p-4 text-left hover:border-slate-400">
+        <button type="button" onClick={download} className="flex min-w-0 items-center gap-3 rounded-xl border-2 border-slate-200 p-4 text-left hover:border-slate-400">
           <Download className="size-6 shrink-0 text-navy" />
-          <span><span className="block font-bold">Download backup</span><span className="text-sm text-slate-600">{backupFilename()}</span></span>
+          <span className="min-w-0"><span className="block font-bold">Download backup</span><span className="block text-sm text-slate-600">Bills, photos, trips and bank data in one .json file</span></span>
         </button>
         <label
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files?.[0]); }}
-          className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-4 ${dragging ? 'border-navy bg-blue-50' : 'border-slate-300 hover:border-slate-400'}`}
+          className={`flex min-w-0 cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-4 ${dragging ? 'border-navy bg-blue-50' : 'border-slate-300 hover:border-slate-400'}`}
         >
           <HardDriveUpload className="size-6 shrink-0 text-navy" />
           <span><span className="block font-bold">Restore from backup</span><span className="text-sm text-slate-600">Drop a .json file here or tap to choose</span></span>
           <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       </div>
-      <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Button size="sm" variant="ghost" icon={FileSpreadsheet} onClick={downloadCsv} disabled={!expenses.length}>Export bills as CSV</Button>
+        <span className="text-xs text-slate-500">For Excel or Google Sheets. No photos, and it can’t be restored: keep the .json backup for that.</span>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
         {samples > 0
           ? <Button icon={Trash} onClick={async () => toast(`Removed ${await removeSamples()} sample bills.`)}>Remove {samples} sample bills</Button>
           : <Button icon={Sparkles} onClick={async () => { await loadSamples(); toast('Sample bills added.'); }}>Load sample bills</Button>}
-        <Button variant="danger" icon={Trash} onClick={wipe} disabled={!expenses.length}>Delete all bills</Button>
+        <Button variant="danger" icon={Trash} onClick={wipe} disabled={!expenses.length} className="sm:ml-auto">Delete all bills</Button>
       </div>
 
       {pending && (
@@ -226,8 +243,21 @@ function DataSection() {
   );
 }
 
+/** #/settings?backup (from the "On this device" pill) jumps to the backup card. */
+function useJumpToBackup() {
+  useEffect(() => {
+    const jump = () => {
+      if (window.location.hash.includes('?backup')) requestAnimationFrame(() => document.getElementById('backup')?.scrollIntoView({ behavior: 'smooth' }));
+    };
+    jump();
+    window.addEventListener('hashchange', jump);
+    return () => window.removeEventListener('hashchange', jump);
+  }, []);
+}
+
 export default function Settings() {
   const { profile } = useStore();
+  useJumpToBackup();
   return (
     <div>
       <PageHeader title="Settings" subtitle="Profile, OCR and your data" />

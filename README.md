@@ -310,7 +310,9 @@ have once ("रु 5,000 cash, रु 40,000 in bank and wallets"), and from the
   again** starts over from now (old entries are kept in the record).
 
 Kept in localStorage (`billkhata_money`) and in backups. On the Bank page, money in from a
-statement shows in green (filter **In**) with **Add to Cash & bank**: salary, refunds and interest
+statement shows in green (filter **In**), with a **Money in** tile for the total credited and,
+under the In filter, how much of it is already in Cash & bank plus **Add the rest**. Each row has
+**Add to Cash & bank**: salary, refunds and interest
 go in as money in with a guessed source; a cash deposit moves cash into the bank. Each row can be
 added once; one dated before your starting amounts is already in them, so it can't be added. The
 running balance is not shown (it is still used to check each row was read right).

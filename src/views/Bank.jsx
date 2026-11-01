@@ -408,7 +408,7 @@ function LinkPicker({ entry, candidates, region, onPick, onClose }) {
 }
 
 export default function Bank() {
-  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, bankRecon } = useStore();
+  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, bankRecon, money: cashBank, setMoney } = useStore();
   const [renaming, setRenaming] = useState(null); // { id, name }
   const toast = useToast();
   const [filter, setFilter] = useState('all');
@@ -430,6 +430,16 @@ export default function Bank() {
     return hay.includes(q);
   });
   const totals = list.reduce((t, x) => { if (x.bank || x.payment) t[x.direction] += x.amount; return t; }, { in: 0, out: 0 });
+  // Money in from the statements: how much, and how much of it is already in Cash & bank.
+  const credits = shown.filter((x) => x.direction === 'in' && x.bank);
+  const creditTotal = credits.reduce((t, x) => t + x.amount, 0);
+  const creditStates = credits.map((x) => ({ x, state: creditState(cashBank, x.bank) }));
+  const addedTotal = creditStates.filter((c) => c.state === 'added').reduce((t, c) => t + c.x.amount, 0);
+  const ready = creditStates.filter((c) => c.state === 'ready');
+  function addAllCredits() {
+    setMoney((cur) => ready.reduce((m, c) => addEntry(m, entryFromCredit(c.x.bank)), cur));
+    toast(`${plural(ready.length, 'credit')} added to Cash & bank (${money(ready.reduce((t, c) => t + c.x.amount, 0), region)}).`);
+  }
 
   function unlink(x) {
     const nodes = new Set(x.nodes);
@@ -534,7 +544,8 @@ export default function Bank() {
         </Card>
       ) : (
         <>
-          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <Stat label="Money in" value={money(creditTotal, region)} good onClick={() => setFilter('in')} className="col-span-2 sm:col-span-1" />
             <Stat label="Bank expenses" value={result.stats.bankRows} />
             <Stat label="With screenshot" value={result.stats.withPayment} />
             <Stat label="With bill" value={result.stats.withBill} />
@@ -557,6 +568,16 @@ export default function Bank() {
             <p className="mt-2 px-1 text-sm text-slate-600">
               {plural(list.length, 'row')} · out <b className="num text-slate-900">{money(totals.out, region)}</b> · in <b className="num text-emerald-700">{money(totals.in, region)}</b>
             </p>
+            {filter === 'in' && credits.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950 ring-1 ring-inset ring-emerald-200">
+                <span>Credited <b className="num">{money(creditTotal, region)}</b> in {plural(credits.length, 'row')}</span>
+                <span className="text-emerald-800">·</span>
+                <span><b className="num">{money(addedTotal, region)}</b> in Cash &amp; bank</span>
+                {creditStates.some((c) => c.state === 'before') && <span className="text-xs text-emerald-800">(rows before your start are already in your amounts)</span>}
+                {ready.length > 0 && <Button size="sm" variant="outline" icon={Plus} className="ml-auto" onClick={addAllCredits}>Add the rest ({ready.length})</Button>}
+                {!cashBank.since && <a href="#/" className="ml-auto text-xs font-semibold text-navy underline">Set up Cash &amp; bank to track it</a>}
+              </div>
+            )}
           </Card>
 
           <Card className="mt-3 overflow-hidden">
@@ -634,12 +655,12 @@ export default function Bank() {
   );
 }
 
-function Stat({ label, value, warn, onClick }) {
+function Stat({ label, value, warn, good, onClick, className = '' }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={`card px-3 py-2.5 text-left ${onClick ? 'hover:border-slate-300' : ''}`}>
+    <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={`card min-w-0 px-3 py-2.5 text-left ${onClick ? 'hover:border-slate-300' : ''} ${className}`}>
       <span className="block text-xs font-semibold text-slate-500">{label}</span>
-      <span className={`num block text-xl font-bold ${warn ? 'text-amber-700' : 'text-slate-900'}`}>{value}</span>
+      <span className={`num block truncate text-xl font-bold ${warn ? 'text-amber-700' : good ? 'text-emerald-700' : 'text-slate-900'}`}>{value}</span>
     </Tag>
   );
 }

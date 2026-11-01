@@ -293,7 +293,27 @@ starts on Shares.
   from the link. The tested encode/decode helpers (`encodeSplit`, `decodeSplit`, `sharePayload`)
   stay for a future signed-link version.
 
-## Bank: statement ledger, payment screenshots, one merged table
+## Cash & bank (what you have left)
+
+A card on the Dashboard (`src/lib/money.js`, `src/components/CashBank.jsx`). You enter what you
+have once ("रु 5,000 cash, रु 40,000 in bank and wallets"), and from then on:
+
+- every bill saved after that moment is taken off: cash bills from **Cash**, QR / wallet / card
+  bills from **Bank & wallets** (bills dated earlier are already in the amounts; on the same day,
+  only bills added after setting them count). Trip bills count as your share, as on the Dashboard.
+- **Money in** is added by hand, with its **source** (Salary, Family, Friend paid back, Refund,
+  Business, Interest, or anything typed; sources used before are offered first) and which pot it
+  went into. The history shows money in by source.
+- **Move** records an ATM withdrawal (bank → cash) or a cash deposit; **No bill** takes off spending
+  with nothing to scan (a fare, a tip).
+- **History** lists it all with the bills taken off; an entry can be removed. **Set the amounts
+  again** starts over from now (old entries are kept in the record).
+
+Kept in localStorage (`billkhata_money`) and in backups. The Bank page shows expenses only: money
+that came in and running balances are left out there (the balance is still used to check each
+row was read right).
+
+## Bank: spending from statements, payment screenshots, one merged table
 
 `#/bank` (sidebar on desktop, **Bank** on the Ledger page on a phone). Nothing is uploaded: the PDF
 and the screenshots are read in the browser and kept in IndexedDB (`statements`, `payments`, DB

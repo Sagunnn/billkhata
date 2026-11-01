@@ -75,7 +75,7 @@ function StatementUpload({ statements, onSaved }) {
       rows: fresh, importedAt: new Date().toISOString(),
     });
     const skipped = rows.length - fresh.length;
-    toast(`Imported ${plural(fresh.length, 'transaction')}${skipped ? `; ${skipped} were already in another statement` : ''}.`);
+    toast(`Imported ${plural(fresh.filter((r) => r.debit).length, 'expense')}${skipped ? `; ${skipped} rows were already in another statement` : ''}.`);
     setState({ step: 'idle' });
     onSaved?.();
   }
@@ -138,8 +138,9 @@ function AccountName({ id, value, onChange, statements, autoFocus }) {
 function StatementPreview({ st, statements, onSave, onCancel }) {
   const { profile } = useStore();
   const [name, setName] = useState(st.bank || '');
-  const out = st.rows.reduce((s, r) => s + (r.debit || 0), 0);
-  const inn = st.rows.reduce((s, r) => s + (r.credit || 0), 0);
+  const spent = st.rows.filter((r) => r.debit);
+  const out = spent.reduce((s, r) => s + r.debit, 0);
+  const moneyIn = st.rows.length - spent.length;
   const good = st.checks.checked > 0 && st.checks.ok === st.checks.checked;
   return (
     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -148,28 +149,28 @@ function StatementPreview({ st, statements, onSave, onCancel }) {
       </label>
       <AccountName id="st-name" value={name} onChange={setName} statements={statements} />
       <p className="mt-2 font-semibold text-slate-900">{name.trim() || 'Statement'}{st.account ? ` ••${st.account}` : ''}</p>
-      <p className="text-slate-600">{st.from ? `${formatAD(st.from)} – ${formatAD(st.to)}` : 'No dates found'} · {plural(st.rows.length, 'transaction')}</p>
-      <p className="mt-1 text-slate-700">Out <b className="num">{money(out, profile.region)}</b> · In <b className="num">{money(inn, profile.region)}</b>{st.closingBalance != null && <> · Balance <b className="num">{money(st.closingBalance, profile.region)}</b></>}</p>
+      <p className="text-slate-600">{st.from ? `${formatAD(st.from)} – ${formatAD(st.to)}` : 'No dates found'} · {plural(spent.length, 'expense')} · <b className="num text-slate-900">{money(out, profile.region)}</b></p>
+      {moneyIn > 0 && <p className="mt-0.5 text-xs text-slate-500">{plural(moneyIn, 'money-in row')} left out. Add money that comes in under Cash &amp; bank on the Dashboard.</p>}
       {st.checks.checked > 0 && (
         <p className={`mt-1 flex items-center gap-1.5 font-medium ${good ? 'text-emerald-800' : 'text-amber-800'}`}>
           {good ? <CircleCheck className="size-4" /> : <TriangleAlert className="size-4" />}
-          Balance checks out on {st.checks.ok} of {st.checks.checked} rows{st.checks.fixed ? ` (${st.checks.fixed} in/out fixed)` : ''}
+          Amounts checked against the statement: {st.checks.ok} of {st.checks.checked} rows{st.checks.fixed ? ` (${st.checks.fixed} corrected)` : ''}
         </p>
       )}
       {st.warnings.map((w) => <p key={w} className="mt-1 text-amber-800">{w}</p>)}
-      {st.rows.length > 0 && (
+      {spent.length > 0 && (
         <div className="mt-2 max-h-40 overflow-y-auto rounded border border-slate-200 bg-white">
-          {st.rows.slice(0, 6).map((r, i) => (
+          {spent.slice(0, 6).map((r, i) => (
             <div key={i} className="flex justify-between gap-2 border-b border-slate-100 px-2 py-1 text-xs last:border-0">
               <span className="truncate"><span className="text-slate-500">{shortDate(r.date)}</span> {r.description}</span>
-              <span className={`num shrink-0 font-semibold ${r.credit ? 'text-emerald-700' : ''}`}>{r.credit ? '+' : '−'}{money(r.debit ?? r.credit, profile.region, { symbol: false })}</span>
+              <span className="num shrink-0 font-semibold">{money(r.debit, profile.region, { symbol: false })}</span>
             </div>
           ))}
-          {st.rows.length > 6 && <p className="px-2 py-1 text-xs text-slate-500">and {st.rows.length - 6} more</p>}
+          {spent.length > 6 && <p className="px-2 py-1 text-xs text-slate-500">and {spent.length - 6} more</p>}
         </div>
       )}
       <div className="mt-3 flex gap-2">
-        <Button variant="dark" onClick={() => onSave(name)} disabled={!st.rows.length}>Add to ledger</Button>
+        <Button variant="dark" onClick={() => onSave(name)} disabled={!spent.length}>Add to ledger</Button>
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -320,8 +321,8 @@ function Details({ x }) {
 
 function Amount({ x, region }) {
   return (
-    <span className={`num whitespace-nowrap font-semibold ${x.direction === 'in' ? 'text-emerald-700' : 'text-slate-900'}`}>
-      {x.direction === 'in' ? '+' : '−'}{money(x.amount, region)}
+    <span className="num whitespace-nowrap font-semibold text-slate-900">
+      {money(x.amount, region)}
     </span>
   );
 }
@@ -379,13 +380,11 @@ export default function Bank() {
   const q = search.trim().toLowerCase();
   const list = shown.filter((x) => {
     if (filter === 'look' && !needsLook(x, range)) return false;
-    if (filter === 'out' && x.direction !== 'out') return false;
-    if (filter === 'in' && x.direction !== 'in') return false;
     if (!q) return true;
     const hay = [x.bank?.description, x.payment?.merchant, x.payment?.ref, x.expense?.merchantName, x.expense?.billCode, x.amount].join(' ').toLowerCase();
     return hay.includes(q);
   });
-  const totals = list.reduce((t, x) => { if (x.bank) t[x.direction] += x.amount; return t; }, { in: 0, out: 0 });
+  const spentTotal = list.reduce((t, x) => t + (x.bank || x.payment ? x.amount : 0), 0);
 
   function unlink(x) {
     const nodes = new Set(x.nodes);
@@ -443,7 +442,7 @@ export default function Bank() {
     <div>
       <PageHeader
         title="Bank"
-        subtitle="Your statement as a ledger, matched with payment screenshots and bills"
+        subtitle="What you spent from the bank, matched with payment screenshots and bills"
         actions={!empty && <Button icon={Download} onClick={exportCsv} disabled={!list.length}>Export CSV</Button>}
       />
 
@@ -459,7 +458,7 @@ export default function Bank() {
             <span key={s.id} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pl-3 pr-1 text-sm">
               <Landmark className="size-4 text-slate-500" />
               <span><b>{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.length} rows</span></span>
-              {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-amber-600" aria-label="Some balances don't add up" />}
+              {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-amber-600" aria-label="Some amounts don't add up" />}
               <button type="button" onClick={() => setRenaming({ id: s.id, name: s.bank || '' })} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800" aria-label={`Rename ${s.bank || 'this'} statement`}><Pencil className="size-4" /></button>
               <button type="button" onClick={() => removeStatement(s)} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>
             </span>
@@ -491,7 +490,7 @@ export default function Bank() {
       ) : (
         <>
           <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Bank rows" value={result.stats.bankRows} />
+            <Stat label="Bank expenses" value={result.stats.bankRows} />
             <Stat label="With screenshot" value={result.stats.withPayment} />
             <Stat label="With bill" value={result.stats.withBill} />
             <Stat label="Need a look" value={look.length} warn={look.length > 0} onClick={() => setFilter('look')} />
@@ -502,8 +501,6 @@ export default function Bank() {
               <Segmented value={filter} onChange={setFilter} className="overflow-x-auto" options={[
                 { value: 'all', label: 'All' },
                 { value: 'look', label: `Need a look${look.length ? ` (${look.length})` : ''}` },
-                { value: 'out', label: 'Out' },
-                { value: 'in', label: 'In' },
               ]} />
               <div className="relative min-w-[160px] flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -511,7 +508,7 @@ export default function Bank() {
               </div>
             </div>
             <p className="mt-2 px-1 text-sm text-slate-600">
-              {plural(list.length, 'row')} · bank out <b className="num text-slate-900">{money(totals.out, region)}</b> · in <b className="num text-emerald-700">{money(totals.in, region)}</b>
+              {plural(list.length, 'expense')} · <b className="num text-slate-900">{money(spentTotal, region)}</b> spent
             </p>
           </Card>
 
@@ -525,7 +522,6 @@ export default function Bank() {
                       <th className="px-2 py-2.5">Details</th>
                       <th className="px-2 py-2.5">Found in</th>
                       <th className="px-2 py-2.5 text-right">Amount</th>
-                      <th className="px-2 py-2.5 text-right">Balance</th>
                       <th className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
                     </tr>
                   </thead>
@@ -545,7 +541,6 @@ export default function Bank() {
                           </td>
                           <td className="px-2 py-3"><Sources x={x} compact /></td>
                           <td className="px-2 py-3 text-right"><Amount x={x} region={region} /></td>
-                          <td className="num whitespace-nowrap px-2 py-3 text-right text-slate-600">{x.bank?.balance != null ? money(x.bank.balance, region, { symbol: false }) : ''}</td>
                           <td className="whitespace-nowrap px-4 py-2">
                             <RowActions compact x={x} onAddBill={addBill} onLink={setLinking} onUnlink={unlink} onScreenshot={setEditing} canLink={x.nodes.length < 3 && linkCandidates(x, result).length > 0} />
                           </td>
@@ -566,7 +561,6 @@ export default function Bank() {
                         <Details x={x} />
                         <div className="mt-1.5 flex items-center justify-between gap-2">
                           <Sources x={x} />
-                          {x.bank?.balance != null && <span className="num text-xs text-slate-500">bal {money(x.bank.balance, region, { symbol: false })}</span>}
                         </div>
                         {note && <Note text={note} />}
                         <div className="mt-2">

@@ -10,6 +10,7 @@ import { ExpenseList, NoBillsYet } from '../components/ExpenseList.jsx';
 import { IrdAction } from '../components/Ird.jsx';
 import { Button, Card, EmptyState } from '../components/ui.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
+import { CashBankCard } from '../components/CashBank.jsx';
 
 function Kpi({ label, value, sub, icon: Icon, tone = 'slate', href }) {
   const tones = {
@@ -157,6 +158,8 @@ export default function Dashboard() {
           <span className="text-slate-300">{formatAD(win.startAD)} – {formatAD(win.endAD)} · {win.daysLeft === 0 ? 'last day today' : `${win.daysLeft} day${win.daysLeft === 1 ? '' : 's'} left`}</span>
         </div>
       )}
+
+      <CashBankCard />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Today’s spend" value={money(s.today, region)} icon={Wallet} sub={formatAD(todayAD())} />

@@ -8,6 +8,7 @@ import { imageHash } from './lib/image.js';
 import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 import { reconcileAll } from './lib/bank/reconcile.js';
+import { cleanMoney } from './lib/money.js';
 
 const StoreContext = createContext(null);
 
@@ -23,6 +24,15 @@ function loadReconOverrides() {
 }
 function saveReconOverrides(v) {
   try { localStorage.setItem(RECON_KEY, JSON.stringify(v)); } catch { /* storage full or blocked */ }
+}
+
+// Cash & bank amounts (src/lib/money.js): small, so localStorage, and included in backups.
+const MONEY_KEY = 'billkhata_money';
+function loadMoney() {
+  try { return cleanMoney(JSON.parse(localStorage.getItem(MONEY_KEY) || 'null')); } catch { return cleanMoney(null); }
+}
+function storeMoney(v) {
+  try { localStorage.setItem(MONEY_KEY, JSON.stringify(v)); } catch { /* storage full or blocked */ }
 }
 
 // When the last backup file was downloaded (ISO string), for the "saved on this device" indicator.
@@ -69,6 +79,14 @@ export function StoreProvider({ children }) {
   const [payments, setPayments] = useState([]);
   const [reconOverrides, setReconOverridesState] = useState(loadReconOverrides);
   const [lastBackupAt, setLastBackupAt] = useState(loadLastBackup);
+  const [money, setMoneyState] = useState(loadMoney);
+  const setMoney = useCallback((next) => {
+    setMoneyState((cur) => {
+      const v = cleanMoney(typeof next === 'function' ? next(cur) : next);
+      storeMoney(v);
+      return v;
+    });
+  }, []);
   const started = useRef(false);
 
   useEffect(() => {
@@ -212,7 +230,9 @@ export function StoreProvider({ children }) {
     setReconOverridesState(loadReconOverrides());
   }, []);
   /** Restores bank data from a backup: 'overwrite' replaces it, 'merge' adds what's missing. */
-  const restoreBankData = useCallback(async ({ statements: sts = [], payments: ps = [], reconOverrides: ro }, mode) => {
+  const restoreBankData = useCallback(async ({ statements: sts = [], payments: ps = [], reconOverrides: ro, money: m }, mode) => {
+    // Cash & bank: a backup's amounts replace these on overwrite, or fill them in if none are set.
+    if (m && (mode === 'overwrite' || !loadMoney().since)) setMoney(m);
     if (mode === 'overwrite') {
       await db.statementsTable.clear();
       await db.paymentsTable.clear();
@@ -228,7 +248,7 @@ export function StoreProvider({ children }) {
     }
     setStatements(await db.statementsTable.all());
     setPayments(await db.paymentsTable.all());
-  }, []);
+  }, [setMoney]);
   const clearBankData = useCallback(async () => {
     await db.statementsTable.clear();
     await db.paymentsTable.clear();
@@ -263,13 +283,14 @@ export function StoreProvider({ children }) {
     statements, saveStatement, deleteStatement, payments, savePayment, deletePayment,
     reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon,
     lastBackupAt, markBackedUp,
+    money, setMoney,
     modal,
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
     closeModal: () => setModal(null),
   }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings,
-    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon, lastBackupAt, markBackedUp]);
+    statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon, lastBackupAt, markBackedUp, money, setMoney]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

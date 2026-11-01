@@ -112,7 +112,7 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp } = useStore();
+  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp, money } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
@@ -122,7 +122,7 @@ function DataSection() {
   const status = backupStatus(lastBackupAt, expenses.length - samples);
 
   function download() {
-    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides });
+    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money });
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
     markBackedUp();
     const bank = statements.length || payments.length ? `, ${statements.length} statement${statements.length === 1 ? '' : 's'}, ${payments.length} payment screenshot${payments.length === 1 ? '' : 's'}` : '';

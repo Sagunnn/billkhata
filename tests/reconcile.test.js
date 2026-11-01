@@ -96,7 +96,8 @@ test('what needs a look, and the CSV', async () => {
   assert.equal(needsLook(shown.find((x) => x.payment), range), 'Not on the statement');
   const csv = mergedCsv(shown, range);
   assert.match(csv, /"ATM, THAMEL"/);
-  assert.match(csv, /2000\.00,,8000\.00,statement/);
+  assert.match(csv, /2000\.00,statement/);
+  assert.doesNotMatch(csv, /Balance|Money in/); // expenses only
 });
 
 test('a scanned bill finds its bank row; a bill added from the bank row first is offered for the scan', async () => {

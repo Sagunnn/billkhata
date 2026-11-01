@@ -1,7 +1,7 @@
 {
   "name": "billkhata",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "description": "BillKhata — local-first receipt scanner, expense tracker and Nepal IRD lucky draw helper (expense.sagunpradhan.com.np)",
   "scripts": {

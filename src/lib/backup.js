@@ -5,6 +5,7 @@ import { EMPTY_PROFILE, validateProfile } from './profile.js';
 import { todayAD } from './nepaliDate.js';
 import { getIrdStatus } from './ird.js';
 import { toCsv } from './format.js';
+import { cleanMoney } from './money.js';
 
 export const BACKUP_VERSION = 1;
 
@@ -19,6 +20,7 @@ export function buildBackup(profile, expenses, trips = [], bank = {}) {
     statements: bank.statements || [],
     payments: bank.payments || [],
     reconOverrides: bank.reconOverrides || { links: [], unlinks: [] },
+    money: bank.money || null,
   };
 }
 
@@ -44,7 +46,9 @@ function validateBank(obj, skipped) {
     links: Array.isArray(ro.links) ? ro.links.filter((l) => Array.isArray(l) && l.every((x) => typeof x === 'string')) : [],
     unlinks: Array.isArray(ro.unlinks) ? ro.unlinks.filter((x) => typeof x === 'string') : [],
   } : null;
-  return { statements, payments, reconOverrides };
+  // Cash & bank amounts (optional; older backups have none).
+  const money = obj.money && typeof obj.money === 'object' ? cleanMoney(obj.money) : null;
+  return { statements, payments, reconOverrides, money };
 }
 
 /** Trips are optional in a backup (older files have none). Bad ones are skipped and reported. */

@@ -71,7 +71,7 @@ function OcrSection() {
       <p className="mb-4 text-sm text-slate-600">How BillKhata reads your bill photos.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {[
-          { v: OCR_ENGINES.TESSERACT, t: 'Tesseract (free, on device)', d: 'Runs in your browser. Works offline after the first download. Best on clear printed bills.' },
+          { v: OCR_ENGINES.LOCAL, t: 'On this device (free)', d: 'PaddleOCR in your browser: reads crumpled and faded bills well. A one-time ~6 MB download, kept on this device. Bills never leave it.' },
           { v: OCR_ENGINES.VISION, t: 'Vision API (high accuracy)', d: 'Uses your own Gemini, OpenAI or Claude key. Much better on handwritten and Nepali bills.' },
         ].map((o) => (
           <button key={o.v} type="button" onClick={() => setS({ ...s, ocrEngine: o.v })} aria-pressed={s.ocrEngine === o.v} className={`rounded-xl border-2 p-4 text-left transition ${s.ocrEngine === o.v ? 'border-navy bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -81,9 +81,9 @@ function OcrSection() {
         ))}
       </div>
 
-      {s.ocrEngine === OCR_ENGINES.TESSERACT ? (
+      {s.ocrEngine === OCR_ENGINES.LOCAL ? (
         <div className="mt-4 rounded-lg border border-slate-200 p-3.5">
-          <Toggle id="o-nep" checked={s.tesseractNepali} onChange={(v) => setS({ ...s, tesseractNepali: v })} label="Also read Nepali (Devanagari) script" description="Downloads extra language data on first use. Slower." />
+          <Toggle id="o-nep" checked={Boolean(s.nepaliScript)} onChange={(v) => setS({ ...s, nepaliScript: v })} label="Read Nepali (Devanagari) bills" description="Uses the Devanagari reading model instead (a one-time ~13 MB download). Reads English and numbers too; turn it on if your bills are mostly in Nepali." />
         </div>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2">

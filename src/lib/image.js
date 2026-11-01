@@ -87,41 +87,6 @@ export function enhancePixelsForOCR(data) {
   return data;
 }
 
-/**
- * Adaptive threshold (Bradley–Roth): a pixel turns black when it's clearly darker than its
- * neighbourhood. Copes with the shadows and creases of a crumpled bill, where one global contrast
- * setting either loses faint print or blackens the folds. `win` is the neighbourhood size in pixels.
- */
-export function adaptiveThreshold(data, width, height, win = Math.max(16, Math.round(width / 16)), t = 0.15) {
-  const w = width;
-  const h = height;
-  const gray = new Float64Array(w * h);
-  for (let i = 0; i < w * h; i++) gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
-  const sums = new Float64Array((w + 1) * (h + 1)); // integral image
-  for (let y = 1; y <= h; y++) {
-    let row = 0;
-    for (let x = 1; x <= w; x++) {
-      row += gray[(y - 1) * w + x - 1];
-      sums[y * (w + 1) + x] = sums[(y - 1) * (w + 1) + x] + row;
-    }
-  }
-  const r = Math.max(4, Math.round(win / 2));
-  for (let y = 0; y < h; y++) {
-    const y1 = Math.max(0, y - r);
-    const y2 = Math.min(h, y + r + 1);
-    for (let x = 0; x < w; x++) {
-      const x1 = Math.max(0, x - r);
-      const x2 = Math.min(w, x + r + 1);
-      const sum = sums[y2 * (w + 1) + x2] - sums[y1 * (w + 1) + x2] - sums[y2 * (w + 1) + x1] + sums[y1 * (w + 1) + x1];
-      const v = gray[y * w + x] < (sum / ((x2 - x1) * (y2 - y1))) * (1 - t) ? 0 : 255;
-      const i = (y * w + x) * 4;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-    }
-  }
-  return data;
-}
 
 /**
  * The angle (degrees) a photographed bill is tilted by. Text rows are sharpest, with the most
@@ -178,6 +143,37 @@ export function estimateSkew(gray, width, height, { maxAngle = 12 } = {}) {
   return Math.round(best * 10) / 10;
 }
 
+/**
+ * Grayscale and contrast stretch for faded thermal print on grey, creased paper: the darkest 5% of
+ * pixels become black and the brightest 15% (paper, and the shadows a phone casts on it) white,
+ * everything between stretched linearly. Works on canvas ImageData in place.
+ */
+export function contrastStretchPixels(data, { dark = 0.05, bright = 0.15 } = {}) {
+  const n = data.length / 4;
+  const hist = new Uint32Array(256);
+  const gray = new Uint8ClampedArray(n);
+  for (let i = 0; i < n; i++) {
+    const g = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    gray[i] = g;
+    hist[gray[i]]++;
+  }
+  const at = (share) => {
+    let seen = 0;
+    for (let v = 0; v < 256; v++) { seen += hist[v]; if (seen >= n * share) return v; }
+    return 255;
+  };
+  const lo = at(dark);
+  const hi = Math.max(lo + 1, at(1 - bright));
+  const k = 255 / (hi - lo);
+  for (let i = 0; i < n; i++) {
+    const v = Math.max(0, Math.min(255, (gray[i] - lo) * k));
+    data[i * 4] = v;
+    data[i * 4 + 1] = v;
+    data[i * 4 + 2] = v;
+  }
+  return { lo, hi };
+}
+
 /** Applies the OCR enhancement to a canvas and returns it. */
 export function preprocessCanvasForOCR(canvas) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -187,11 +183,6 @@ export function preprocessCanvasForOCR(canvas) {
   return canvas;
 }
 
-/**
- * Larger, sharper copies for text recognition: `color` for vision models, `enhanced` (grayscale,
- * auto-levelled) for Tesseract, and `threshold` (black and white) for a second Tesseract read of
- * crumpled or shadowed bills. The stored photo stays untouched.
- */
 /** The tilt of a photo, measured on a 600 px copy. */
 function skewOf(img) {
   const scale = Math.min(1, 600 / Math.max(img.naturalWidth, img.naturalHeight));
@@ -208,10 +199,15 @@ function skewOf(img) {
   return estimateSkew(gray, w, h);
 }
 
+/**
+ * Copies of a bill photo for reading: straightened (a tilt over ~0.5° is measured and rotated out),
+ * no side over 2000 px so a 12 MP phone photo doesn't exhaust a phone's memory (small photos are
+ * enlarged up to 2×). `color` is read first and goes to vision models; `enhanced` is the
+ * contrast-stretched copy for a second read of faded or shadowed print. The stored photo is untouched.
+ */
 export async function prepareForOcr(src) {
   const img = await loadImage(src);
-  // Small or distant photos are enlarged (up to 2.5x) so small print like the PAN line stays readable.
-  const scale = Math.min(2.5, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
+  const scale = Math.min(2, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -219,7 +215,6 @@ export async function prepareForOcr(src) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingQuality = 'high';
-  // Straighten a tilted photo first: the reader loses whole rows on a bill a few degrees off.
   const angle = skewOf(img);
   if (Math.abs(angle) >= 0.5) {
     ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -231,11 +226,10 @@ export async function prepareForOcr(src) {
   }
   const color = canvas.toDataURL('image/jpeg', 0.92);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const enhanced = preprocessCanvasForOCR(canvas).toDataURL('image/png');
-  adaptiveThreshold(pixels.data, canvas.width, canvas.height);
+  contrastStretchPixels(pixels.data);
   ctx.putImageData(pixels, 0, 0);
-  const threshold = canvas.toDataURL('image/png');
-  return { color, enhanced, threshold, angle };
+  const enhanced = canvas.toDataURL('image/jpeg', 0.92);
+  return { color, enhanced, angle };
 }
 
 export function validateImageFile(file) {
@@ -274,27 +268,16 @@ export async function imageHash(src) {
   return dHashFromGray(gray);
 }
 
-/**
- * A payment screenshot ready for OCR: grayscale and auto-levelled, small screenshots enlarged,
- * and a dark-mode screen inverted to dark text on white (Tesseract reads that far better).
- */
+/** A screenshot ready for OCR: small ones enlarged so thin app fonts stay readable. */
 export async function prepareScreenshot(src) {
   const img = await loadImage(src);
-  const scale = Math.min(2, Math.max(1, 1400 / img.naturalWidth));
+  const scale = Math.min(2, Math.max(1, 1200 / img.naturalWidth));
+  if (scale === 1) return src;
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(img.naturalWidth * scale);
   canvas.height = Math.round(img.naturalHeight * scale);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d');
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const d = pixels.data;
-  let sum = 0;
-  for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-  if (sum / (d.length / 4) < 110) for (let i = 0; i < d.length; i += 4) { d[i] = 255 - d[i]; d[i + 1] = 255 - d[i + 1]; d[i + 2] = 255 - d[i + 2]; }
-  enhancePixelsForOCR(d);
-  ctx.putImageData(pixels, 0, 0);
   return canvas.toDataURL('image/png');
 }

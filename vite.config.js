@@ -73,4 +73,7 @@ export const USERSCRIPT_PATH = ${JSON.stringify(`/${USERSCRIPT_FILE}`)};`;
 export default defineConfig({
   plugins: [react(), tailwindcss(), irdHelperPlugin()],
   build: { chunkSizeWarningLimit: 1200 },
+  // ONNX Runtime fetches its own .wasm at run time; pre-bundling it breaks that.
+  optimizeDeps: { exclude: ['onnxruntime-web', 'ppu-paddle-ocr'] },
+  worker: { format: 'es' },
 });

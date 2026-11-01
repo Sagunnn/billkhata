@@ -1,12 +1,13 @@
 // Capture -> OCR -> verify -> save.
-import { useState } from 'react';
-import { Camera, Divide, FileDown, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Camera, CircleCheck, Divide, FileDown, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
 import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
 import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
+import { money } from '../lib/format.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
@@ -15,11 +16,7 @@ import { useToast } from '../components/Toast.jsx';
 import { Button, Card, PageHeader, useFileDrop } from '../components/ui.jsx';
 
 const STATUS_TEXT = {
-  'loading tesseract core': 'Loading the text reader',
-  'initializing tesseract': 'Starting the text reader',
-  'loading language traineddata': 'Downloading language data (first time only)',
-  'initializing api': 'Getting ready',
-  'recognizing text': 'Reading the bill',
+  'Reading the text': 'Reading the bill',
 };
 
 export default function Scan() {
@@ -40,7 +37,7 @@ export default function Scan() {
 
   const engineLabel = settings.ocrEngine === OCR_ENGINES.VISION
     ? `${VISION_PROVIDERS[settings.visionProvider]?.label} (${settings.models[settings.visionProvider]})`
-    : `Tesseract, on this device${settings.tesseractNepali ? ' (English + Nepali)' : ''}`;
+    : `PaddleOCR, on this device${settings.nepaliScript ? ' (Nepali model)' : ''}`;
 
   /** `text`: a PDF bill's own text, read instead of running OCR on the picture. */
   async function processImage(src, { text = '' } = {}) {
@@ -67,7 +64,8 @@ export default function Scan() {
       }
       // Shops seen before: fill a missing name/PAN and reuse the category picked last time.
       fields = applyMerchantMemory(fields, expenses).fields;
-      setDraft({ ...base, ...fields, receiptImage: stored.dataUrl, imageHash: await imageHash(stored.dataUrl), ocrEngine: engine });
+      const { mathVerified, vatCheck, ...billFields } = fields; // read-time checks, not saved
+      setDraft({ ...base, ...billFields, receiptImage: stored.dataUrl, imageHash: await imageHash(stored.dataUrl), ocrEngine: engine });
       setErrors({});
       setStep('review');
     } catch (err) {
@@ -82,7 +80,7 @@ export default function Scan() {
     try {
       const visionSettings = { ...settings, ocrEngine: OCR_ENGINES.VISION, visionProvider: rescanProvider };
       const out = await extractBill(ocrImages, visionSettings, { region: profile.region });
-      const fields = applyMerchantMemory(out.fields, expenses).fields;
+      const { mathVerified, vatCheck, ...fields } = applyMerchantMemory(out.fields, expenses).fields;
       setDraft((d) => ({ ...d, ...fields, ocrEngine: out.engine }));
       setRawText(out.rawText);
       setLastRead({ engine: OCR_ENGINES.VISION, confidence: null, fields: out.fields });
@@ -179,6 +177,13 @@ export default function Scan() {
     setLastRead(null);
   }
 
+  // Opening the scanner starts the one-time model download in the background, so the first scan
+  // doesn't wait for it. Skipped on a data-saver connection.
+  useEffect(() => {
+    if (settings.ocrEngine !== OCR_ENGINES.LOCAL || navigator.connection?.saveData) return;
+    import('../lib/ocr/local.js').then(({ warmUp }) => warmUp({ nepali: settings.nepaliScript }));
+  }, [settings.ocrEngine, settings.nepaliScript]);
+
   if (step === 'reading') {
     const pct = Math.round((progress.progress || 0) * 100);
     return (
@@ -189,7 +194,7 @@ export default function Scan() {
           <div className="p-5">
             <div className="flex items-center gap-2 font-semibold"><LoaderCircle className="size-5 animate-spin text-brand" />{STATUS_TEXT[progress.status] || progress.status || 'Working'}…</div>
             <div className="mt-3 h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(5, pct)}%` }} /></div>
-            <p className="mt-3 text-xs text-slate-500">The first scan downloads the text reader (a few MB). After that it works offline.</p>
+            <p className="mt-3 text-xs text-slate-500">The first scan downloads the text reader (about 6 MB, plus a few MB for the engine that runs it). It’s kept on this device, so later scans start right away, and your bill is never uploaded.</p>
           </div>
         </Card>
       </div>
@@ -205,7 +210,14 @@ export default function Scan() {
           subtitle={draft.ocrEngine === 'pdf-text' ? 'Read from the PDF’s own text. Check it, then save.' : draft.ocrEngine ? 'OCR makes mistakes. Fix anything that looks wrong, then save.' : 'Fill in the details, then save. Shops you’ve saved before are suggested.'}
           actions={<Button variant="ghost" icon={RotateCcw} onClick={reset}>Start over</Button>}
         />
-        {lastRead?.engine === OCR_ENGINES.TESSERACT && ocrImages && needsBetterRead(lastRead) && (
+        {lastRead?.fields?.vatCheck && Math.abs(Number(draft.totalAmount) - lastRead.fields.vatCheck.total) <= 1.5 && (
+          <p role="status" className="mb-4 flex flex-wrap items-center gap-x-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-950">
+            <CircleCheck className="size-4 shrink-0 text-emerald-700" />
+            <b>Total checked:</b>
+            <span className="num">{money(lastRead.fields.vatCheck.subtotal)} + 13% VAT {money(lastRead.fields.vatCheck.vat)} = {money(lastRead.fields.vatCheck.total)}</span>
+          </p>
+        )}
+        {lastRead?.engine === OCR_ENGINES.LOCAL && ocrImages && needsBetterRead(lastRead) && (
           <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center">
             <ScanEye className="size-6 shrink-0" />
             <div className="flex-1">

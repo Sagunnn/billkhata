@@ -14,8 +14,8 @@ export const EMPTY_PROFILE = {
 };
 
 export const DEFAULT_SETTINGS = {
-  ocrEngine: OCR_ENGINES.TESSERACT,
-  tesseractNepali: false,
+  ocrEngine: OCR_ENGINES.LOCAL,
+  nepaliScript: false,
   visionProvider: 'gemini',
   apiKeys: { gemini: '', openai: '', anthropic: '' },
   models: Object.fromEntries(Object.entries(VISION_PROVIDERS).map(([k, v]) => [k, v.defaultModel])),
@@ -41,7 +41,10 @@ export const saveProfile = (p) => write(PROFILE_KEY, p);
 export const hasProfile = () => Boolean(read(PROFILE_KEY));
 
 export function loadSettings() {
-  const s = read(SETTINGS_KEY) || {};
+  const { tesseractNepali, ...s } = read(SETTINGS_KEY) || {};
+  // Before PaddleOCR the on-device engine was Tesseract; carry those choices over.
+  if (s.ocrEngine === 'tesseract') s.ocrEngine = OCR_ENGINES.LOCAL;
+  if (s.nepaliScript == null && tesseractNepali != null) s.nepaliScript = Boolean(tesseractNepali);
   return {
     ...DEFAULT_SETTINGS,
     ...s,

@@ -169,7 +169,15 @@ function toWords(tokens) {
     while ((m = re.exec(text))) {
       // OCR reads a table's grid lines as "|": drop them.
       const word = m[0].replace(/^[|¦]+|[|¦]+$/g, '');
-      if (word) out.push({ text: word, x0: t.x0 + m.index * per, x1: t.x0 + (m.index + m[0].length) * per, y0: t.y0, y1: t.y1 });
+      if (!word) continue;
+      const x0 = t.x0 + m.index * per;
+      const x1 = t.x0 + (m.index + m[0].length) * per;
+      // Two header names read as one word in a cramped table: "DescriptiolDr." → "Descriptiol" "Dr.".
+      const glued = /^(.{3,}?[a-z.)])((?:Dr|Cr)\.?|Debit|Credit|Balance|Amount|Deposit|Withdrawal|Status|Channel|Particulars|Remarks)$/.exec(word);
+      if (glued) {
+        const cut = x0 + (x1 - x0) * (glued[1].length / word.length);
+        out.push({ text: glued[1], x0, x1: cut, y0: t.y0, y1: t.y1 }, { text: glued[2], x0: cut, x1, y0: t.y0, y1: t.y1 });
+      } else out.push({ text: word, x0, x1, y0: t.y0, y1: t.y1 });
     }
   }
   return out;
@@ -314,6 +322,8 @@ function columnsFrom(cells, h) {
     x0: i === 0 ? -Infinity : c.x0 - h * 0.5,
     x1: i === cells.length - 1 ? Infinity : cells[i + 1].x0 - h * 0.5,
     cx: (c.x0 + c.x1) / 2,
+    hx0: c.x0, // the header's own span
+    hx1: c.x1,
   }));
 }
 
@@ -325,8 +335,29 @@ function columnsFrom(cells, h) {
 function assignCells(line, columns) {
   const cells = {};
   for (const w of line.words) {
-    const x = isAmountToken(w.text) ? w.x1 : (w.x0 + w.x1) / 2;
+    const amount = isAmountToken(w.text);
+    const x = amount ? w.x1 : (w.x0 + w.x1) / 2;
     let kind = (columns.find((c) => x >= c.x0 && x < c.x1) || columns.at(-1)).kind;
+    // An amount sitting under a money column's header belongs to it. With headers packed tight
+    // ("Withdrawal Deposit Balance"), a right-aligned withdrawal ends where its header ends, which
+    // can be past the point where the next column begins.
+    if (amount) {
+      let best = null;
+      for (const c of columns) {
+        if (!NUMERIC.has(c.kind)) continue;
+        const overlap = Math.min(w.x1, c.hx1) - Math.max(w.x0, c.hx0);
+        const share = Math.max(overlap / (w.x1 - w.x0), overlap / Math.max(1, c.hx1 - c.hx0) * 0.6);
+        if (share > 0.3 && (!best || share > best.share)) best = { kind: c.kind, share };
+      }
+      if (best) kind = best.kind;
+      else {
+        // Right-aligned under a narrow header ("Dr.  Cr."): the amount can end just past where
+        // the next column begins. If most of it lies before that column's header, it's the one before.
+        const i = columns.findIndex((c) => c.kind === kind);
+        const prev = columns[i - 1];
+        if (i > 0 && NUMERIC.has(kind) && prev && NUMERIC.has(prev.kind) && columns[i].hx0 > (w.x0 + w.x1) / 2) kind = prev.kind;
+      }
+    }
     // A long narration spills into the columns beside it: words there are still narration.
     if ((NUMERIC.has(kind) && /[a-z]{2,}/i.test(w.text) && !/^(cr|dr)\.?$/i.test(w.text))
       || (kind === 'ref' && !/\d/.test(w.text)) || kind === 'sn' && /[a-z]{2,}/i.test(w.text)) kind = 'desc';

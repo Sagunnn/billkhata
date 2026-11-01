@@ -84,3 +84,14 @@ test('a PDF e-bill is read from its own text', async () => {
   assert.equal(fields.category, 'Medicine');
   assert.equal(fields.isNepalBill, true);
 });
+
+test('settings from the Tesseract days load as the on-device PaddleOCR engine', async () => {
+  const store = new Map([['billkhata_settings', JSON.stringify({ ocrEngine: 'tesseract', tesseractNepali: true, visionProvider: 'gemini' })]]);
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+  const { loadSettings } = await import('../src/lib/profile.js');
+  const s = loadSettings();
+  assert.equal(s.ocrEngine, 'local');
+  assert.equal(s.nepaliScript, true);
+  assert.equal('tesseractNepali' in s, false);
+  delete globalThis.localStorage;
+});

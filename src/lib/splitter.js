@@ -211,8 +211,26 @@ function trailingNumbers(tokens) {
   return { name: t.join(' '), nums };
 }
 
+/**
+ * "Coke 2" then "90.00 180.00": on a curved bill the quantity stays on the name's line and the
+ * prices drop half a line. A name ending in a small whole number, followed by a line of only
+ * prices, is one row.
+ */
+function joinQtyLines(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const a = lines[i];
+    const b = lines[i + 1];
+    if (b && /[A-Za-z\u0900-\u097F]{2,}.*\s\d{1,2}$/.test(a) && /^[\d\s.,]+$/.test(b) && /\d\.\d{2}/.test(b)) {
+      out.push(`${a} ${b}`);
+      i++;
+    } else out.push(a);
+  }
+  return out;
+}
+
 export function parseLineItemsFromText(rawText = '') {
-  const lines = toAsciiDigits(rawText).split(/\r?\n/).map(normalizeLine);
+  const lines = joinQtyLines(toAsciiDigits(rawText).split(/\r?\n/).map(normalizeLine));
   const items = [];
   // A name whose numbers slipped onto the next line ("Coke" / "2 90.00 180.00", or with noise:
   // "ol EE 180.00"). Not used after a run of names: that's a bill read column by column, which

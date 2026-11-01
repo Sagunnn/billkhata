@@ -26,7 +26,7 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
 |---|---|
 | `src/lib/nepaliDate.js` | BS ⇄ AD conversion and the fortnightly draw window. Uses `bsCalendar.js`, the same month table prize.ird.gov.np ships (BS 2000–2090). |
 | `src/lib/ird.js` | Eligibility engine, IRD status, and the portal fill script / bookmarklet. |
-| `src/lib/ocr/` | `parse.js` turns Tesseract text into fields; `vision.js` calls Gemini, OpenAI or Claude with the user's key; `index.js` picks the engine. |
+| `src/lib/ocr/` | `paddle.worker.js` + `local.js` run PaddleOCR on the device; `rows.js` turns its boxes into rows; `parse.js` turns text into fields; `vision.js` calls Gemini, OpenAI or Claude with the user's key; `index.js` picks the engine. |
 | `src/lib/image.js` | Canvas compression to under 300 KB for storage, plus a sharper copy for OCR. |
 | `src/lib/db.js`, `profile.js` | IndexedDB (via `idb`) and localStorage. |
 | `src/lib/backup.js`, `pdf.js` | JSON backup/restore with validation; jsPDF report with a receipt appendix. |
@@ -167,22 +167,39 @@ Unclaimed prizes go to the Prime Minister's Disaster Relief Fund (Section 9(5)).
 has an online claim form and shows each winner's exact "Claim available until" date, which
 BillKhata tells the user to trust over its own estimate (announcement date + 15 days).
 
-## OCR: contrast preprocessing, Vision fallback, merchant memory
+## OCR: on-device PaddleOCR, VAT check, Vision fallback, merchant memory
 
-- `prepareForOcr` first measures how tilted the photo is (`estimateSkew`: the angle at which rows
-  of text pixels, dark spots on bright paper, line up most sharply) and straightens it. It then
-  makes three copies at 2200 px on the long side (small photos enlarged up to 2.5×): a colour one
-  for vision models, an enhanced one for Tesseract (Rec. 601 grayscale, auto-levels: darkest 1% →
-  black, brightest 2% → white, gamma 1.3), and a black-and-white one (`adaptiveThreshold`,
-  Bradley–Roth) for crumpled or shadowed bills. The stored photo is never altered.
-- A clean bill is read once (mode 6, one uniform block) and accepted when it has a printed total
-  and its items add up to it (directly, or with 10% service charge and/or 13% VAT on top).
-- A crumpled or curved bill reads differently every time, so it gets up to five reads: mode 6,
-  then **word-position reads** (mode 11, sparse text) of both copies, the black-and-white copy in
-  mode 6, and mode 4. A word-position read (`src/lib/ocr/layout.js`) groups the item names into
-  rows and the numbers into rows separately, then pairs them in order. On a bent bill each row's
-  numbers sit lower than its name, sometimes by more than a line, which glues them to the wrong
-  item in a line-by-line read.
+- **Engine:** PaddleOCR (PP-OCRv6 tiny, `ppu-paddle-ocr/web` on ONNX Runtime Web) in a Web Worker,
+  so reading never freezes the page. Nothing loads with the app: opening the Scan page starts the
+  one-time download in the background (skipped with Data Saver on), with a progress bar on the
+  first scan. The models (~6.4 MB; the Devanagari model, ~12.7 MB, only with "Read Nepali bills")
+  are kept in Cache Storage; ONNX Runtime's `.wasm` is served from this site and uses WebGPU where
+  the browser has it. Reads are queued: one ONNX session can't run two at once. Tesseract.js is gone.
+- **Preparing the photo** (`prepareForOcr`): tilt measured and straightened (`estimateSkew`: the angle
+  at which rows of dark pixels line up most sharply; ppu-ocv's deskew needs OpenCV.js, ~10 MB), no
+  side over 2000 px (a 12 MP photo would exhaust a phone's memory; small photos enlarged up to 2×).
+  Two copies: `color`, read first and sent to vision models, and `enhanced`
+  (`contrastStretchPixels`: grayscale, darkest 5% → black, brightest 15% → white, so faded thermal
+  print stands out from grey, shadowed paper). The stored photo is never altered.
+- **Boxes → rows** (`rows.js`): Paddle returns one box per run of text with a confidence. The worker
+  trims each box to its ink (Paddle pads boxes by about half a line) and measures where each word
+  of a multi-word box is (`splitByInk`), because one box can span two table columns. `cleanBoxes`
+  drops CJK characters (the multilingual model reads dashed rule lines as 一 三), rule lines and
+  boxes under 45% confidence, except plain numbers above 30%. `buildRows` groups boxes whose
+  vertical centres are within 0.7 × the text height (a curled bill's amount sits lower than its
+  label) and reads each row left to right.
+- **Reading a bill:** one read of the colour copy is accepted when it has a printed total and its
+  items add up to it (directly, or with 10% service charge and/or 13% VAT). Otherwise the
+  contrast-stretched copy is read too, both are also rebuilt from word positions
+  (`src/lib/ocr/layout.js`: names and numbers grouped into rows separately, then paired in order),
+  and the reads are combined.
+- **13% VAT check** (`vatTriplet`): among the amounts in the bottom 60% of the bill, a subtotal, VAT
+  and total with subtotal × 13% ≈ VAT and subtotal + VAT ≈ total (within रु 1.5). When it matches
+  the bill's total the Scan screen says "Total checked: … + 13% VAT … = …"; a missing or guessed
+  total takes the checked one. Totals skip Cash, Tender, Change, Return and Rounding lines.
+- **Thermal-print slips** (`fixOcrDigits`): O, Q, D → 0; I, l, | → 1; S → 5; B → 8; Z → 2, only inside a
+  number with at least three digits ("6O1234567", "S00.00"), never in a word ("SOUP", "B12").
+  Devanagari digits become ASCII first.
 - `src/lib/ocr/consensus.js` combines the reads. Totals vote (amount in words 2, a "Grand / Invoice
   Total" line 1.5, a guessed total 0.2). Item rows are matched across reads by amount, name and
   position (a misread "189" joins the "180" row it sits in). The set of rows that adds up to a
@@ -212,7 +229,7 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
 - Bill numbers: `Bill No.:- 2083/84-1052`, `Invoice # INV-77`, `Inv. No.: KTM/0091`, `बिल नं: ४५७`,
   OCR slips (`lnvoice`, `Bil1`, `N0`) and a number on the next line. The items read from a bill are
   shown, editable, on the bill form.
-- After a Tesseract read with no 9-digit PAN, no total, items that don't add up, or confidence
+- After an on-device read with no 9-digit PAN, no total, items that don't add up, or confidence
   below 60, the Scan screen
   offers **Re-scan with Vision AI** if any vision API key is saved. It reuses the same image, so there
   is no re-upload.
@@ -241,7 +258,7 @@ non-drinker's drinks are folded away), tick what they had, set ×2 for a shared 
 and see who else is on each item. The VAT/service-charge choice is there too. Reopening a split with people
 starts on Shares.
 
-- **Line items** come from the scan: `parseLineItemsFromText` for Tesseract text
+- **Line items** come from the scan: `parseLineItemsFromText` for on-device OCR text
   ("Chicken Momo 2 250 500", "Tuborg 2 x 450 900", "3 Masala Tea 150"; totals/VAT rows skipped)
   and a `lineItems` array in the Vision schema. Items can be added, edited, deleted, pasted as text
   or read again from the stored photo.
@@ -297,7 +314,9 @@ version 3), and they're in backups.
   Credit is swapped back, one Amount column gets its side from the balance change, newest-first
   statements are checked oldest-first, and rows that still don't add up are flagged.
 - **Locked PDFs** ask for the password (used once, not saved). **Scanned PDFs** (a page with no
-  text) are drawn at 2.2× and read word by word with Tesseract, then go through the same parser.
+  text) are drawn at 2.2× and read with on-device OCR, then go through the same parser. An amount
+  under a money column's header belongs to it, and one that mostly lies before the next column's
+  header belongs to the column before (right-aligned under a narrow "Dr.").
   **CSV** exports use the same header logic, and so do **spreadsheets** (`.xlsx`, `.xls`, `.ods`,
   and HTML tables saved as `.xls`): SheetJS (from cdn.sheetjs.com, loaded only when a spreadsheet
   is opened) gives each cell's text, date cells are written as `YYYY-MM-DD HH:MM` so day and month

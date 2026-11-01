@@ -1,102 +1,53 @@
-// OCR entry point: picks Tesseract (free, in-browser) or a vision API, and returns
-// bill fields ready for the verification form.
+// OCR entry point: on-device PaddleOCR (free, in the browser; the models download once and stay)
+// or a vision API with the user's own key. Returns bill fields ready for the verification form.
 import { CATEGORIES, OCR_ENGINES, PAYMENT_METHODS, REGIONS } from '../constants.js';
 import { adToBs, bsToAd, isValidAD, isValidBS, toAsciiDigits } from '../nepaliDate.js';
 import { parseReceiptText } from './parse.js';
 import { makeItem, parseLineItemsFromText } from '../splitter.js';
 import { combineReads, sumMatches } from './consensus.js';
 import { rowsFromWords } from './layout.js';
+import { cleanBoxes, rowsText, splitWords } from './rows.js';
 
-let tesseractWorker = null;
-let tesseractLangs = '';
-let progressSink = null; // the current caller's onProgress (the worker outlives each call)
-
-async function getWorker(langs, onProgress) {
-  progressSink = onProgress || null;
-  if (!tesseractWorker || tesseractLangs !== langs) {
-    await tesseractWorker?.terminate();
-    const { createWorker } = await import('tesseract.js');
-    tesseractWorker = await createWorker(langs, 1, {
-      logger: (m) => progressSink?.({ status: m.status, progress: m.progress }),
-    });
-    tesseractLangs = langs;
-  }
-  return tesseractWorker;
+/** One on-device read: clean boxes, the text as rows, and single words for layout work. */
+async function readImage(image, { nepali, onProgress } = {}) {
+  const { ocrWords } = await import('./local.js');
+  const { words: raw, confidence } = await ocrWords(image, { nepali, onProgress });
+  const boxes = cleanBoxes(raw);
+  return { boxes, words: splitWords(boxes), text: rowsText(boxes), confidence };
 }
 
-/** Every word with its box, for layouts rebuilt from positions (scanned statement pages). */
-// Low-confidence words are usually noise (grid lines, smudges), but a clean number next to a table
-// line often scores low too: keep words that are plainly an amount, date or time.
-const keepWord = (w) => w.confidence >= 30 || (w.confidence >= 10 && /\d/.test(w.text) && /^[\d.,:/-]+$/.test(w.text));
-
-export async function recognizeWords(image, { psm = '6', onProgress } = {}) {
-  const worker = await getWorker('eng', onProgress);
-  await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
-  const { data } = await worker.recognize(image, {}, { blocks: true, text: true });
-  const words = [];
-  for (const block of data.blocks || []) {
-    for (const para of block.paragraphs || []) {
-      for (const line of para.lines || []) {
-        for (const w of line.words || []) if (keepWord(w)) words.push({ text: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1 });
-      }
-    }
-  }
-  return words;
+/** Every word with its box, for layouts rebuilt from positions (statements, scanned pages). */
+export async function recognizeWords(image, { onProgress } = {}) {
+  return (await readImage(image, { onProgress })).words;
 }
 
-/** Plain text of a clean image (a payment screenshot). */
-export async function recognizeText(image, { psm = '4', onProgress } = {}) {
-  const worker = await getWorker('eng', onProgress);
-  await worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
-  const { data } = await worker.recognize(image);
-  return data.text || '';
+/** The text of a clean image (a payment screenshot), one line per row. */
+export async function recognizeText(image, { onProgress } = {}) {
+  return (await readImage(image, { onProgress })).text;
 }
 
-async function runTesseract(images, { nepali, onProgress }) {
-  const langs = nepali ? 'eng+nep' : 'eng';
-  await getWorker(langs, onProgress);
-  // Receipts are one block of rows. Mode 6 ("single uniform block") keeps "item … qty … amount"
-  // on one line; the default auto mode often splits a bill into columns, losing every item row.
-  const read = async (image, psm) => {
-    await tesseractWorker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' });
-    const { data } = await tesseractWorker.recognize(image);
-    return { text: data.text || '', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
-  };
-  // Mode 11 (sparse text) finds every word with its position, line or no line. rowsFromWords then
-  // pairs each item name with its numbers by order, which survives a curved, crumpled bill.
-  const readWords = async (image) => {
-    await tesseractWorker.setParameters({ tessedit_pageseg_mode: '11' });
-    const { data } = await tesseractWorker.recognize(image, {}, { blocks: true, text: true });
-    const words = [];
-    for (const block of data.blocks || []) {
-      for (const para of block.paragraphs || []) {
-        for (const line of para.lines || []) {
-          for (const w of line.words || []) words.push({ text: w.text, confidence: w.confidence, ...w.bbox });
-        }
-      }
-    }
-    return { text: rowsFromWords(words), kind: 'words', confidence: Number.isFinite(data.confidence) ? data.confidence : null };
-  };
-  // A clean bill is done in one read. A crumpled or curved one reads differently every time, so it
-  // gets up to five reads (two images, line and word modes) and combineReads votes on the answer.
-  const passes = [
-    () => read(images.enhanced, '6'),
-    () => readWords(images.enhanced),
-    images.threshold && (() => readWords(images.threshold)),
-    images.threshold && (() => read(images.threshold, '6')),
-    () => read(images.enhanced, '4'),
-  ].filter(Boolean);
-  const reads = [];
-  for (const pass of passes) {
-    if (reads.length) onProgress?.({ status: `Hard-to-read bill: reading it again (${reads.length + 1} of ${passes.length})`, progress: reads.length / passes.length });
-    reads.push(await pass());
-    if (reads.length === 1 && selfConsistent(reads[0].text)) break;
-    if (reads.length >= 3 && combineReads(reads).confident) break;
+/**
+ * Reads a bill. A clear one is done in one read. When the first read doesn't add up (no printed
+ * total, items that don't match it), a second read of the contrast-stretched copy, and the same two
+ * rebuilt from word positions (best for item rows on a curved bill), go to combineReads, which
+ * votes on each field.
+ */
+async function runLocal(images, { nepali, onProgress }) {
+  const first = await readImage(images.color, { nepali, onProgress });
+  const reads = [{ text: first.text, confidence: first.confidence }];
+  if (!selfConsistent(first.text) && images.enhanced && images.enhanced !== images.color) {
+    onProgress?.({ status: 'Hard-to-read bill: reading it again', progress: 0.99 });
+    const second = await readImage(images.enhanced, { nepali, onProgress });
+    reads.push(
+      { text: second.text, confidence: second.confidence },
+      { text: rowsFromWords(first.words), kind: 'words', confidence: first.confidence },
+      { text: rowsFromWords(second.words), kind: 'words', confidence: second.confidence },
+    );
   }
   const confs = reads.map((r) => r.confidence).filter((c) => c != null);
   return {
     reads,
-    texts: reads.map((r) => r.text),
+    texts: reads.filter((r) => r.kind !== 'words').map((r) => r.text),
     confidence: confs.length ? Math.max(...confs) : null,
   };
 }
@@ -115,7 +66,7 @@ export function itemsMatchTotal(items = [], total) {
   return items.length > 0 && sumMatches(items.reduce((s, it) => s + (Number(it.amount) || 0), 0), total);
 }
 
-// Below this mean word confidence (0-100) a Tesseract read is treated as unreliable.
+// Below this mean confidence (0-100) an on-device read is treated as unreliable.
 export const LOW_CONFIDENCE = 60;
 
 /** True when a local read missed the fields that matter, its items don't add up, or it was unsure. */
@@ -171,22 +122,22 @@ export function normalizeExtraction(raw = {}) {
 }
 
 /**
- * @param {string|{color: string, enhanced: string, threshold?: string}} image data URL, or both OCR copies from prepareForOcr
+ * @param {string|{color: string, enhanced: string}} image data URL, or both OCR copies from prepareForOcr
  * @returns {Promise<{fields: object, rawText: string, engine: string, confidence: number|null}>}
  */
 export async function extractBill(image, settings, { region, onProgress } = {}) {
   let fields;
+  let texts = []; // the plain-text reads, for the VAT check
   let rawText = '';
   let engine = settings.ocrEngine;
   let confidence = null;
   const color = typeof image === 'string' ? image : image.color;
   const enhanced = typeof image === 'string' ? image : image.enhanced || image.color;
-  const threshold = typeof image === 'string' ? '' : image.threshold || '';
 
   if (settings.ocrEngine === OCR_ENGINES.VISION) {
     const provider = settings.visionProvider;
     const apiKey = settings.apiKeys?.[provider];
-    if (!apiKey) throw new Error('Add an API key in Settings, or switch the OCR engine to Tesseract.');
+    if (!apiKey) throw new Error('Add an API key in Settings, or switch the OCR engine to On this device.');
     onProgress?.({ status: 'Reading the bill with the vision model', progress: 0.3 });
     const { extractWithVision } = await import('./vision.js');
     const raw = await extractWithVision(color, { provider, apiKey, model: settings.models?.[provider] });
@@ -194,12 +145,13 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     rawText = JSON.stringify(raw, null, 2);
     engine = `${provider}:${settings.models?.[provider]}`;
   } else {
-    const read = await runTesseract({ enhanced, threshold }, { nepali: settings.tesseractNepali, onProgress });
+    const read = await runLocal({ color, enhanced }, { nepali: settings.nepaliScript, onProgress });
     confidence = read.confidence;
+    texts = read.texts;
     rawText = read.texts.length > 1
       ? read.texts.map((t, i) => `----- read ${i + 1} of ${read.texts.length} -----\n${t.trim()}`).join('\n\n')
       : read.texts[0] || '';
-    if (read.texts.length > 1) {
+    if (read.reads.length > 1) {
       const { agreement, confident, ...combined } = combineReads(read.reads);
       fields = combined;
     } else {
@@ -207,6 +159,11 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     }
   }
 
+  // The 13% VAT check, from whichever read shows subtotal + VAT = the chosen total.
+  if (!fields.vatCheck && fields.totalAmount && texts.length) {
+    const check = texts.map((t) => parseReceiptText(t).vatCheck).find((c) => c && Math.abs(c.total - fields.totalAmount) <= 1.5);
+    if (check) fields = { ...fields, vatCheck: check, mathVerified: true, vatAmount: fields.vatAmount || check.vat };
+  }
   return finishFields(fields, { rawText, engine, confidence, region });
 }
 

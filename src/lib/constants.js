@@ -43,7 +43,8 @@ export const IRD_PORTAL_URL = 'https://prize.ird.gov.np';
 
 export const REGIONS = { NEPAL: 'Nepal', INTL: 'International' };
 
-export const OCR_ENGINES = { TESSERACT: 'tesseract', VISION: 'vision' };
+// 'local' is on-device PaddleOCR. Settings saved as 'tesseract' (the old on-device engine) load as 'local'.
+export const OCR_ENGINES = { LOCAL: 'local', VISION: 'vision' };
 export const VISION_PROVIDERS = {
   gemini: { label: 'Google Gemini', defaultModel: 'gemini-2.5-flash', keyHint: 'AIza…' },
   openai: { label: 'OpenAI', defaultModel: 'gpt-4.1-mini', keyHint: 'sk-…' },

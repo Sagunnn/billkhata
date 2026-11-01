@@ -355,7 +355,18 @@ version 3), and they're in backups.
   can be renamed later. The name shows on statement chips, Bank rows, the bill form's match card
   and the ledger tag ("In eSewa · 1 Nov"). Wallet names are only detected near the top of a file,
   so an "ESEWA LOAD" payment doesn't label a bank statement. Only the last 4 digits of the account number are kept.
-  Rows already imported from an overlapping statement are skipped (`bankRowKey`).
+- **Overlapping statements count once** (`src/lib/bank/overlap.js`). Uploading a statement whose
+  dates overlap one already saved for the same account (matched by the last 4 digits and the bank or
+  wallet name), or the same transactions in another format (the PDF, then the Excel export, then a
+  screenshot), never adds a transaction twice. Rows are compared like a person would, not as text
+  (one export cuts the description short, another has no balance): same amount and direction and
+  the same transaction ID; or the same day with the same balance after it; or the same day when one
+  side has no balance; or up to 2 days apart (transaction vs value date) with exactly the same
+  balance. Rows whose balances both exist and differ are never merged, and each saved row matches at
+  most one new row, so two real रु 100 payments on one day stay two. The preview says how many rows
+  are already saved and from which statement; the merged table applies the same rule to everything
+  saved, so duplicates uploaded before this check are counted once too. Removing the earlier
+  statement brings the later one's rows back.
 - **Payment screenshots** (`parsePaymentText`): Fonepay, eSewa, Khalti, IME Pay, connectIPS and bank
   apps. Label then value on one line or the next: amount (a total beats an amount before a fee;
   balances, charges and cashback are ignored), date and time (12- or 24-hour), paid to, transaction /

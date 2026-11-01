@@ -6,6 +6,7 @@
 // link two items by hand, and that choice wins over the scores. Pure; tests/reconcile.test.js.
 import { toAsciiDigits } from '../nepaliDate.js';
 import { csvCell } from '../format.js';
+import { withoutOverlaps } from './overlap.js';
 
 const DAY = 864e5;
 const dayDiff = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / DAY);
@@ -269,7 +270,9 @@ const shiftDay = (d, n) => new Date(Date.parse(d) + n * DAY).toISOString().slice
  * screenshot, and the saved bills near their dates (not samples or trip shares).
  * @returns {{ result, range, byExpense: Map<string, entry> }}
  */
-export function reconcileAll({ statements = [], payments = [], expenses = [], overrides = {} }) {
+export function reconcileAll({ statements: saved = [], payments = [], expenses = [], overrides = {} }) {
+  // A transaction in two overlapping statements of one account counts once.
+  const statements = withoutOverlaps(saved);
   const bankRows = statements.flatMap((s) => s.rows || []);
   const ds = statements.flatMap((s) => [s.from, s.to]).filter(Boolean).sort();
   const range = ds.length ? { from: ds[0], to: ds.at(-1) } : null;

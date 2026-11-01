@@ -8,6 +8,7 @@ import { downloadBlob, money } from '../lib/format.js';
 import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import { newId } from '../lib/db.js';
 import { ACCOUNT_NAMES, bankRowKey } from '../lib/bank/statement.js';
+import { overlapWith, withoutOverlaps } from '../lib/bank/overlap.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -58,24 +59,30 @@ function StatementUpload({ statements, onSaved }) {
   async function save(name) {
     const { st, file } = state;
     const id = newId();
-    const have = new Set(statements.flatMap((s) => s.rows.map((r) => r.key)));
+    const meta = { bank: name.trim(), account: st.account };
+    // Rows already saved from an overlapping statement of the same account are skipped, however
+    // differently this file writes them (see overlap.js).
+    const overlap = overlapWith(st.rows, meta, statements);
+    const keys = new Set(statements.flatMap((s) => s.rows.map((r) => r.key)));
     const seen = new Map();
-    const rows = st.rows.map((r, i) => {
+    const fresh = st.rows.flatMap((r, i) => {
+      if (overlap.dupes.has(i)) return [];
       let key = bankRowKey(r);
       const n = seen.get(key) || 0;
       seen.set(key, n + 1);
       if (n) key = `${key}#${n}`; // two identical rows on one statement are still two payments
-      return { ...r, key, seq: i, statementId: id };
+      while (keys.has(key)) key = `${key}+`; // a different transaction that prints the same
+      keys.add(key);
+      return [{ ...r, key, seq: i, statementId: id }];
     });
-    const fresh = rows.filter((r) => !have.has(r.key));
-    if (!fresh.length) { toast('Every row in this statement is already imported.', 'error'); setState({ step: 'idle' }); return; }
+    if (!fresh.length) { toast('Everything in this statement is already saved.', 'error'); setState({ step: 'idle' }); return; }
     await saveStatement({
-      id, fileName: file.name, bank: name.trim(), account: st.account, from: st.from, to: st.to,
+      id, fileName: file.name, ...meta, from: st.from, to: st.to,
       openingBalance: st.openingBalance, closingBalance: st.closingBalance, checks: st.checks, warnings: st.warnings,
       rows: fresh, importedAt: new Date().toISOString(),
     });
-    const skipped = rows.length - fresh.length;
-    toast(`Imported ${plural(fresh.filter((r) => r.debit).length, 'expense')}${skipped ? `; ${skipped} rows were already in another statement` : ''}.`);
+    const spent = fresh.filter((r) => r.debit).length;
+    toast(`Imported ${plural(spent, 'expense')}${overlap.count ? `; ${plural(overlap.count, 'row')} already saved from an earlier statement ${overlap.count === 1 ? 'was' : 'were'} skipped` : ''}.`);
     setState({ step: 'idle' });
     onSaved?.();
   }
@@ -141,6 +148,8 @@ function StatementPreview({ st, statements, onSave, onCancel }) {
   const spent = st.rows.filter((r) => r.debit);
   const out = spent.reduce((s, r) => s + r.debit, 0);
   const moneyIn = st.rows.length - spent.length;
+  const overlap = useMemo(() => overlapWith(st.rows, { bank: name.trim(), account: st.account }, statements), [st, name, statements]);
+  const dupOut = st.rows.filter((r, i) => r.debit && overlap.dupes.has(i)).length;
   const good = st.checks.checked > 0 && st.checks.ok === st.checks.checked;
   return (
     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -150,6 +159,12 @@ function StatementPreview({ st, statements, onSave, onCancel }) {
       <AccountName id="st-name" value={name} onChange={setName} statements={statements} />
       <p className="mt-2 font-semibold text-slate-900">{name.trim() || 'Statement'}{st.account ? ` ••${st.account}` : ''}</p>
       <p className="text-slate-600">{st.from ? `${formatAD(st.from)} – ${formatAD(st.to)}` : 'No dates found'} · {plural(spent.length, 'expense')} · <b className="num text-slate-900">{money(out, profile.region)}</b></p>
+      {overlap.count > 0 && (
+        <p className="mt-1 flex items-start gap-1.5 text-sm font-medium text-blue-900">
+          <CircleCheck className="mt-0.5 size-4 shrink-0" />
+          <span>{dupOut ? `${plural(dupOut, 'expense')} already saved` : `${plural(overlap.count, 'row')} already saved`}{overlap.from.length ? ` from ${overlap.from.map((s) => `${s.bank || 'a statement'} ${shortDate(s.from)} – ${shortDate(s.to)}`).join(', ')}` : ''}: skipped, so nothing is counted twice.</span>
+        </p>
+      )}
       {moneyIn > 0 && <p className="mt-0.5 text-xs text-slate-500">{plural(moneyIn, 'money-in row')} left out. Add money that comes in under Cash &amp; bank on the Dashboard.</p>}
       {st.checks.checked > 0 && (
         <p className={`mt-1 flex items-center gap-1.5 font-medium ${good ? 'text-emerald-800' : 'text-amber-800'}`}>
@@ -160,17 +175,20 @@ function StatementPreview({ st, statements, onSave, onCancel }) {
       {st.warnings.map((w) => <p key={w} className="mt-1 text-amber-800">{w}</p>)}
       {spent.length > 0 && (
         <div className="mt-2 max-h-40 overflow-y-auto rounded border border-slate-200 bg-white">
-          {spent.slice(0, 6).map((r, i) => (
-            <div key={i} className="flex justify-between gap-2 border-b border-slate-100 px-2 py-1 text-xs last:border-0">
-              <span className="truncate"><span className="text-slate-500">{shortDate(r.date)}</span> {r.description}</span>
-              <span className="num shrink-0 font-semibold">{money(r.debit, profile.region, { symbol: false })}</span>
-            </div>
-          ))}
+          {spent.slice(0, 6).map((r, i) => {
+            const dup = overlap.dupes.has(st.rows.indexOf(r));
+            return (
+              <div key={i} className={`flex justify-between gap-2 border-b border-slate-100 px-2 py-1 text-xs last:border-0 ${dup ? 'text-slate-400' : ''}`}>
+                <span className="truncate"><span className={dup ? '' : 'text-slate-500'}>{shortDate(r.date)}</span> {r.description}{dup ? ' · already saved' : ''}</span>
+                <span className={`num shrink-0 font-semibold ${dup ? 'line-through' : ''}`}>{money(r.debit, profile.region, { symbol: false })}</span>
+              </div>
+            );
+          })}
           {spent.length > 6 && <p className="px-2 py-1 text-xs text-slate-500">and {spent.length - 6} more</p>}
         </div>
       )}
       <div className="mt-3 flex gap-2">
-        <Button variant="dark" onClick={() => onSave(name)} disabled={!spent.length}>Add to ledger</Button>
+        <Button variant="dark" onClick={() => onSave(name)} disabled={!spent.length || overlap.count === st.rows.length}>{overlap.count === st.rows.length ? 'All already saved' : 'Add to ledger'}</Button>
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -454,10 +472,10 @@ export default function Bank() {
 
       {statements.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {[...statements].sort((a, b) => a.from.localeCompare(b.from)).map((s) => (
+          {withoutOverlaps(statements).sort((a, b) => a.from.localeCompare(b.from)).map((s) => (
             <span key={s.id} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pl-3 pr-1 text-sm">
               <Landmark className="size-4 text-slate-500" />
-              <span><b>{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.length} rows</span></span>
+              <span><b>{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.filter((r) => r.debit).length} expenses{s.overlapRemoved ? ` (${s.overlapRemoved} also in an earlier statement, counted once)` : ''}</span></span>
               {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-amber-600" aria-label="Some amounts don't add up" />}
               <button type="button" onClick={() => setRenaming({ id: s.id, name: s.bank || '' })} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800" aria-label={`Rename ${s.bank || 'this'} statement`}><Pencil className="size-4" /></button>
               <button type="button" onClick={() => removeStatement(s)} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>

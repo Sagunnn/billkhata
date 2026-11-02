@@ -23,7 +23,7 @@ test('two real रु 100 payments on one day stay two (balances differ); a thir
 });
 
 test('a screenshot with cut-off descriptions and no balances still matches the PDF rows', () => {
-  const pdf = [r('2026-11-01', 135, 305.21, 'Paid for Bagmati Khaja Ghar'), r('2026-10-31', 650, 440.21, 'Fund Transfer to Bank')];
+  const pdf = [r('2026-11-01', 135, 512.4, 'Paid for Bagmati Khaja Ghar'), r('2026-10-31', 650, 647.4, 'Fund Transfer to Bank')];
   const shot = [r('2026-10-31', 650, null, 'Fund Trans'), r('2026-11-01', 135, null, 'Paid for Bag')];
   assert.deepEqual([...duplicateRows(shot, pdf)].sort(), [0, 1]);
   // Without balances on either side, each saved row still matches only once.
@@ -50,8 +50,8 @@ test('sameAccount: last 4 digits and names', () => {
 });
 
 test('withoutOverlaps removes rows saved twice before, keeping the earlier statement; other accounts untouched', () => {
-  const a = { id: 'a', bank: 'eSewa', importedAt: '2026-11-01T10:00:00Z', rows: [r('2026-10-31', 650, 440.21), r('2026-11-01', 135, 305.21)] };
-  const b = { id: 'b', bank: 'eSewa', importedAt: '2026-11-02T10:00:00Z', rows: [r('2026-11-01', 135, 305.21), r('2026-11-02', 50, 255.21)] };
+  const a = { id: 'a', bank: 'eSewa', importedAt: '2026-11-01T10:00:00Z', rows: [r('2026-10-31', 650, 647.4), r('2026-11-01', 135, 512.4)] };
+  const b = { id: 'b', bank: 'eSewa', importedAt: '2026-11-02T10:00:00Z', rows: [r('2026-11-01', 135, 512.4), r('2026-11-02', 50, 462.4)] };
   const k = { id: 'k', bank: 'Khalti', importedAt: '2026-11-02T11:00:00Z', rows: [r('2026-11-01', 135, 1000)] };
   const out = withoutOverlaps([b, k, a]);
   const byId = Object.fromEntries(out.map((s) => [s.id, s]));
@@ -62,10 +62,10 @@ test('withoutOverlaps removes rows saved twice before, keeping the earlier state
 });
 
 test('overlapWith: count and the overlapping statements, for the upload preview', () => {
-  const saved = [{ id: 'a', bank: 'eSewa', from: '2026-10-24', to: '2026-10-31', importedAt: '1', rows: [r('2026-10-30', 100, 500), r('2026-10-31', 650, 440.21)] }];
-  const ov = overlapWith([r('2026-10-31', 650, 440.21), r('2026-11-01', 135, 305.21)], { bank: 'eSewa' }, saved);
+  const saved = [{ id: 'a', bank: 'eSewa', from: '2026-10-24', to: '2026-10-31', importedAt: '1', rows: [r('2026-10-30', 100, 500), r('2026-10-31', 650, 647.4)] }];
+  const ov = overlapWith([r('2026-10-31', 650, 647.4), r('2026-11-01', 135, 512.4)], { bank: 'eSewa' }, saved);
   assert.equal(ov.count, 1);
   assert.deepEqual([...ov.dupes], [0]);
   assert.deepEqual(ov.from.map((s) => s.id), ['a']);
-  assert.equal(overlapWith([r('2026-10-31', 650, 440.21)], { bank: 'Khalti' }, saved).count, 0);
+  assert.equal(overlapWith([r('2026-10-31', 650, 647.4)], { bank: 'Khalti' }, saved).count, 0);
 });

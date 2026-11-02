@@ -1,46 +1,322 @@
 @import "tailwindcss";
 
+/*
+ * BillKhata · "A paper khata, made calm" (Figma: BillKhata Redesign → Foundations).
+ * Every colour is a token with a light and a dark value. Tailwind's slate, white, emerald, amber,
+ * red and blue families are pointed at those tokens, so every screen (including ones the design
+ * doesn't cover yet) takes the paper-and-ink look and works in dark mode.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
-  --color-brand: #b91c1c;
-  --color-brand-dark: #991b1b;
-  --color-brand-soft: #fef2f2;
-  --color-navy: #1e3a8a;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari", sans-serif;
+  --font-sans: "Anek Latin Variable", "Anek Devanagari Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-nepali: "Anek Devanagari Variable", "Anek Latin Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Semantic tokens */
+  --color-canvas: var(--bk-canvas);
+  --color-surface: var(--bk-surface);
+  --color-sunken: var(--bk-sunken);
+  --color-raised: var(--bk-raised);
+  --color-inverse: var(--bk-inverse);
+  --color-ink: var(--bk-ink);
+  --color-ink-2: var(--bk-ink-2);
+  --color-ink-3: var(--bk-ink-3);
+  --color-ink-inverse: var(--bk-ink-inverse);
+  --color-ink-inverse-muted: var(--bk-ink-inverse-muted);
+  --color-line: var(--bk-line);
+  --color-line-strong: var(--bk-line-strong);
+  --color-brand: var(--bk-brand);
+  --color-brand-dark: var(--bk-brand-pressed);
+  --color-brand-soft: var(--bk-brand-tint);
+  --color-on-brand: var(--bk-brand-on);
+  --color-navy: var(--bk-navy);
+  --color-navy-soft: var(--bk-navy-tint);
+  --color-leaf: var(--bk-success);
+  --color-leaf-soft: var(--bk-success-tint);
+  --color-warn: var(--bk-warning);
+  --color-warn-soft: var(--bk-warning-tint);
+  --color-danger: var(--bk-danger);
+  --color-danger-soft: var(--bk-danger-tint);
+  --color-marigold: var(--bk-marigold);
+  --color-marigold-ink: var(--bk-marigold-ink);
+  --color-marigold-soft: var(--bk-marigold-tint);
+  --color-hero: var(--bk-hero);
+  --color-hero-ink: var(--bk-hero-ink);
+  --color-hero-muted: var(--bk-hero-muted);
+  --color-hero-soft: var(--bk-hero-soft);
+  --color-hero-line: var(--bk-hero-line);
+
+  /* The palette the app was built with, re-pointed at the tokens */
+  --color-white: var(--bk-surface);
+  --color-black: var(--bk-ink);
+  --color-slate-50: var(--bk-s50);
+  --color-slate-100: var(--bk-canvas);
+  --color-slate-200: var(--bk-line);
+  --color-slate-300: var(--bk-line-strong);
+  --color-slate-400: var(--bk-s400);
+  --color-slate-500: var(--bk-ink-3);
+  --color-slate-600: var(--bk-ink-2);
+  --color-slate-700: var(--bk-s700);
+  --color-slate-800: var(--bk-s800);
+  --color-slate-900: var(--bk-ink);
+  --color-slate-950: var(--bk-s950);
+  --color-emerald-50: var(--bk-success-tint);
+  --color-emerald-100: var(--bk-e100);
+  --color-emerald-200: var(--bk-e200);
+  --color-emerald-300: var(--bk-e300);
+  --color-emerald-400: var(--bk-e400);
+  --color-emerald-500: var(--bk-e500);
+  --color-emerald-600: var(--bk-e600);
+  --color-emerald-700: var(--bk-success);
+  --color-emerald-800: var(--bk-e800);
+  --color-emerald-900: var(--bk-e900);
+  --color-emerald-950: var(--bk-e950);
+  --color-amber-50: var(--bk-warning-tint);
+  --color-amber-100: var(--bk-a100);
+  --color-amber-200: var(--bk-a200);
+  --color-amber-300: var(--bk-a300);
+  --color-amber-400: var(--bk-marigold);
+  --color-amber-500: var(--bk-a500);
+  --color-amber-600: var(--bk-a600);
+  --color-amber-700: var(--bk-warning);
+  --color-amber-800: var(--bk-marigold-ink);
+  --color-amber-900: var(--bk-a900);
+  --color-amber-950: var(--bk-a950);
+  --color-red-50: var(--bk-danger-tint);
+  --color-red-100: var(--bk-r100);
+  --color-red-200: var(--bk-r200);
+  --color-red-700: var(--bk-danger);
+  --color-red-800: var(--bk-r800);
+  --color-red-900: var(--bk-r900);
+  --color-red-950: var(--bk-r950);
+  --color-blue-50: var(--bk-navy-tint);
+  --color-blue-100: var(--bk-b100);
+  --color-blue-200: var(--bk-b200);
+  --color-blue-300: var(--bk-b300);
+  --color-blue-900: var(--bk-navy);
+  --color-blue-950: var(--bk-b950);
+
+  /* Radius: sm 8 thumbs · md 12 inputs and buttons · lg 18 cards · xl 24 hero and sheets */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
+
+  /* Elevation: 1 card · 2 sheet · 3 scan button */
+  --shadow-sm: 0 1px 2px rgb(28 23 15 / 0.06), 0 2px 8px rgb(28 23 15 / 0.04);
+  --shadow-md: 0 1px 2px rgb(28 23 15 / 0.06), 0 2px 8px rgb(28 23 15 / 0.04);
+  --shadow-lg: 0 -8px 32px rgb(28 23 15 / 0.14);
+  --shadow-2xl: 0 -8px 32px rgb(28 23 15 / 0.14);
+  --shadow-scan: 0 6px 16px -2px rgb(28 23 15 / 0.28), 0 2px 4px rgb(28 23 15 / 0.12);
 }
 
-/* Sizes shared by sticky parts. The mobile header is 3.5rem plus the notch. */
+/* ---------- Light (default) ---------- */
 :root {
+  color-scheme: light;
+  --bk-canvas: #f6f1e9;
+  --bk-surface: #fffdf9;
+  --bk-sunken: #eee7db;
+  --bk-raised: #ffffff;
+  --bk-inverse: #1c1915;
+  --bk-ink: #1c1915;
+  --bk-ink-2: #5c554b;
+  --bk-ink-3: #867e72;
+  --bk-ink-inverse: #fffdf9;
+  --bk-ink-inverse-muted: #bdb5a9;
+  --bk-line: #e5ddcf;
+  --bk-line-strong: #cec4b3;
+  --bk-brand: #b91c1c;
+  --bk-brand-pressed: #991b1b;
+  --bk-brand-tint: #fbe9e4;
+  --bk-brand-on: #ffffff;
+  --bk-navy: #1e3a8a;
+  --bk-navy-tint: #e7ecf9;
+  --bk-success: #0d7148;
+  --bk-success-tint: #e1f2e8;
+  --bk-warning: #9a5a06;
+  --bk-warning-tint: #fcefd5;
+  --bk-danger: #b42318;
+  --bk-danger-tint: #fde7e3;
+  --bk-marigold: #e59a0c;
+  --bk-marigold-ink: #7a4d00;
+  --bk-marigold-tint: #fdf1d3;
+  --bk-hero: #1c1915;
+  --bk-hero-ink: #fffdf9;
+  --bk-hero-muted: #bdb5a9;
+  --bk-hero-soft: #2c2924;
+  --bk-hero-line: #4d463d;
+  /* in-between steps */
+  --bk-s50: #faf6ef;
+  --bk-s400: #a39a8d;
+  --bk-s700: #453f37;
+  --bk-s800: #2c2924;
+  --bk-s950: #100e0b;
+  --bk-e100: #cfeadb;
+  --bk-e200: #b7dfc8;
+  --bk-e300: #8fcfae;
+  --bk-e400: #4fb085;
+  --bk-e500: #1f8f5f;
+  --bk-e600: #0f7d50;
+  --bk-e800: #0a5c3a;
+  --bk-e900: #084a2f;
+  --bk-e950: #053320;
+  --bk-a100: #fbe5bb;
+  --bk-a200: #f6d390;
+  --bk-a300: #ecbc5c;
+  --bk-a500: #d08a0a;
+  --bk-a600: #b06f07;
+  --bk-a900: #5e3b02;
+  --bk-a950: #3f2801;
+  --bk-r100: #fbd5ce;
+  --bk-r200: #f6b8ad;
+  --bk-r800: #8f1c13;
+  --bk-r900: #6f160f;
+  --bk-r950: #4a0e09;
+  --bk-b100: #d5ddf4;
+  --bk-b200: #b9c7ee;
+  --bk-b300: #93a8e3;
+  --bk-b950: #14275e;
+  /* Sizes shared by sticky parts. The mobile header is 3.5rem plus the notch. */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --header-h: calc(3.5rem + var(--safe-top));
+  --header-h: calc(3.75rem + var(--safe-top));
+}
+
+/* ---------- Dark ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bk-canvas: #14120f;
+  --bk-surface: #1d1a16;
+  --bk-sunken: #100e0b;
+  --bk-raised: #27231d;
+  --bk-inverse: #f2ece2;
+  --bk-ink: #f2ece2;
+  --bk-ink-2: #b6ac9e;
+  --bk-ink-3: #8a8173;
+  --bk-ink-inverse: #1c1915;
+  --bk-ink-inverse-muted: #5a5348;
+  --bk-line: #302b24;
+  --bk-line-strong: #463f35;
+  --bk-brand: #f0705f;
+  --bk-brand-pressed: #f38b7c;
+  --bk-brand-tint: #3a1d19;
+  --bk-brand-on: #1f0b08;
+  --bk-navy: #9db3f6;
+  --bk-navy-tint: #1c2440;
+  --bk-success: #62d3a1;
+  --bk-success-tint: #12291f;
+  --bk-warning: #f2b65a;
+  --bk-warning-tint: #33260e;
+  --bk-danger: #ff8a7a;
+  --bk-danger-tint: #3b1a15;
+  --bk-marigold: #f5c04a;
+  --bk-marigold-ink: #f5c04a;
+  --bk-marigold-tint: #33280d;
+  /* The wallet card stays obsidian in dark mode (review round 2). */
+  --bk-hero: #221f1d;
+  --bk-hero-ink: #faf7f2;
+  --bk-hero-muted: #a89f92;
+  --bk-hero-soft: #2e2a26;
+  --bk-hero-line: #3e3832;
+  --bk-s50: #191612;
+  --bk-s400: #6e665a;
+  --bk-s700: #cfc6b8;
+  --bk-s800: #e2dbcf;
+  --bk-s950: #faf7f2;
+  --bk-e100: #173828;
+  --bk-e200: #1d4532;
+  --bk-e300: #28603f;
+  --bk-e400: #3f9a70;
+  --bk-e500: #4fc08d;
+  --bk-e600: #5acb98;
+  --bk-e800: #86e0b8;
+  --bk-e900: #a9ebcd;
+  --bk-e950: #c9f3df;
+  --bk-a100: #3d2d10;
+  --bk-a200: #4a3712;
+  --bk-a300: #6b4f16;
+  --bk-a500: #f2b65a;
+  --bk-a600: #f2b65a;
+  --bk-a900: #f8d898;
+  --bk-a950: #fbe7bf;
+  --bk-r100: #4a2019;
+  --bk-r200: #5c2820;
+  --bk-r800: #ffa597;
+  --bk-r900: #ffc0b6;
+  --bk-r950: #ffd9d2;
+  --bk-b100: #222c4d;
+  --bk-b200: #2c3a63;
+  --bk-b300: #41558c;
+  --bk-b950: #c4d2fa;
 }
 
 @layer base {
   html { -webkit-tap-highlight-color: transparent; }
-  body { @apply bg-slate-100 text-slate-900 antialiased; }
+  body { @apply bg-canvas text-ink antialiased; font-feature-settings: "ss01"; }
   :focus-visible { @apply outline-2 outline-offset-2 outline-navy; }
   /* Digits line up in lists, tables and number fields. */
   table, .font-mono, input[inputmode="numeric"], input[inputmode="decimal"], input[type="date"] { font-variant-numeric: tabular-nums; }
+  input[type="date"] { color-scheme: inherit; }
 }
 
 @layer components {
   .num { font-variant-numeric: tabular-nums; }
+  /* Type scale from Foundations */
+  .t-money-xl { font-size: 44px; line-height: 48px; font-weight: 600; letter-spacing: -1.5px; }
+  .t-money-l { font-size: 32px; line-height: 36px; font-weight: 600; letter-spacing: -1px; }
+  .t-h-l { font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -0.5px; }
+  .t-h-m { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.3px; }
+  .t-h-s { font-size: 18px; line-height: 24px; font-weight: 600; }
+  .t-body-l { font-size: 17px; line-height: 24px; }
+  .t-body { font-size: 15px; line-height: 22px; }
+  .t-label { font-size: 14px; line-height: 18px; font-weight: 500; }
+  .t-label-s { font-size: 13px; line-height: 16px; font-weight: 500; }
+  .t-caption { font-size: 12px; line-height: 16px; }
+  .t-overline { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .t-mono { font-family: var(--font-mono); font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.3px; }
+  .t-mono-s { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.3px; }
+
   .input {
-    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[15px] text-slate-900
-      placeholder:text-slate-400 focus:border-navy focus:outline-none focus:ring-4 focus:ring-navy/15
-      disabled:bg-slate-50 disabled:text-slate-500;
+    @apply block w-full rounded-lg border border-line-strong bg-surface px-3.5 py-3 text-[15px] leading-[22px] text-ink
+      placeholder:text-ink-3 focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/25
+      disabled:bg-sunken disabled:text-ink-3;
   }
-  .input-error { @apply border-brand focus:border-brand focus:ring-brand/15; }
-  .input-ok { @apply border-emerald-500 focus:border-emerald-600 focus:ring-emerald-500/15; }
-  .label { @apply mb-1.5 block text-sm font-semibold text-slate-700; }
-  .card { @apply rounded-xl border border-slate-200 bg-white shadow-sm; }
-  .skeleton { @apply animate-pulse rounded-md bg-slate-200/80; }
+  /* Field provenance (Components → Field with provenance) */
+  .input-read { @apply border-dashed border-navy; }
+  .input-unsure { @apply border-warn focus:border-warn focus:ring-warn/25; }
+  .input-error { @apply border-danger focus:border-danger focus:ring-danger/25; }
+  .input-ok { @apply border-line-strong; }
+  .label { @apply mb-1.5 block text-[14px] font-medium leading-[18px] text-ink-2; }
+  .card { @apply rounded-xl border border-line bg-surface shadow-sm; }
+  .skeleton { @apply animate-pulse rounded-md bg-line/80; }
+  /* Voucher codes look rubber-stamped so people copy them onto the paper bill. */
+  .stamp {
+    @apply inline-flex items-center rounded-md border border-dashed border-ink-2 bg-surface px-1.5 py-px font-mono text-[12px] font-medium leading-4 tracking-[0.3px] text-ink;
+  }
+  /* Dashed ledger rule above a total, like a khata. */
+  .ledger-rule { border-top: 1px dashed var(--bk-line-strong); }
+  .chip {
+    @apply inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-[14px] font-medium text-ink;
+  }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"], .chip-on { @apply border-ink bg-ink text-ink-inverse; }
+}
+
+/* Torn receipt edge (Components → Receipt edge) */
+.receipt-edge {
+  height: 8px;
+  background:
+    linear-gradient(-45deg, transparent 4px, var(--edge-color, var(--bk-surface)) 0) 0 0 / 12px 8px repeat-x,
+    linear-gradient(45deg, transparent 4px, var(--edge-color, var(--bk-surface)) 0) 0 0 / 12px 8px repeat-x;
 }
 
 /* Touch screens: buttons and icon buttons are at least 44 × 44 px. */
 @media (pointer: coarse) {
   .tap { min-height: 44px; min-width: 44px; }
+  .kbd { display: none !important; }
 }
+/* Keycap hints only on wide screens with a keyboard. */
+@media (max-width: 1023px) { .kbd { display: none !important; } }
 
 /* Safe areas (notch, home bar): viewport-fit=cover lets the page run under them. */
 .pb-safe { padding-bottom: var(--safe-bottom); }
@@ -52,8 +328,8 @@
 }
 /* Room for the bottom nav and the Scan button that sticks up out of it. */
 .main-pad { padding-bottom: calc(7rem + var(--safe-bottom)); }
-.above-nav { bottom: calc(5rem + var(--safe-bottom)); }
-.toast-pos { bottom: calc(6rem + var(--safe-bottom)); }
+.above-nav { bottom: calc(5.4rem + var(--safe-bottom)); }
+.toast-pos { bottom: calc(6.5rem + var(--safe-bottom)); }
 .sheet-max { max-height: calc(100dvh - var(--safe-top) - 0.75rem); }
 /* Sticks under the mobile header; a modal sets --sticky-top for its own scroll area. */
 .sticky-top { top: var(--sticky-top, var(--header-h)); }

@@ -232,7 +232,7 @@ export function needsLook(x, range) {
   if (x.payment?.status === 'failed') return 'Failed payment: it should not be on the statement';
   if (x.unsure) return 'Two payments fit equally well: check this pair';
   if (x.bank?.balanceMismatch) return "Balance doesn't follow from the row above: check the amounts";
-  if (x.bank && !x.payment && !x.expense && x.direction === 'out') return 'No bill or screenshot for this payment';
+  if (x.bank && !x.payment && !x.expense && x.direction === 'out' && !x.bank.notBill) return 'No bill or screenshot for this payment';
   if (!x.bank && within(x.date, range, 0) && dayDiff(range.to, x.date) >= 3) return 'Not on the statement';
   return '';
 }

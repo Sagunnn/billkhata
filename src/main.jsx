@@ -1,6 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import '@fontsource-variable/anek-latin';
+import '@fontsource-variable/anek-devanagari';
+import '@fontsource-variable/jetbrains-mono';
 import './index.css';
+import { applyTheme } from './lib/theme.js';
+import { loadSettings } from './lib/profile.js';
+
+applyTheme(loadSettings().theme);
 import App from './App.jsx';
 import { StoreProvider } from './store.jsx';
 import { ToastProvider } from './components/Toast.jsx';

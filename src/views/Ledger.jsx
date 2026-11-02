@@ -1,21 +1,18 @@
-import { useState } from 'react';
-import { Funnel, Plus, RotateCcw, Search } from 'lucide-react';
+// Ledger (Figma: Phone 03 · Ledger): every bill, grouped by Nepali day with the day's total, a
+// search, range chips (this Nepali month among them), and filters for category, payment and IRD.
+import { useEffect, useRef, useState } from 'react';
+import { Download, PencilLine, RotateCcw, ScanLine, Search, SlidersHorizontal } from 'lucide-react';
 import { CATEGORIES, IRD_STATUSES, PAYMENT_METHODS } from '../lib/constants.js';
-import { blankExpense, filterExpenses, rangeFor, reportTotals } from '../lib/expense.js';
+import { blankExpense, filterExpenses, reportTotals } from '../lib/expense.js';
 import { money } from '../lib/format.js';
-import { formatAD } from '../lib/nepaliDate.js';
+import { BS_MONTHS, addDaysAD, parseYmd, shortBS, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
-import { ExpenseList, NoBillsYet } from '../components/ExpenseList.jsx';
-import { Button, Card, EmptyState, PageHeader, Segmented } from '../components/ui.jsx';
+import { BillCards, BillTable } from '../components/BillCard.jsx';
+import { NoBillsYet } from '../components/ExpenseList.jsx';
+import { Button, Card, Chip, EmptyState, Field, Modal } from '../components/ui.jsx';
 
-const RANGES = [
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'all', label: 'All' },
-  { value: 'custom', label: 'Custom' },
-];
 const EMPTY = { range: 'all', from: '', to: '', category: '', payment: '', status: '', search: '' };
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 function readFilters() {
   try {
@@ -25,75 +22,156 @@ function readFilters() {
   }
 }
 
+/** "TODAY · 16 KARTIK", "SATURDAY · 15 KARTIK". */
+function dayHeading(ad, today) {
+  const day = ad === today ? 'Today' : ad === addDaysAD(today, -1) ? 'Yesterday' : WEEKDAYS[new Date(`${ad}T00:00:00Z`).getUTCDay()];
+  return ad ? `${day} · ${shortBS(ad)}` : 'No date';
+}
+
+function groupByDay(list) {
+  const groups = [];
+  for (const e of list) {
+    const last = groups.at(-1);
+    if (last && last.day === e.billDateAD) last.bills.push(e);
+    else groups.push({ day: e.billDateAD, bills: [e] });
+  }
+  return groups;
+}
+
+function FilterSheet({ f, update, onClose }) {
+  const [draft, setDraft] = useState(f);
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  return (
+    <Modal open size="md" title="Filter bills" onClose={onClose}
+      footer={<>
+        <Button variant="ghost" icon={RotateCcw} onClick={() => { update({ ...EMPTY, search: f.search }); onClose(); }} className="mr-auto">Reset</Button>
+        <Button variant="primary" onClick={() => { update(draft); onClose(); }}>Show bills</Button>
+      </>}>
+      <div className="space-y-4">
+        <Field label="Category" htmlFor="lf-cat">
+          <select id="lf-cat" className="input" value={draft.category} onChange={(e) => set({ category: e.target.value })}>
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Paid by" htmlFor="lf-pay">
+          <select id="lf-pay" className="input" value={draft.payment} onChange={(e) => set({ payment: e.target.value })}>
+            <option value="">Any way</option>
+            {PAYMENT_METHODS.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="IRD lucky draw" htmlFor="lf-ird">
+          <select id="lf-ird" className="input" value={draft.status} onChange={(e) => set({ status: e.target.value })}>
+            <option value="">Any status</option>
+            {IRD_STATUSES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <fieldset>
+          <legend className="label">Dates</legend>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="date" className="input" value={draft.from} aria-label="From date" onChange={(e) => set({ from: e.target.value, range: 'custom' })} />
+            <input type="date" className="input" value={draft.to} aria-label="To date" onChange={(e) => set({ to: e.target.value, range: 'custom' })} />
+          </div>
+        </fieldset>
+      </div>
+    </Modal>
+  );
+}
+
+const iconBtn = 'tap relative flex size-10 items-center justify-center rounded-full border border-line bg-surface text-ink hover:bg-sunken';
+
 export default function Ledger() {
   const { expenses, profile, openEditor } = useStore();
   const [f, setF] = useState(readFilters);
-  const [showFilters, setShowFilters] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const searchRef = useRef(null);
   const update = (patch) => {
     const next = { ...f, ...patch };
     setF(next);
     try { sessionStorage.setItem('billkhata_filters', JSON.stringify(next)); } catch { /* ignore */ }
   };
+  // "/" from elsewhere lands here with ?search.
+  useEffect(() => {
+    if (window.location.hash.includes('?search')) searchRef.current?.focus();
+  }, []);
+
   const list = filterExpenses(expenses, f);
   const t = reportTotals(list);
-  const r = rangeFor(f.range, f);
-  const active = [f.category, f.payment, f.status, f.search].filter(Boolean).length + (f.range !== 'all' ? 1 : 0);
+  const today = todayAD();
+  const tBs = todayBS();
+  const monthName = tBs ? BS_MONTHS[parseYmd(tBs).m - 1] : 'Month';
+  const ranges = [['today', 'Today'], ['week', 'Week'], ['bsmonth', monthName], ['all', 'All'], ['custom', 'Custom']];
+  const extra = [f.category, f.payment, f.status].filter(Boolean).length;
+  const groups = groupByDay(list);
+
+  if (!expenses.length) {
+    return (
+      <div>
+        <h1 className="t-h-l mb-5 text-ink">Ledger</h1>
+        <Card><NoBillsYet /></Card>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <PageHeader
-        title="Ledger"
-        subtitle={`${list.length} of ${expenses.length} bills`}
-        actions={<><a href="#/bank" className="tap inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">Bank</a><a href="#/reports" className="tap inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 md:hidden">PDF report</a><Button variant="dark" icon={Plus} onClick={() => openEditor(blankExpense(profile.region))}>Add manually</Button></>}
-      />
-
-      <Card className="mb-4 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Segmented value={f.range} onChange={(range) => update({ range })} options={RANGES} className="overflow-x-auto" />
-          <div className="relative min-w-[180px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input className="input py-2 pl-9" placeholder="Search code, shop, invoice, PAN, coupon" value={f.search} onChange={(e) => update({ search: e.target.value })} aria-label="Search bills" />
-          </div>
-          <Button size="md" icon={Funnel} onClick={() => setShowFilters((v) => !v)} className="md:hidden">Filters</Button>
-          {active > 0 && <Button size="md" variant="ghost" icon={RotateCcw} onClick={() => update(EMPTY)}>Reset</Button>}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="t-h-l text-ink">Ledger</h1>
+        <div className="flex items-center gap-2">
+          <span className="hidden md:block"><Button icon={PencilLine} onClick={() => openEditor(blankExpense(profile.region))}>Add by hand</Button></span>
+          <a href="#/reports" className={iconBtn} aria-label="Export: CSV and PDF reports" title="Export"><Download className="size-5" /></a>
+          <button type="button" className={iconBtn} onClick={() => setFiltering(true)} aria-label={`Filters${extra ? ` (${extra} on)` : ''}`} title="Filters">
+            <SlidersHorizontal className="size-5" />
+            {extra > 0 && <span className="absolute -right-0.5 -top-0.5 flex size-[18px] items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-on-brand">{extra}</span>}
+          </button>
         </div>
-        <div className={`${showFilters ? 'grid' : 'hidden'} mt-3 grid-cols-1 gap-2 sm:grid-cols-3 md:grid`}>
-          <select className="input py-2" value={f.category} onChange={(e) => update({ category: e.target.value })} aria-label="Category">
-            <option value="">All categories</option>
-            {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-          <select className="input py-2" value={f.payment} onChange={(e) => update({ payment: e.target.value })} aria-label="Payment method">
-            <option value="">All payment methods</option>
-            {PAYMENT_METHODS.map((c) => <option key={c}>{c}</option>)}
-          </select>
-          <select className="input py-2" value={f.status} onChange={(e) => update({ status: e.target.value })} aria-label="IRD draw status">
-            <option value="">Any IRD draw status</option>
-            {IRD_STATUSES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        {f.range === 'custom' && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <input type="date" className="input w-auto py-2" value={f.from} onChange={(e) => update({ from: e.target.value })} aria-label="From date" />
-            <span className="text-slate-500">to</span>
-            <input type="date" className="input w-auto py-2" value={f.to} onChange={(e) => update({ to: e.target.value })} aria-label="To date" />
-          </div>
-        )}
-      </Card>
-
-      <div className="mb-3 flex flex-wrap gap-x-5 gap-y-1 px-1 text-sm text-slate-600">
-        <span>{r.from || r.to ? `${formatAD(r.from) || '…'} – ${formatAD(r.to) || '…'}` : 'All dates'}</span>
-        <span>Total <b className="num text-slate-900">{money(t.total, profile.region)}</b></span>
-        <span>VAT <b className="num text-slate-900">{money(t.vat, profile.region)}</b></span>
-        <span>Coupons <b className="text-slate-900">{t.coupons}</b></span>
       </div>
 
-      <Card className="overflow-hidden">
-        {!expenses.length ? <NoBillsYet /> : list.length ? <ExpenseList list={list} /> : (
-          <EmptyState icon={Search} title="No bills match" action={active ? <Button onClick={() => update(EMPTY)} icon={RotateCcw}>Clear filters</Button> : null}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-ink-3" />
+        <input ref={searchRef} data-search type="search" className="input h-12 pl-11" placeholder="Shop, PAN, bill no., code or coupon" value={f.search} onChange={(e) => update({ search: e.target.value })} aria-label="Search bills" />
+      </div>
+      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+        {ranges.map(([value, label]) => (
+          <Chip key={value} selected={f.range === value} onClick={() => (value === 'custom' ? setFiltering(true) : update({ range: value }))}>{label}</Chip>
+        ))}
+      </div>
+
+      <Card className="mt-3 grid grid-cols-3 divide-x divide-line rounded-2xl py-3 text-center">
+        <div><p className="t-caption text-ink-3">{list.length} bill{list.length === 1 ? '' : 's'}</p><p className="num font-nepali text-[16px] font-semibold text-ink">{money(t.total)}</p></div>
+        <div><p className="t-caption text-ink-3">VAT</p><p className="num font-nepali text-[16px] font-semibold text-ink">{money(t.vat)}</p></div>
+        <div><p className="t-caption text-ink-3">Coupons</p><p className="text-[16px] font-semibold text-ink">{t.coupons} saved</p></div>
+      </Card>
+
+      {list.length ? (
+        <>
+          <div className="mt-5 md:hidden">
+            {groups.map((g) => (
+              <section key={g.day || 'none'} className="mb-5">
+                <div className="mb-2 flex items-baseline justify-between px-1">
+                  <h2 className="t-overline text-ink-3">{dayHeading(g.day, today)}</h2>
+                  <span className="num font-nepali text-[14px] text-ink-2">{money(g.bills.reduce((s, e) => s + (Number(e.split ? e.split.myShare : e.totalAmount) || 0), 0))}</span>
+                </div>
+                <BillCards list={g.bills} pan />
+              </section>
+            ))}
+          </div>
+          <Card className="mt-4 hidden overflow-hidden rounded-[20px] md:block">
+            <BillTable list={list} pan />
+          </Card>
+        </>
+      ) : (
+        <Card className="mt-4">
+          <EmptyState icon={Search} title="No bills match" action={<Button onClick={() => update(EMPTY)} icon={RotateCcw}>Clear filters</Button>}>
             Try a wider date range or fewer filters.
           </EmptyState>
-        )}
-      </Card>
+        </Card>
+      )}
+
+      {expenses.length < 3 && (
+        <a href="#/scan" className="mt-4 flex items-center justify-center gap-2 text-[14px] font-medium text-brand hover:underline"><ScanLine className="size-4" />Scan another bill</a>
+      )}
+      {filtering && <FilterSheet f={f} update={update} onClose={() => setFiltering(false)} />}
     </div>
   );
 }

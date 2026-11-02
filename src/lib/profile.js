@@ -16,6 +16,8 @@ export const EMPTY_PROFILE = {
 export const DEFAULT_SETTINGS = {
   ocrEngine: OCR_ENGINES.LOCAL,
   nepaliScript: false,
+  theme: 'system', // 'system' | 'light' | 'dark'
+  showLuckyDraw: true, // the marigold lucky-draw strip on Home
   visionProvider: 'gemini',
   apiKeys: { gemini: '', openai: '', anthropic: '' },
   models: Object.fromEntries(Object.entries(VISION_PROVIDERS).map(([k, v]) => [k, v.defaultModel])),

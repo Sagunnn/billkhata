@@ -206,3 +206,19 @@ test('header lines like "Table: 4  Time: 19:42" are not items', () => {
   assert.deepEqual(names('Table: 4          Time: 19:42\nKOT No: 12\nVeg Momo 180'), ['Veg Momo']);
   assert.deepEqual(names('Table: 4          Time: 19:42'), []);
 });
+
+test('splitText: shares, who paid, and where to pay, with no link', async () => {
+  const { splitText, computeSplit, makeMember } = await import('../src/lib/splitter.js');
+  const split = {
+    v: 1, title: 'Momo House', total: 900, mode: 'equal', taxMode: 'proportional', items: [], overrides: {},
+    members: [makeMember({ id: 'me', name: 'Sagun', isPayer: true }), makeMember({ id: 'a', name: 'Aarati' }), makeMember({ id: 'b', name: 'Bibek' })],
+    paid: { a: '2026-11-01' },
+  };
+  const text = splitText(split, computeSplit(split), { pay: { via: 'eSewa', number: '9800000000' }, date: '15 Kartik' });
+  assert.match(text, /^Momo House · 15 Kartik · रु 900\nSplit equally\./);
+  assert.match(text, /Aarati: रु 300 \(paid\)/);
+  assert.match(text, /Bibek: रु 300\n/);
+  assert.match(text, /Sagun \(paid the bill\): रु 300/);
+  assert.match(text, /Pay Sagun on eSewa 9800000000\.$/);
+  assert.doesNotMatch(text, /https?:/);
+});

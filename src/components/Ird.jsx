@@ -2,7 +2,7 @@
 // the coupon-only modal for Fonepay/QR/card bills, and the one-time helper setup.
 import { useEffect, useRef, useState } from 'react';
 import {
-  BadgeCheck, Bookmark, ChevronDown, CircleAlert, ClipboardList, Download, ExternalLink, Info, MousePointerClick, QrCode,
+  BadgeCheck, Bookmark, ChevronDown, CircleAlert, ClipboardList, ClipboardPaste, Download, ExternalLink, Info, MousePointerClick, QrCode,
   Terminal, Ticket, TriangleAlert, UserRound,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT } from '../lib/constants.js';
@@ -12,7 +12,8 @@ import { formatAD, formatBS } from '../lib/nepaliDate.js';
 import { validateProfile } from '../lib/profile.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
-import { Button, CopyButton, Field, Modal, PayloadBlock, StatusBadge } from './ui.jsx';
+import { ActionChip, Button, CopyButton, Field, Modal, PayloadBlock, StatusBadge } from './ui.jsx';
+import { copyText } from '../lib/format.js';
 import { DuplicateBanner } from './DuplicateBanner.jsx';
 
 export function EligibilityPanel({ expense }) {
@@ -151,6 +152,26 @@ function CouponVault({ expense, onClose, help }) {
   const [coupon, setCoupon] = useState(expense.irdCoupon || '');
   const [error, setError] = useState('');
   const dup = coupon && expenses.find((x) => x.id !== expense.id && x.irdCoupon === coupon);
+  const [found, setFound] = useState(''); // a 12-digit number on the clipboard
+  const digits = (t) => (String(t || '').replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x0966)).match(/\d[\d\s-]{10,20}\d/g) || [])
+    .map((m) => m.replace(/\D/g, '')).find((m) => m.length === 12) || '';
+  // On focus, a coupon already on the clipboard is offered, but only where reading it needs no prompt.
+  async function peek() {
+    try {
+      const perm = await navigator.permissions?.query({ name: 'clipboard-read' });
+      if (perm?.state !== 'granted') return;
+      const c = digits(await navigator.clipboard.readText());
+      if (c && c !== coupon) setFound(c);
+    } catch { /* not allowed here */ }
+  }
+  async function paste() {
+    try {
+      const c = digits(await navigator.clipboard.readText());
+      if (c) { setCoupon(c); setError(''); setFound(''); } else toast('No 12-digit coupon on the clipboard. Copy it from the IRD page first.', 'error');
+    } catch {
+      toast('Couldn’t read the clipboard here. Long-press the box and paste.', 'error');
+    }
+  }
 
   async function save() {
     const c = coupon.replace(/\D/g, '');
@@ -177,10 +198,19 @@ function CouponVault({ expense, onClose, help }) {
             value={coupon}
             onChange={(e) => { setCoupon(e.target.value.replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x0966)).replace(/\D/g, '').slice(0, 12)); setError(''); }}
             onKeyDown={(e) => e.key === 'Enter' && save()}
+            onFocus={peek}
           />
           <Button variant="primary" icon={BadgeCheck} onClick={save} className="h-auto">Save</Button>
         </div>
       </Field>
+      {found && (
+        <div className="mt-2 flex items-center gap-2 rounded-[12px] bg-navy-soft px-3 py-2 text-[13px] text-navy" role="status">
+          <ClipboardPaste className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">On your clipboard: <b className="font-mono">{found.replace(/(\d{3})(?=\d)/g, '$1 ')}</b></span>
+          <button type="button" className="font-medium underline" onClick={() => { setCoupon(found); setFound(''); setError(''); }}>Use it</button>
+        </div>
+      )}
+      {navigator.clipboard?.readText && !found && <ActionChip icon={ClipboardPaste} onClick={paste} className="mt-2">Paste 12-digit coupon</ActionChip>}
       <p className="mt-2 flex gap-1.5 text-xs text-emerald-900"><Info className="mt-px size-3.5 shrink-0" />Kept with this bill, in backups and in PDF reports. Keep the paper bill: you need it to claim a prize.</p>
       {expense.irdCoupon && (
         <button
@@ -223,6 +253,7 @@ function DigitalCouponModal({ expense, onClose }) {
 
 function CashApplyModal({ expense: current, onClose }) {
   const { profile, expenses, openEditor } = useStore();
+  const toast = useToast();
   const duplicate = findDuplicateBill(current, expenses);
   const fields = portalFields(current, profile);
   const profileReady = Object.keys(validateProfile(profile)).length === 0 && !isDemoProfile(profile);
@@ -275,6 +306,13 @@ function CashApplyModal({ expense: current, onClose }) {
             >
               <ExternalLink className="size-[18px]" />Open portal &amp; auto-fill
             </a>
+          )}
+          {!duplicate && (
+            <div className="md:hidden">
+              <ActionChip icon={Bookmark} onClick={async () => { await copyText(bookmarklet()); toast('Auto-fill bookmark copied. Bookmark any page, edit the bookmark’s address and paste this in; then tap it on the IRD form.'); }}>
+                Copy auto-fill bookmark
+              </ActionChip>
+            </div>
           )}
           <HelperSetup />
         </div>

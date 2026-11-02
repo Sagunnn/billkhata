@@ -32,7 +32,29 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
 | `src/lib/backup.js`, `pdf.js` | JSON backup/restore with validation; jsPDF report with a receipt appendix. |
 | `src/lib/sample.js` | Demo bills with canvas-drawn receipts. |
 | `src/lib/bank/` | Bank statements (`statement.js`, `pdfText.js`, `sheet.js` for spreadsheets), payment screenshots (`payment.js`), matching (`reconcile.js`); `importers.js` is the browser side. |
-| `src/views/`, `src/components/` | Dashboard, Ledger, Scan, Bank, Reports, Settings; bill form, IRD modal, lists. |
+| `src/lib/money.js` | Accounts (cash, each bank and wallet), money in, moves, quick cash out, and what's left in each. |
+| `src/lib/paperEdge.js` | Finds the bill in a camera frame (bright sheet on a darker table) for the live scanner. |
+| `src/lib/theme.js`, `src/index.css` | Light / dark theme and the design tokens (see Design below). |
+| `src/views/`, `src/components/` | Home, Ledger, Scan, Split, Trips, Money, Reports, Settings; bill form, bill cards, IRD sheet, money sheets, camera. |
+
+## Design
+
+The 2026 redesign (Figma: *BillKhata Redesign*): paper and ink colours, sindoor red for the one
+main action, navy for "read from the bill", marigold for the lucky draw. Fonts are Anek Latin,
+Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with fontsource.
+
+- **Tokens** live in `src/index.css` as CSS variables (`--bk-canvas`, `--bk-ink`, `--bk-brand`…),
+  with a dark set under `[data-theme="dark"]`. Tailwind's slate / white / emerald / amber / red /
+  blue colours point at the same variables, so older screens follow the theme too.
+- **Theme:** Settings → Appearance (System, Light, Dark). An inline script in `index.html` sets it
+  before the first paint, so there's no flash.
+- **Shared pieces** (`src/components/ui.jsx`): Button (primary, outline, tonal, ghost, danger),
+  Badge, Notice, Chip, ActionChip, Segmented, Toggle, Tooltip, Kbd and the bottom sheet (Modal).
+- **Navigation:** phones have five tabs (Home, Ledger, Scan raised in the middle, Split, Money);
+  Trips sit inside Split, Reports inside Ledger, Settings in the Home header. Desktop has a sidebar
+  with Scan a bill / Add by hand, counts beside each item, and the backup card.
+- **Keyboard (desktop):** S scan, N add by hand, Q quick cash out, / search, J / K / ↵ through
+  bills, ? the list of shortcuts.
 
 ## Mobile, trust and first load
 
@@ -42,10 +64,18 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
 - **Safe areas:** `viewport-fit=cover` with `env(safe-area-inset-*)` on the header, bottom bar,
   sticky bars, toasts and bottom sheets (sized with `dvh`), so nothing hides behind the notch, the
   home bar or the browser's toolbars.
-- **Checking a scan:** the bill photo (pinch, double-tap, drag; Ctrl + scroll and +/− on desktop)
-  sticks under the header on phones and folds away to a thin bar; on desktop it stays in view beside
-  the form. A badge says **Scanned** (read, not saved), **Verified** (saved) or **Submitted** (IRD
-  coupon saved). The PAN field counts digits ("6 of 9") and turns green at 9.
+- **Live camera:** on a phone the Scan tab opens the back camera in the app. Each preview frame is
+  checked for the bill (`paperEdge.js`); when it holds still for about a second it's taken by itself
+  and cropped to the paper, or tap the shutter. Flash where the phone allows it. Without camera
+  access, **Use phone camera** opens the phone's own camera app. Photo, PDF or photo file, Type it,
+  Upload and Try a sample sit under the shutter.
+- **Checking a scan ("Check the details"):** each field says where its value came from: **Read
+  from bill** (dashed navy box), **Edited**, **Checked** (the total and VAT when subtotal + 13% =
+  total) or **Not sure** (a PAN with fewer than 9 digits). Notices above the form say what was
+  checked and what to fix. The bill photo (pinch, double-tap, drag; Ctrl + scroll and +/− on
+  desktop) sticks to the top on phones and folds away; on desktop it stays beside the form. The
+  save bar is Split, IRD (greyed with the reason, e.g. "Complete the 9-digit PAN to apply") and
+  Save bill. "Write KT1-07 on bill" shows the voucher code to copy onto the paper.
 - **Adding a bill:** Scan and Add by hand sit side by side on the Scan page, the Dashboard and the
   sidebar. Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
   PDF has a text layer, its exact text goes through the receipt parser instead of OCR
@@ -60,7 +90,7 @@ Settings → Backup & restore can load them again on purpose; they're then kept.
   is shop and amount on top, then date · BS date · category, then invoice and PAN, in a muted line.
 - **IRD copy:** the portal fields in a monospaced box with one Copy button (✓ and a toast), plus
   each field on its own.
-- **Saved on this device:** a pill in the mobile header and a note in the sidebar show where bills
+- **Saved on this device:** a pill in the Home header on phones and a card in the sidebar show where bills
   live and when the last backup was downloaded; an amber dot after 14 days without one. Settings has
   JSON backup / restore and a CSV export for spreadsheets (no photos, not restorable).
 - **First load:** `index.html` carries a CSS-only skeleton of the app inside `#root`, so there is
@@ -251,8 +281,11 @@ The editor is three steps, built for phones, with Back / Next pinned above the b
 No items? One tap splits equally. **2. People**: "By what each had" or "Split equally", a − / +
 counter, and one line per person: initial (tap to leave out), name (tap to rename), and in by-items
 mode a Veg/Non-veg pill and a drinks button. Saved friends and groups sit behind one disclosure.
-**3. Shares**: your share / to collect / still owed, then each person's share with Show QR and Mark
-paid. **Fine-tune who had what** opens its own window: pick a person from a dropdown (only people
+**3. Shares**: your share, to collect and how many have paid back, then each person's share with
+their Veg / Non-veg and Drinks pills (tap one and the shares are worked out again; a note says how
+many changed and the old amount is struck through), **Collect रु X** (the QR) and **Mark paid**
+(dated). Pinned below: **Send summary image** and **Copy text summary**, plain text with each
+share and "Pay Sagun on eSewa 98…" from Settings → Receive payments (no link). **Fine-tune who had what** opens its own window: pick a person from a dropdown (only people
 in the split), see the items grouped Veg / Non-veg / Drinks / Shared (a vegetarian's non-veg and a
 non-drinker's drinks are folded away), tick what they had, set ×2 for a shared multi-quantity item,
 and see who else is on each item. The VAT/service-charge choice is there too. Reopening a split with people
@@ -293,37 +326,38 @@ starts on Shares.
   from the link. The tested encode/decode helpers (`encodeSplit`, `decodeSplit`, `sharePayload`)
   stay for a future signed-link version.
 
-## Cash & bank (what you have left)
+## Money: your accounts (what you have left)
 
-A card on the Dashboard (`src/lib/money.js`, `src/components/CashBank.jsx`). You enter what you
-have once ("रु 5,000 cash, रु 40,000 in bank and wallets"), and from then on:
+The **Money** tab (`#/money`; `src/lib/money.js`, `src/views/Money.jsx`, `src/components/MoneySheets.jsx`).
+You set what's in each account once: **Cash in hand** and each bank or wallet (eSewa, Khalti,
+Laxmi Sunrise…), with one of them the **main** account. From then on:
 
-- every bill saved after that moment is taken off: cash bills from **Cash**, QR / wallet / card
-  bills from **Bank & wallets** (bills dated earlier are already in the amounts; on the same day,
-  only bills added after setting them count). Trip bills count as your share, as on the Dashboard.
-- **Money in** is added by hand, with its **source** (Salary, Family, Friend paid back, Refund,
-  Business, Interest, or anything typed; sources used before are offered first) and which pot it
-  went into. The history shows money in by source.
-- **Move** records an ATM withdrawal (bank → cash) or a cash deposit; **No bill** takes off spending
-  with nothing to scan (a fare, a tip).
-- **History** lists it all with the bills taken off; an entry can be removed. **Set the amounts
-  again** starts over from now (old entries are kept in the record).
+- every bill saved after that moment comes off an account: cash bills off Cash in hand; QR / card
+  bills off the account picked under **Paid from** on the bill (the main one unless you choose).
+  Bills dated earlier are already in the amounts; trip bills count as your share.
+- **Money in** (with where it came from: Salary, Family, Friend paid back…) goes into the account
+  you pick. **Move** is an ATM withdrawal or a deposit between accounts. **Quick cash out** (Q on
+  desktop) is a fare or a tip with no bill: it's saved as a ledger expense (counted in spending and
+  categories, never in the IRD draw) and comes off the account you pick.
+- **History** lists everything with the bills; an entry can be removed. Editing the accounts starts
+  over from now (old entries are kept in the record).
 
-Kept in localStorage (`billkhata_money`) and in backups. On the Bank page, money in from a
-statement shows in green (filter **In**), with a **Money in** tile for the total credited and,
-under the In filter, how much of it is already in Cash & bank, totals by where it came from, and
-**Add the rest**. Each credit can be **titled** with where it came from (Where from? / Change: Salary,
-Ram paid back, From Dad…; titles you've used are offered first); the title leads the row, the
-bank's narration sits under it, a guess from the narration is marked "(guessed)", and the title is
-saved with the statement (so it's in backups). Each row has **Add to Cash & bank**: salary, refunds and interest
-go in as money in with the row's title (or the guess); a credit titled "Cash deposit" moves cash
-into the bank. Retitling a credit already in Cash & bank updates it there. Each row can be
-added once; one dated before your starting amounts is already in them, so it can't be added. The
-running balance is not shown (it is still used to check each row was read right).
+Home shows the total, each account (cash and banks together on phones), and what's been spent since
+you set them. Data from before the redesign (one "Bank & wallets" total) becomes the first bank
+account. Kept in localStorage (`billkhata_money`) and in backups.
+
+**Bank rows** on the same page: each statement row has one status, **Missing bill**, **Unmatched ·
+2 bills fit**, **Money in · not counted yet**, **Matched · KT1-06**, **Not a bill** or **Moved to
+cash**, and the action that fits: **Attach bill** (a new bill filled from the row), **Match
+invoice**, **Not a bill** (a transfer, top-up or fee; it leaves Need a look), **Moved to cash** for
+an ATM withdrawal, or **Add to Money** for a credit, which goes into the statement's own account
+(matched by name) or the main one. Each credit can be titled with where it came from; "Cash deposit"
+moves cash into the account instead of counting as new money. **Need a look** gathers the rows that
+want something; matched ones are listed under it.
 
 ## Bank: spending from statements, payment screenshots, one merged table
 
-`#/bank` (sidebar on desktop, **Bank** on the Ledger page on a phone). Nothing is uploaded: the PDF
+On the Money page (**Statement** at the top; `#/bank` still works). Nothing is uploaded: the PDF
 and the screenshots are read in the browser and kept in IndexedDB (`statements`, `payments`, DB
 version 3), and they're in backups.
 
@@ -400,13 +434,13 @@ version 3), and they're in backups.
   (against everything except itself, so a fresh scan and the saved bill get the same answer):
   - found → "Found in your bank statement" with the row and screenshot, and a one-click
     "Paid by: Digital QR / Card" if it was left as Cash;
-  - the row already has a **photo-less bill added from the Bank page** → "Use this scan for
+  - the row already has a **photo-less bill added from the Money page** → "Use this scan for
     [code]" puts the scan's photo, items, PAN, bill number and dates onto that bill (code, split,
     trip and IRD state kept), so there's one bill, not two; the duplicate warning for that same bill
     is folded into this card, with "Keep both" for a different purchase;
   - a digital bill inside a statement's dates that isn't on it → a quiet note.
   Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
-  in the store and shared with the Bank page).
+  in the store and shared with the Money page).
 
 ## Trip Khata (group trips, many payers)
 

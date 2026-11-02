@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, ScanText, ShieldCheck, Sparkles, Trash, UserRound,
+  Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, Monitor, Moon, Palette, ScanText, ShieldCheck, Sparkles, Sun, Trash, UserRound,
 } from 'lucide-react';
 import { OCR_ENGINES, REGIONS, VISION_PROVIDERS } from '../lib/constants.js';
 import { backupFilename, backupStatus, buildBackup, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
@@ -49,6 +49,22 @@ function ProfileSection() {
         </Field>
       </div>
       <div className="mt-5 flex justify-end"><Button variant="dark" onClick={save}>Save profile</Button></div>
+    </Card>
+  );
+}
+
+function AppearanceSection() {
+  const { settings, setSettings } = useStore();
+  return (
+    <Card className="p-4 md:p-5">
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><Palette className="size-5" />Appearance</h2>
+      <p className="mb-4 text-sm text-slate-600">Dark mode follows your phone unless you pick one.</p>
+      <Segmented value={settings.theme || 'system'} onChange={(theme) => setSettings({ ...settings, theme })}
+        options={[{ value: 'system', label: 'System', icon: Monitor }, { value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }]} />
+      <div className="mt-4">
+        <Toggle id="s-lucky" checked={settings.showLuckyDraw !== false} onChange={(showLuckyDraw) => setSettings({ ...settings, showLuckyDraw })}
+          label="Lucky draw on Home" description="The strip that says how many cash bills are ready for the IRD draw, while a draw window is open." />
+      </div>
     </Card>
   );
 }
@@ -260,10 +276,11 @@ export default function Settings() {
   useJumpToBackup();
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Profile, OCR and your data" />
+      <PageHeader title="Settings" subtitle="Profile, appearance, reading bills and your data" />
       <div className="space-y-5">
         {/* Re-mount when a restore replaces the profile. */}
         <ProfileSection key={JSON.stringify(profile)} />
+        <AppearanceSection />
         <OcrSection />
         <PaymentQrSettings />
         <Card className="p-4 md:p-5">

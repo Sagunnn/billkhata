@@ -204,6 +204,19 @@ export function PaymentQrSettings() {
         </div>
         {info && !cropSrc && <QrBox text={info.text} image={info.image} label={info.label} size={180} />}
       </div>
+      <div className="mt-5 border-t border-line pt-4">
+        <p className="t-body font-semibold text-ink">Number for the text summary</p>
+        <p className="t-label mb-3 text-ink-2">“Copy text summary” on a split ends with this, so friends know where to pay. It has no link.</p>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <Field label="Pay me on" htmlFor="qr-via">
+            <input id="qr-via" list="qr-via-list" className="input" value={config.payVia ?? ''} placeholder="eSewa" maxLength={30} onChange={(e) => save({ ...config, payVia: e.target.value })} />
+            <datalist id="qr-via-list">{['eSewa', 'Khalti', 'IME Pay', 'Mobile banking', 'Fonepay'].map((o) => <option key={o} value={o} />)}</datalist>
+          </Field>
+          <Field label="Number" htmlFor="qr-num" hint={profile.phone ? `Default: ${profile.phone}` : 'Your eSewa, Khalti or bank mobile number'}>
+            <input id="qr-num" inputMode="tel" className="input num" value={config.payNumber ?? ''} placeholder={profile.phone || '98XXXXXXXX'} onChange={(e) => save({ ...config, payNumber: e.target.value.replace(/[^\d -]/g, '').slice(0, 20) })} />
+          </Field>
+        </div>
+      </div>
     </Card>
   );
 }

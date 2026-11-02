@@ -1,7 +1,7 @@
 // The expense record: creation, cleanup, summaries and filters.
 import { CATEGORIES, IRD_STATUS, PAYMENT, PAYMENT_METHODS, REGIONS } from './constants.js';
 import { COUPON_RE, getIrdStatus } from './ird.js';
-import { addDaysAD, adToBs, parseYmd, toAsciiDigits, todayAD, todayBS } from './nepaliDate.js';
+import { addDaysAD, adToBs, bsDaysInMonth, bsToAd, parseYmd, toAsciiDigits, todayAD, todayBS } from './nepaliDate.js';
 import { newId } from './db.js';
 
 export function blankExpense(region = REGIONS.NEPAL) {
@@ -121,6 +121,13 @@ export function rangeFor(preset, { from, to } = {}, today = todayAD()) {
     }
     case 'month':
       return { from: `${today.slice(0, 8)}01`, to: addDaysAD(`${p.m === 12 ? p.y + 1 : p.y}-${String(p.m === 12 ? 1 : p.m + 1).padStart(2, '0')}-01`, -1) };
+    case 'bsmonth': {
+      // This Nepali month (Kartik), as AD dates.
+      const bs = parseYmd(adToBs(today) || '');
+      if (!bs) return { from: '', to: '' };
+      const ym = `${bs.y}-${String(bs.m).padStart(2, '0')}`;
+      return { from: bsToAd(`${ym}-01`), to: bsToAd(`${ym}-${String(bsDaysInMonth(bs.y, bs.m)).padStart(2, '0')}`) };
+    }
     case 'custom':
       return { from: from || '', to: to || '' };
     default:

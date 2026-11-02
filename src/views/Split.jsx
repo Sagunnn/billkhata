@@ -1,22 +1,24 @@
 // Split Khata: hub (#/split), editor (#/split-bill/<billId>) and read-only shared view (#/split/<token>).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Beer, CircleCheck, ClipboardPaste, Divide, Drumstick, HandCoins, ImageDown, Leaf, LoaderCircle, Minus, Plus,
-  Luggage, QrCode, ReceiptText, ScanText, Share2, ShieldAlert, Split as SplitIcon, Trash, UsersRound,
+  ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
+  LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
+  UsersRound, Wine, X,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
 import { money, downloadBlob } from '../lib/format.js';
-import { formatAD, formatBS } from '../lib/nepaliDate.js';
-import { deleteGroup, forgetFriend, loadFriends, loadGroups, rememberFriends, saveGroup } from '../lib/profile.js';
+import { formatAD, formatBS, shortBS, todayAD } from '../lib/nepaliDate.js';
+import { deleteGroup, forgetFriend, loadFriends, loadGroups, loadPaymentQr, rememberFriends, saveGroup } from '../lib/profile.js';
+import { payNumberFor } from '../lib/qr.js';
 import {
   autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember,
-  newSplitForExpense, outstanding, parseLineItemsFromText, TAG_LABELS, TAGS, weightOf,
+  newSplitForExpense, outstanding, parseLineItemsFromText, splitText, TAG_LABELS, TAGS, weightOf,
 } from '../lib/splitter.js';
 import { drawSplitSummary } from '../lib/splitImage.js';
 import { useStore } from '../store.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, CopyButton, EmptyState, Modal, PageHeader, Segmented } from '../components/ui.jsx';
+import { Badge, Button, Card, CopyButton, EmptyState, Modal, Notice, Segmented } from '../components/ui.jsx';
 
 const TAG_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -44,12 +46,22 @@ export function SplitHub() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Split Khata" subtitle="Split a bill between friends. Veg, non-veg and drinks are ticked for each person automatically." actions={<a href="#/scan" className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-dark"><ScanText className="size-4" />Scan a new bill</a>} />
-      <a href="#/trips" className="flex items-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white hover:bg-slate-800">
-        <Luggage className="size-5 shrink-0 text-amber-300" />
-        <span className="flex-1"><b>Trip Khata</b>: many bills, many payers. Log a whole trip and settle up in as few payments as possible.</span>
-        <span className="font-semibold underline">Open</span>
-      </a>
+      <div>
+        <h1 className="t-h-l text-ink">Split</h1>
+        <p className="t-label mt-1 text-ink-2">Share a bill between friends, or keep a whole trip’s bills and settle up.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <a href="#split-pick" onClick={(ev) => { ev.preventDefault(); document.getElementById('split-pick')?.scrollIntoView({ behavior: 'smooth' }); }} className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
+          <span className="flex size-10 items-center justify-center rounded-[12px] bg-brand-soft text-brand"><Divide className="size-5" /></span>
+          <span className="text-[15px] font-semibold text-ink">Split a bill</span>
+          <span className="t-caption text-ink-3">Veg, non-veg and drinks ticked for each person</span>
+        </a>
+        <a href="#/trips" className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
+          <span className="flex size-10 items-center justify-center rounded-[12px] bg-marigold-soft text-marigold-ink"><Luggage className="size-5" /></span>
+          <span className="text-[15px] font-semibold text-ink">Start a trip</span>
+          <span className="t-caption text-ink-3">Many bills, many payers, fewest payments to settle</span>
+        </a>
+      </div>
       {!qr && (
         <a href="#/settings" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 hover:bg-amber-100">
           <QrCode className="size-5 shrink-0" /><span className="flex-1">Set up your <b>payment QR</b> in Settings so friends can scan and pay you back.</span>
@@ -80,7 +92,7 @@ export function SplitHub() {
           </ul>
         ) : <EmptyState icon={SplitIcon} title="No splits yet">Pick a bill below, or scan a restaurant bill and press “Save & split”.</EmptyState>}
       </Card>
-      <Card>
+      <Card id="split-pick" className="scroll-mt-6">
         <h2 className="border-b border-slate-200 px-4 py-3 font-bold">Split a saved bill</h2>
         {candidates.length ? (
           <ul className="divide-y divide-slate-100">
@@ -248,20 +260,19 @@ const STEPS = ['Bill', 'People', 'Shares'];
 
 function Stepper({ step, setStep }) {
   return (
-    <ol className="flex gap-1.5" aria-label="Steps">
-      {STEPS.map((label, i) => (
-        <li key={label} className="flex-1">
-          <button
-            type="button"
-            onClick={() => setStep(i)}
-            aria-current={step === i ? 'step' : undefined}
-            className={`flex w-full flex-col items-start gap-1 rounded-lg px-1 pb-1 text-left text-xs font-bold ${step === i ? 'text-slate-900' : 'text-slate-400'}`}
-          >
-            <span className={`h-1.5 w-full rounded-full ${i <= step ? 'bg-brand' : 'bg-slate-200'}`} />
-            {i + 1}. {label}
-          </button>
-        </li>
-      ))}
+    <ol className="flex gap-2" aria-label="Steps">
+      {STEPS.map((label, i) => {
+        const done = i < step;
+        return (
+          <li key={label} className="flex-1">
+            <button type="button" onClick={() => setStep(i)} aria-current={step === i ? 'step' : undefined}
+              className={`flex w-full flex-col items-start gap-1.5 text-left text-[13px] font-medium leading-4 ${step === i ? 'text-ink' : done ? 'text-ink-2' : 'text-ink-3'}`}>
+              <span className={`h-1 w-full rounded-full ${step === i ? 'bg-brand' : done ? 'bg-leaf' : 'bg-line'}`} />
+              <span className="flex items-center gap-1">{done && <Check className="size-3.5 text-leaf" />}{label}</span>
+            </button>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -519,101 +530,156 @@ function PeopleStep({ split, update }) {
   );
 }
 
-function SharesStep({ split, result, update, region, payerInfo }) {
-  const [open, setOpen] = useState('');
+const AVATAR = ['bg-brand-soft text-brand', 'bg-leaf-soft text-leaf', 'bg-navy-soft text-navy', 'bg-marigold-soft text-marigold-ink', 'bg-sunken text-ink-2'];
+
+/** A preference that recalculates the shares when tapped: Non-veg ⇄ Veg, Drinks ⇄ No drinks. */
+function PrefPill({ on, onIcon: OnIcon, offIcon: OffIcon, onLabel, offLabel, onTone, offTone, onClick, who }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={`${who}: ${on ? onLabel : offLabel}. Tap to switch.`}
+      className={`tap inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium ${on ? onTone : offTone}`}>
+      {on ? <OnIcon className="size-3.5" /> : <OffIcon className="size-3.5" />}{on ? onLabel : offLabel}<ArrowLeftRight className="size-3 opacity-60" />
+    </button>
+  );
+}
+
+function SharesStep({ split, result, update, region, payerInfo, goPeople }) {
   const [tuning, setTuning] = useState(false);
   const [qrFor, setQrFor] = useState('');
+  const [changed, setChanged] = useState(null); // { id, text, before: { id: share } }
   const byItems = split.mode !== 'equal';
-  const owed = outstanding(split, result);
+  const people = result.members.filter((r) => !r.out);
+  const others = people.filter((r) => !r.isPayer && r.share > 0);
+  const paidBack = others.filter((r) => split.paid?.[r.id]).length;
+
+  function switchPref(r, patch, text) {
+    const before = Object.fromEntries(result.members.map((m) => [m.id, m.share]));
+    update({ ...clearMemberOverrides(split, r.id), members: split.members.map((m) => (m.id === r.id ? { ...m, ...patch } : m)) });
+    setChanged({ id: r.id, text, before });
+  }
+  const moved = changed ? people.filter((r) => Math.abs((changed.before[r.id] ?? r.share) - r.share) >= 0.01).length : 0;
+  const markPaid = (r, on) => update({ ...split, paid: { ...split.paid, [r.id]: on ? todayAD() : false } });
+
   return (
     <div className="space-y-4">
-      <Card className="grid grid-cols-3 divide-x divide-slate-100 p-0 text-center">
-        {[['Your share', result.myShare, 'text-slate-900'], ['To collect', result.recoverable, 'text-slate-900'], ['Still owed', owed, owed > 0 ? 'text-amber-700' : 'text-emerald-700']].map(([k, v, cls]) => (
-          <div key={k} className="px-2 py-3">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className={`num text-lg font-extrabold ${cls}`}>{money(v, region)}</div>
-          </div>
-        ))}
+      <Card className="rounded-[20px] p-4">
+        <div className="grid grid-cols-3 gap-2">
+          <div><p className="t-caption text-ink-3">Your share</p><p className="num font-nepali text-[18px] font-semibold text-ink">{money(result.myShare, region)}</p></div>
+          <div><p className="t-caption text-ink-3">To collect</p><p className="num font-nepali text-[18px] font-semibold text-ink">{money(result.recoverable, region)}</p></div>
+          <div><p className="t-caption text-ink-3">Paid back</p><p className={`text-[18px] font-semibold ${others.length && paidBack === others.length ? 'text-leaf' : 'text-ink'}`}>{paidBack} of {others.length}</p></div>
+        </div>
+        <div className="mt-3 flex items-start gap-2 border-t border-dashed border-line pt-3">
+          {byItems ? <Utensils className="mt-0.5 size-4 shrink-0 text-ink-2" /> : <Divide className="mt-0.5 size-4 shrink-0 text-ink-2" />}
+          <p className="t-label flex-1 text-ink-2">{byItems ? `By what each had · VAT shared ${split.taxMode === 'equal' ? 'equally' : 'in proportion'}` : 'Split equally'}</p>
+          <button type="button" onClick={goPeople} className="text-[14px] font-medium text-brand hover:underline">Change</button>
+        </div>
+        {changed && moved > 0 && (
+          <p className="t-label mt-3 flex items-start gap-2 rounded-[12px] bg-navy-soft px-3 py-2 text-navy" role="status">
+            <RotateCcw className="mt-0.5 size-4 shrink-0" />{changed.text} · {moved} share{moved === 1 ? '' : 's'}{payerInfo ? ' and QR amounts' : ''} updated
+          </p>
+        )}
       </Card>
 
-      {result.unassigned > 0 && <p className="rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">{money(result.unassigned, region)} isn’t assigned to anyone. Tap “Fine-tune who had what” below.</p>}
+      {result.unassigned > 0 && <Notice tone="warning" title={`${money(result.unassigned, region)} isn’t assigned to anyone`}>Tap “Fine-tune who had what” below.</Notice>}
 
-      <Card className="px-4 py-2">
-        <ul className="divide-y divide-slate-100">
-          {result.members.filter((r) => !r.out).map((r) => (
-            <li key={r.id} className="py-2.5">
-              <div className="flex items-center gap-2">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen(open === r.id ? '' : r.id)} aria-expanded={open === r.id}>
-                  <span className="block truncate font-semibold">{r.name || 'Person'}{r.isPayer && <span className="font-normal text-slate-500"> (paid)</span>}</span>
-                  {byItems && <span className="block text-xs text-slate-500">{r.lines.length} item{r.lines.length === 1 ? '' : 's'}{Math.abs(r.extra) >= 0.01 ? ` + ${r.extra > 0 ? 'VAT/SC' : 'discount'}` : ''} · tap for details</span>}
-                </button>
-                <span className="num text-lg font-extrabold">{money(r.share, region)}</span>
-              </div>
-              {!r.isPayer && r.share > 0 && (
-                <div className="mt-2 flex gap-2">
-                  {payerInfo && (
-                    <button type="button" aria-expanded={qrFor === r.id} onClick={() => setQrFor(qrFor === r.id ? '' : r.id)} className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-bold ring-1 ring-inset ${qrFor === r.id ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-300'}`}>
-                      <QrCode className="size-4" />Show QR
-                    </button>
-                  )}
-                  <button type="button" aria-pressed={Boolean(split.paid?.[r.id])} onClick={() => update({ ...split, paid: { ...split.paid, [r.id]: !split.paid?.[r.id] } })} className={`inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-bold ring-1 ring-inset ${split.paid?.[r.id] ? 'bg-emerald-50 text-emerald-800 ring-emerald-300' : 'bg-white text-slate-700 ring-slate-300'}`}>
-                    <CircleCheck className="size-4" />{split.paid?.[r.id] ? 'Paid' : 'Mark paid'}
-                  </button>
+      <Card className="rounded-[20px] p-2">
+        <ul className="divide-y divide-line">
+          {people.map((r, i) => {
+            const m = split.members.find((x) => x.id === r.id) || {};
+            const was = changed && r.id === changed.id && Math.abs((changed.before[r.id] ?? r.share) - r.share) >= 0.01 ? changed.before[r.id] : null;
+            const paid = split.paid?.[r.id];
+            return (
+              <li key={r.id} className={`rounded-[14px] p-3 ${changed?.id === r.id && moved ? 'bg-navy-soft' : ''}`}>
+                <div className="flex items-center gap-3">
+                  <span className={`flex size-10 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold ${AVATAR[i % AVATAR.length]}`}>{(r.name.trim()[0] || '?').toUpperCase()}</span>
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{r.name || 'Person'}{r.isPayer ? ' (you)' : ''}</span>
+                  <span className="text-right">
+                    <span className="num block font-nepali text-[16px] font-semibold text-ink">{money(r.share, region)}</span>
+                    {was != null && <span className="num block text-[12px] text-ink-3">was <s>{money(was, region)}</s></span>}
+                  </span>
                 </div>
-              )}
-              {qrFor === r.id && payerInfo && <MemberPayQr payer={payerInfo} amount={r.share} name={r.name} region={region} />}
-              {open === r.id && (
-                <ul className="mt-2 space-y-0.5 rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600">
-                  {r.lines.map((l) => <li key={l.itemId} className="flex justify-between gap-2"><span>{l.name}{l.of > 1 || l.weight > 1 ? ` (${l.weight}/${l.of})` : ''}</span><span className="num">{money(l.amount, region)}</span></li>)}
-                  {r.lines.length > 0 && Math.abs(r.extra) >= 0.01 && <li className="flex justify-between gap-2"><span>{r.extra > 0 ? 'VAT / service charge' : 'Discount'}</span><span className="num">{r.extra > 0 ? '+' : '−'}{money(Math.abs(r.extra), region)}</span></li>}
-                  {!r.lines.length && <li>{byItems ? 'No items' : `Equal share of ${money(result.total, region)}`}</li>}
-                </ul>
-              )}
-            </li>
-          ))}
+                <div className="mt-2 flex flex-wrap gap-2 pl-[52px]">
+                  {byItems && (
+                    <>
+                      <PrefPill who={r.name} on={m.diet !== 'veg'} onIcon={Drumstick} offIcon={Leaf} onLabel="Non-veg" offLabel="Veg"
+                        onTone="border-brand/40 bg-brand-soft text-brand" offTone="border-leaf/40 bg-leaf-soft text-leaf"
+                        onClick={() => switchPref(r, { diet: m.diet === 'veg' ? 'non-veg' : 'veg' }, `${r.name} switched to ${m.diet === 'veg' ? 'Non-veg' : 'Veg'}`)} />
+                      <PrefPill who={r.name} on={Boolean(m.alcohol)} onIcon={Wine} offIcon={X} onLabel="Drinks" offLabel="No drinks"
+                        onTone="border-navy/40 bg-navy-soft text-navy" offTone="border-line-strong bg-sunken text-ink-2"
+                        onClick={() => switchPref(r, { alcohol: !m.alcohol }, `${r.name} ${m.alcohol ? 'had no drinks' : 'had drinks'}`)} />
+                    </>
+                  )}
+                  {r.isPayer && <Badge tone="neutral" icon={Banknote}>You paid the bill</Badge>}
+                  {!r.isPayer && paid && (
+                    <button type="button" onClick={() => markPaid(r, false)} title="Tap to undo"><Badge tone="success" icon={Check}>Paid back{typeof paid === 'string' ? ` · ${shortBS(paid)}` : ''}</Badge></button>
+                  )}
+                </div>
+                {!r.isPayer && !paid && r.share > 0 && (
+                  <div className="mt-3 flex gap-2">
+                    <Button className="flex-1" icon={QrCode} aria-expanded={qrFor === r.id} onClick={() => setQrFor(qrFor === r.id ? '' : r.id)} disabled={!payerInfo} title={payerInfo ? '' : 'Add your payment QR in Settings'}>
+                      Collect {money(r.share, region)}
+                    </Button>
+                    <Button variant="ghost" icon={Check} onClick={() => markPaid(r, true)}>Mark paid</Button>
+                  </div>
+                )}
+                {qrFor === r.id && payerInfo && !paid && <MemberPayQr payer={payerInfo} amount={r.share} name={r.name} region={region} />}
+                {byItems && r.lines.length > 0 && (
+                  <details className="mt-2 pl-[52px] text-[13px] text-ink-2">
+                    <summary className="cursor-pointer text-ink-3">{r.lines.length} item{r.lines.length === 1 ? '' : 's'}{Math.abs(r.extra) >= 0.01 ? ` + ${r.extra > 0 ? 'VAT/SC' : 'discount'}` : ''}</summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {r.lines.map((l) => <li key={l.itemId} className="flex justify-between gap-2"><span>{l.name}{l.of > 1 || l.weight > 1 ? ` (${l.weight}/${l.of})` : ''}</span><span className="num">{money(l.amount, region)}</span></li>)}
+                      {Math.abs(r.extra) >= 0.01 && <li className="flex justify-between gap-2"><span>{r.extra > 0 ? 'VAT / service charge' : 'Discount'}</span><span className="num">{r.extra > 0 ? '+' : '−'}{money(Math.abs(r.extra), region)}</span></li>}
+                    </ul>
+                  </details>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </Card>
 
-      {byItems && split.items.length > 0 && result.members.filter((r) => !r.out).length > 1 && (
-        <button type="button" onClick={() => setTuning(true)} className="card flex w-full items-center gap-3 px-4 py-3 text-left">
-          <UsersRound className="size-5 text-slate-500" />
+      {byItems && split.items.length > 0 && people.length > 1 && (
+        <button type="button" onClick={() => setTuning(true)} className="card flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left hover:border-line-strong">
+          <Pencil className="size-5 text-ink-2" />
           <span className="flex-1">
-            <span className="block font-bold">Fine-tune who had what</span>
-            <span className="block text-xs text-slate-500">Pick a person and tick what they had</span>
+            <span className="block text-[15px] font-medium text-ink">Fine-tune who had what</span>
+            <span className="t-caption block text-ink-3">Tick items per person, ×2 for shared plates</span>
           </span>
-          <span className="text-slate-400">›</span>
+          <ChevronRight className="size-5 text-ink-3" />
         </button>
       )}
       {tuning && <FineTuneModal split={split} update={update} region={region} onClose={() => setTuning(false)} />}
-
-      <ShareImage split={split} result={result} payerInfo={payerInfo} />
-      {!payerInfo && <a href="#/settings" className="block rounded-lg bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-amber-200"><HandCoins className="mr-1 inline size-4" />Add your payment QR in Settings so friends can scan it.</a>}
+      {!payerInfo && <Notice tone="info" icon={HandCoins} title="Add your payment QR" action={<a href="#/settings" className="text-[14px] font-medium text-brand underline">Open Settings</a>}>So friends can scan it to pay you back.</Notice>}
     </div>
   );
 }
 
-function ShareImage({ split, result, payerInfo }) {
+/** Pinned under the shares: the summary image (shared or downloaded) and a plain-text summary. */
+function ShareBar({ split, result, payerInfo }) {
   const toast = useToast();
-  const [busy, setBusy] = useState('');
+  const { profile } = useStore();
+  const [busy, setBusy] = useState(false);
   const payer = { name: payerInfo?.payerName || result.members.find((m) => m.isPayer)?.name || '', qrText: payerInfo?.text || '', qrImage: payerInfo?.image || '', qrLabel: payerInfo?.label || '' };
   const fileName = `split_${(split.title || 'bill').replace(/[^\wऀ-ॿ]+/g, '_').slice(0, 30)}_${split.dateAD || ''}.png`;
-  const canShareFiles = typeof navigator !== 'undefined' && navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] });
-  async function run(kind) {
-    setBusy(kind);
+  async function sendImage() {
+    setBusy(true);
     try {
       const blob = await drawSplitSummary({ split, result, payer });
-      if (kind === 'share') await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: `${split.title} split` });
-      else { downloadBlob(blob, fileName); toast('Summary image downloaded.'); }
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: `${split.title} split` });
+      else { downloadBlob(blob, fileName); toast('Summary image downloaded. Send it to the group.'); }
     } catch (e) {
-      if (e.name !== 'AbortError') toast(kind === 'share' ? 'Sharing isn’t available here. Download the image instead.' : `Couldn’t draw the image: ${e.message}`, 'error');
+      if (e.name !== 'AbortError') toast(`Couldn’t make the image: ${e.message}`, 'error');
     } finally {
-      setBusy('');
+      setBusy(false);
     }
   }
+  const pay = payNumberFor(loadPaymentQr(), profile);
+  const date = split.dateBS ? formatBS(split.dateBS).replace(/ \d{4}$/, '') : split.dateAD ? formatAD(split.dateAD) : '';
+  const text = splitText(split, result, { payerName: payer.name, pay, date });
   return (
-    <div className="flex flex-col gap-2 sm:flex-row">
-      {canShareFiles && <Button variant="primary" size="lg" icon={busy === 'share' ? LoaderCircle : Share2} disabled={!!busy} onClick={() => run('share')} className="flex-1">Share to group chat</Button>}
-      <Button variant={canShareFiles ? 'outline' : 'primary'} size="lg" icon={busy === 'image' ? LoaderCircle : ImageDown} disabled={!!busy} onClick={() => run('image')} className="flex-1">Download Split Summary Image (PNG)</Button>
+    <div className="flex flex-col gap-2">
+      <Button variant="primary" size="lg" icon={busy ? LoaderCircle : ImageUp} disabled={busy} onClick={sendImage}>Send summary image</Button>
+      <CopyButton value={text} label="Copy text summary" copiedLabel="Copied" size="lg" icon={Copy} toastText={pay ? 'Summary copied. Paste it in the group chat.' : 'Summary copied. Add your eSewa number in Settings to include where to pay.'} />
     </div>
   );
 }
@@ -679,25 +745,30 @@ export function SplitEditor({ billId }) {
   ][step];
 
   return (
-    <div className="mx-auto max-w-xl pb-24 md:pb-0">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <a href="#/split" className="text-sm font-semibold text-slate-600">← All splits</a>
-        {expense.split && <button type="button" onClick={removeSplit} className="text-xs font-semibold text-slate-500 underline">Remove split</button>}
+    <div className="mx-auto max-w-xl pb-36 md:pb-0">
+      <div className="mb-4 flex items-center gap-2">
+        <a href="#/split" aria-label="All splits" className="tap -ml-2 flex size-10 items-center justify-center rounded-full text-ink hover:bg-sunken"><ChevronLeft className="size-6" /></a>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[20px] font-semibold leading-6 text-ink">Split the bill</h1>
+          <p className="t-caption num truncate text-ink-3">{expense.merchantName || 'Bill'} · {money(total, profile.region)}</p>
+        </div>
+        {expense.split && <button type="button" onClick={removeSplit} className="text-[13px] font-medium text-ink-3 hover:text-danger">Remove split</button>}
       </div>
-      <div className="mb-4">
-        <h1 className="mb-2 truncate text-lg font-bold">Split: {expense.merchantName || 'Bill'}</h1>
-        <Stepper step={step} setStep={setStep} />
-      </div>
+      <div className="mb-4"><Stepper step={step} setStep={setStep} /></div>
 
       {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={expense.receiptImage ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
       {step === 1 && <PeopleStep split={split} update={update} />}
-      {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} />}
+      {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} />}
 
-      {/* Back / Next: pinned above the bottom bar on phones, inline on desktop. */}
-      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
-        <div className="mx-auto flex max-w-xl gap-2">
-          {step > 0 && <Button size="lg" variant="outline" onClick={() => setStep(step - 1)}>Back</Button>}
-          <Button size="lg" variant="dark" className="flex-1" onClick={next.go}>{next.label}</Button>
+      {/* Pinned above the bottom bar on phones, inline on desktop. */}
+      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+        <div className="mx-auto max-w-xl">
+          {step === 2 ? <ShareBar split={live} result={result} payerInfo={payerInfo} /> : (
+            <div className="flex gap-2">
+              {step > 0 && <Button size="lg" onClick={() => setStep(step - 1)}>Back</Button>}
+              <Button size="lg" variant="primary" className="flex-1" onClick={next.go}>{next.label}</Button>
+            </div>
+          )}
         </div>
       </div>
     </div>

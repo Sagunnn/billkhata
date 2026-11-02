@@ -1,19 +1,37 @@
 // Capture -> OCR -> verify -> save.
 import { useEffect, useState } from 'react';
-import { Camera, CircleCheck, Divide, FileDown, FileText, LoaderCircle, PencilLine, RotateCcw, Save, ScanEye, ScanText, ShieldCheck, Sparkles, Ticket, Upload } from 'lucide-react';
+import { Camera, Check, ChevronLeft, FileDown, FileText, LoaderCircle, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
-import { findDuplicateBill, getIrdStatus } from '../lib/ird.js';
+import { checkEligibility, findDuplicateBill, getIrdStatus } from '../lib/ird.js';
 import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { money } from '../lib/format.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
+import CameraScan from '../components/CameraScan.jsx';
 import { duplicateHold, photoFieldsFromFile, PhotoViewer } from '../components/Modals.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, PageHeader, useFileDrop } from '../components/ui.jsx';
+import { ActionChip, Button, Card, Notice, PageHeader, Tooltip, useFileDrop } from '../components/ui.jsx';
+
+// The fields a scan tries to read, for "9 of 10 fields found".
+const READ_FIELDS = ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'totalAmount', 'vatAmount', 'category', 'lineItems'];
+
+/** Why "Save & apply to IRD" can't be used yet ('' when it can). */
+function irdBlocker(draft, expenses) {
+  const s = getIrdStatus(draft);
+  if (s === IRD_STATUS.NOT_APPLIED) return findDuplicateBill(draft, expenses) ? 'Already saved as another bill' : '';
+  if (s === IRD_STATUS.AUTO) return 'QR and card bills are entered by your bank';
+  if (s === IRD_STATUS.APPLIED) return 'Coupon already saved';
+  const r = checkEligibility(draft).reasons.join(' ');
+  if (/PAN/.test(r)) return 'Complete the 9-digit PAN to apply';
+  if (/estimate/i.test(r)) return 'Estimates can’t enter the draw';
+  if (/at least/.test(r)) return 'Bills under रु 100 can’t enter';
+  if (/excluded/.test(r)) return 'This category isn’t in the draw';
+  return 'Not eligible for the draw';
+}
 
 const STATUS_TEXT = {
   'Reading the text': 'Reading the bill',
@@ -34,6 +52,10 @@ export default function Scan() {
   const [lastRead, setLastRead] = useState(null); // { engine, confidence, fields } of the latest OCR pass
   const [rescanning, setRescanning] = useState(false);
   const rescanProvider = visionProviderWithKey(settings);
+  const hasCamera = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
+  // Phones open straight into the live camera; desktops start on the choices (drop, upload, type).
+  const phoneCamera = () => hasCamera && Boolean(window.matchMedia?.('(pointer: coarse)').matches) && window.innerWidth < 768;
+  const [camera, setCamera] = useState(phoneCamera);
 
   const engineLabel = settings.ocrEngine === OCR_ENGINES.VISION
     ? `${VISION_PROVIDERS[settings.visionProvider]?.label} (${settings.models[settings.visionProvider]})`
@@ -45,6 +67,7 @@ export default function Scan() {
     setPreview(src);
     setProgress({ status: 'Preparing the photo', progress: 0 });
     const base = blankExpense(profile.region);
+    const t0 = performance.now();
     try {
       const [stored, images] = await Promise.all([compressImage(src), prepareForOcr(src)]);
       setOcrImages(images);
@@ -57,7 +80,7 @@ export default function Scan() {
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
-        setLastRead({ engine: text ? 'pdf-text' : settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed });
+        setLastRead({ engine: text ? 'pdf-text' : settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed, ms: performance.now() - t0 });
       } catch (err) {
         setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {} });
         toast(`Could not read the bill automatically: ${err.message} Fill in the details below.`, 'error');
@@ -202,83 +225,86 @@ export default function Scan() {
   }
 
   if (step === 'review' && draft) {
-    const canApply = getIrdStatus(draft) === IRD_STATUS.NOT_APPLIED && !findDuplicateBill(draft, expenses);
+    const irdWhy = irdBlocker(draft, expenses);
+    const read = lastRead?.fields || null;
+    const vat = read?.vatCheck && Math.abs(Number(draft.totalAmount) - read.vatCheck.total) <= 1.5 ? read.vatCheck : null;
+    const found = read ? READ_FIELDS.filter((k) => read[k] !== undefined && read[k] !== null && read[k] !== '').length : 0;
+    const unsure = lastRead?.engine === OCR_ENGINES.LOCAL && ocrImages && needsBetterRead(lastRead);
+    const problems = unsure ? [
+      !lastRead.fields.isEstimate && !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && (String(lastRead.fields.sellerPan || '').length ? `The PAN has ${String(lastRead.fields.sellerPan).length} of 9 digits. Type the rest from the paper bill.` : 'No seller PAN found. Type it from the paper bill.'),
+      !(Number(lastRead.fields.totalAmount) > 0) && 'No total found.',
+      lastRead.totalGuessed && Number(lastRead.fields.totalAmount) > 0 && 'The total wasn’t printed clearly: the one shown is the sum of the items read.',
+      (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount) && 'The items don’t add up to the total.',
+      lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `The reader was only ${Math.round(lastRead.confidence)}% sure.`,
+    ].filter(Boolean) : [];
     return (
       <div>
-        <PageHeader
-          title={draft.ocrEngine ? 'Check the details' : 'New bill'}
-          subtitle={draft.ocrEngine === 'pdf-text' ? 'Read from the PDF’s own text. Check it, then save.' : draft.ocrEngine ? 'OCR makes mistakes. Fix anything that looks wrong, then save.' : 'Fill in the details, then save. Shops you’ve saved before are suggested.'}
-          actions={<Button variant="ghost" icon={RotateCcw} onClick={reset}>Start over</Button>}
-        />
-        {lastRead?.fields?.vatCheck && Math.abs(Number(draft.totalAmount) - lastRead.fields.vatCheck.total) <= 1.5 && (
-          <p role="status" className="mb-4 flex flex-wrap items-center gap-x-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-950">
-            <CircleCheck className="size-4 shrink-0 text-emerald-700" />
-            <b>Total checked:</b>
-            <span className="num">{money(lastRead.fields.vatCheck.subtotal)} + 13% VAT {money(lastRead.fields.vatCheck.vat)} = {money(lastRead.fields.vatCheck.total)}</span>
-          </p>
-        )}
-        {lastRead?.engine === OCR_ENGINES.LOCAL && ocrImages && needsBetterRead(lastRead) && (
-          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center">
-            <ScanEye className="size-6 shrink-0" />
-            <div className="flex-1">
-              <p className="font-bold">The on-device reader wasn’t sure about this bill.</p>
-              <p className="mt-0.5">
-                {[
-                  !lastRead.fields.isEstimate && !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && 'no seller PAN found',
-                  !(Number(lastRead.fields.totalAmount) > 0) && 'no total found',
-                  lastRead.totalGuessed && Number(lastRead.fields.totalAmount) > 0 && 'total not found on the bill: the one shown is the sum of the items read, check it',
-                  (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount) && 'items don’t add up to the total',
-                  lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `confidence ${Math.round(lastRead.confidence)}%`,
-                ].filter(Boolean).join(' · ')}
-                {rescanProvider ? '. A vision model reads faded and handwritten bills much better.' : '. Add a vision API key in Settings to re-read bills like this in one click.'}
-              </p>
-            </div>
-            {rescanProvider
-              ? <Button variant="dark" icon={rescanning ? LoaderCircle : ScanEye} className={rescanning ? '[&_svg]:animate-spin' : ''} disabled={rescanning} onClick={rescanWithVision}>{rescanning ? 'Re-scanning…' : 'Re-scan with Vision AI'}</Button>
-              : <a href="#/settings" className="font-semibold text-navy underline">Open Settings</a>}
+        <div className="mb-4 flex items-center gap-2">
+          <button type="button" onClick={() => { reset(); setCamera(phoneCamera()); }} aria-label="Retake" className="tap -ml-2 flex size-10 items-center justify-center rounded-full text-ink hover:bg-sunken"><ChevronLeft className="size-6" /></button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[20px] font-semibold leading-6 text-ink md:t-h-l">{draft.ocrEngine ? 'Check the details' : 'New bill'}</h1>
+            <p className="t-caption text-ink-3">
+              {draft.ocrEngine === 'pdf-text' ? 'Read from the PDF’s own text' : lastRead?.ms ? `Read in ${(lastRead.ms / 1000).toFixed(1)} s ${lastRead.engine === OCR_ENGINES.VISION ? `by ${VISION_PROVIDERS[settings.visionProvider]?.label}` : 'on this device'} · ${found} of ${READ_FIELDS.length} fields found` : draft.ocrEngine ? 'Check each field against the bill' : 'Shops you’ve saved before are suggested'}
+            </p>
           </div>
-        )}
-        <Card className="p-4 md:p-5">
-          <BillForm
-            value={draft}
-            errors={errors}
-            region={profile.region}
-            onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-            onPhoto={async (file) => {
-              try {
-                const fields = await photoFieldsFromFile(file);
-                setDraft((d) => ({ ...d, ...fields }));
-              } catch (e) {
-                toast(e.message, 'error');
-              }
-            }}
-            onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null, imageHash: '' }))}
-            onViewPhoto={() => setViewPhoto(true)}
-            onDiscard={() => { reset(); toast('Duplicate scan discarded.'); }}
-            discardLabel="Discard Duplicate Scan"
-            onUseFor={useScanFor}
-          />
-          {rawText && (
-            <details className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-              <summary className="cursor-pointer font-semibold text-slate-700"><FileText className="mr-1 inline size-4" />Text the scanner read</summary>
-              <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap font-mono text-xs text-slate-700">{rawText}</pre>
-            </details>
+        </div>
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+          {vat && (
+            <Notice tone="success" title="Total checked">
+              <span className="num">{money(vat.subtotal)} + 13% VAT {money(vat.vat)} = {money(vat.total)}</span>
+            </Notice>
           )}
-          {/* Phones: one row just above the bottom nav, in thumb reach; Save takes most of it. */}
-          <div className="above-nav sticky z-10 -mx-4 mt-5 flex items-center gap-2 border-t border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur md:static md:mx-0 md:flex-wrap md:justify-end md:bg-white md:px-0 md:pb-0 md:pt-4">
-            <span className="mr-auto hidden items-center gap-1.5 text-xs text-slate-500 md:inline-flex"><ShieldCheck className="size-3.5 text-emerald-700" />Saved only on this device</span>
-            <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
-            <Button variant="outline" icon={Divide} disabled={saving} onClick={() => save('split')} aria-label="Save and split">
-              <span className="md:hidden">Split</span><span className="hidden md:inline">Save &amp; split{draft.lineItems?.length ? ` (${draft.lineItems.length})` : ''}</span>
-            </Button>
-            {canApply && (
-              <Button variant="outline" icon={Ticket} disabled={saving} onClick={() => save('apply')} aria-label="Save and apply to the IRD draw">
-                <span className="md:hidden">IRD</span><span className="hidden md:inline">Save &amp; apply to IRD</span>
+          {problems.length > 0 && (
+            <Notice tone="warning" title={`Check ${problems.length} field${problems.length === 1 ? '' : 's'}`}
+              action={rescanProvider
+                ? <ActionChip icon={rescanning ? LoaderCircle : Sparkle} disabled={rescanning} onClick={rescanWithVision}>{rescanning ? 'Re-scanning…' : 'Re-scan with Vision AI'}</ActionChip>
+                : <a href="#/settings" className="text-[14px] font-medium text-brand underline">Add a vision key for faded bills</a>}>
+              {problems.join(' ')}
+            </Notice>
+          )}
+        </div>
+        <BillForm
+          value={draft}
+          read={read}
+          errors={errors}
+          region={profile.region}
+          onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+          onPhoto={async (file) => {
+            try {
+              const fields = await photoFieldsFromFile(file);
+              setDraft((d) => ({ ...d, ...fields }));
+            } catch (e) {
+              toast(e.message, 'error');
+            }
+          }}
+          onRemovePhoto={() => setDraft((d) => ({ ...d, receiptImage: null, imageHash: '' }))}
+          onViewPhoto={() => setViewPhoto(true)}
+          onDiscard={() => { reset(); toast('Duplicate scan discarded.'); }}
+          discardLabel="Discard Duplicate Scan"
+          onUseFor={useScanFor}
+        />
+        {rawText && (
+          <details className="mt-5 rounded-[14px] border border-line bg-surface p-3 text-[14px]">
+            <summary className="cursor-pointer font-medium text-ink-2"><FileText className="mr-1 inline size-4" />Text the scanner read</summary>
+            <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap font-mono text-[12px] text-ink-2">{rawText}</pre>
+          </details>
+        )}
+        {/* Pinned save bar: Split, IRD (greyed with the reason while it can't apply), Save bill. */}
+        <div className="above-nav sticky z-20 -mx-4 mt-5 flex items-center gap-2 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:justify-end md:rounded-[16px] md:border md:px-3">
+          <span className="mr-auto hidden items-center gap-1.5 text-[12px] text-ink-3 md:inline-flex"><ShieldCheck className="size-3.5 text-leaf" />Saved only on this device</span>
+          <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
+          <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>
+          {draft.isNepalBill && (
+            <Tooltip text={irdWhy}>
+              <Button size="lg" icon={Ticket} disabled={saving} aria-disabled={irdWhy ? true : undefined}
+                className={irdWhy ? '!border-transparent !bg-sunken !text-ink-3' : ''}
+                onClick={() => (irdWhy ? toast(irdWhy, 'error') : save('apply'))} aria-label={irdWhy ? `Save and apply to IRD: ${irdWhy}` : 'Save and apply to the IRD draw'}>
+                IRD<span className="hidden lg:inline">&nbsp;draw</span>
               </Button>
-            )}
-            <Button variant="dark" size="lg" icon={Save} disabled={saving} onClick={() => save(false)} className="order-first flex-1 md:order-last md:h-10 md:flex-none md:text-sm">Save bill</Button>
-          </div>
-        </Card>
+            </Tooltip>
+          )}
+          <Button variant="primary" size="lg" icon={Check} disabled={saving} onClick={() => save(false)} className="flex-1 md:flex-none">Save bill</Button>
+        </div>
         {viewPhoto && <PhotoViewer expense={draft} onClose={() => setViewPhoto(false)} />}
       </div>
     );
@@ -286,6 +312,19 @@ export default function Scan() {
 
   const byHand = () => { setDraft(blankExpense(profile.region)); setStep('review'); };
   const pickFile = (e) => { onFile(e.target.files?.[0]); e.target.value = ''; };
+  if (camera) {
+    const off = (then) => () => { setCamera(false); then?.(); };
+    return (
+      <CameraScan
+        onPhoto={(url) => { setCamera(false); processImage(url); }}
+        onFile={(f) => { setCamera(false); onFile(f); }}
+        onPdfOrFile={off()}
+        onTypeIt={off(byHand)}
+        onSample={off(() => processImage(sampleReceiptForScan()))}
+        onClose={off(() => { if (window.history.length > 1) window.history.back(); else window.location.hash = '#/'; })}
+      />
+    );
+  }
   return (
     <div {...dropProps} className="relative">
       {dragging && (
@@ -300,12 +339,20 @@ export default function Scan() {
       <PageHeader title="Add a bill" subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
       {/* Scan and type-it-in side by side: both are first-class ways to add a bill. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <label className="card flex cursor-pointer flex-col items-center gap-2 border-2 border-dashed border-brand/40 bg-brand-soft px-3 py-6 text-center transition hover:border-brand sm:gap-3 sm:px-6 sm:py-10">
-          <span className="flex size-12 items-center justify-center rounded-full bg-brand text-white shadow sm:size-14"><Camera className="size-6 sm:size-7" /></span>
-          <span className="text-base font-bold text-slate-900 sm:text-lg">Scan a bill</span>
-          <span className="text-xs text-slate-600 sm:text-sm">Take a photo with the back camera. Lay the bill flat, in good light.</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={pickFile} />
-        </label>
+        {hasCamera ? (
+          <button type="button" onClick={() => setCamera(true)} className="card flex flex-col items-center gap-2 border-2 border-dashed border-brand/40 bg-brand-soft px-3 py-6 text-center transition hover:border-brand sm:gap-3 sm:px-6 sm:py-10">
+            <span className="flex size-12 items-center justify-center rounded-full bg-brand text-on-brand shadow sm:size-14"><Camera className="size-6 sm:size-7" /></span>
+            <span className="text-base font-bold text-ink sm:text-lg">Scan a bill</span>
+            <span className="text-xs text-ink-2 sm:text-sm">Point the camera at the bill. It’s taken and cropped by itself.</span>
+          </button>
+        ) : (
+          <label className="card flex cursor-pointer flex-col items-center gap-2 border-2 border-dashed border-brand/40 bg-brand-soft px-3 py-6 text-center transition hover:border-brand sm:gap-3 sm:px-6 sm:py-10">
+            <span className="flex size-12 items-center justify-center rounded-full bg-brand text-on-brand shadow sm:size-14"><Camera className="size-6 sm:size-7" /></span>
+            <span className="text-base font-bold text-ink sm:text-lg">Scan a bill</span>
+            <span className="text-xs text-ink-2 sm:text-sm">Take a photo with the back camera. Lay the bill flat, in good light.</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={pickFile} />
+          </label>
+        )}
         <button type="button" onClick={byHand} className="card flex flex-col items-center gap-2 border-2 border-dashed border-slate-300 px-3 py-6 text-center transition hover:border-slate-500 sm:gap-3 sm:px-6 sm:py-10">
           <span className="flex size-12 items-center justify-center rounded-full bg-slate-900 text-white shadow sm:size-14"><PencilLine className="size-6 sm:size-7" /></span>
           <span className="text-base font-bold text-slate-900 sm:text-lg">Add by hand</span>

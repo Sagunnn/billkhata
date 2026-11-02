@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Divide, Save, Ticket, Trash } from 'lucide-react';
+import { Check, Divide, Ticket, Trash } from 'lucide-react';
 import { validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, validateImageFile } from '../lib/image.js';
 import { crossReferenceBill } from '../lib/dedupe.js';
@@ -14,6 +14,8 @@ import { IrdModal } from './Ird.jsx';
 import { useToast } from './Toast.jsx';
 import { Button, Modal } from './ui.jsx';
 import { ReceiptViewer } from './ReceiptViewer.jsx';
+import { AccountsSheet, MoneyHistorySheet, MoneyInSheet, MoveSheet, QuickOutSheet } from './MoneySheets.jsx';
+import { ShortcutsSheet } from './Shortcuts.jsx';
 
 /** Reads, checks and compresses a picked photo. Returns a data URL or throws. */
 export async function photoFromFile(file) {
@@ -84,7 +86,7 @@ export function BillEditor({ expense, onClose }) {
       footer={(
         // Phones: a full-width Save on top, the rest in one row below it (✕ closes, so no Cancel).
         <div className="flex w-full flex-wrap gap-2 sm:justify-end">
-          <Button variant="dark" size="lg" icon={Save} onClick={() => save(false)} disabled={busy} className="w-full sm:order-last sm:h-10 sm:w-auto sm:text-sm">Save</Button>
+          <Button variant="primary" size="lg" icon={Check} onClick={() => save(false)} disabled={busy} className="w-full sm:order-last sm:w-auto">Save bill</Button>
           <Button variant="danger" icon={Trash} onClick={remove} aria-label="Delete this bill" className="sm:order-first sm:mr-auto"><span className="hidden sm:inline">Delete</span></Button>
           <span className="hidden sm:contents"><Button variant="ghost" onClick={onClose}>Cancel</Button></span>
           <Button variant="outline" icon={Divide} disabled={busy} onClick={() => save('split')} className="flex-1 sm:flex-none">{draft.split ? 'Edit split' : 'Split'}</Button>
@@ -130,10 +132,23 @@ export function PhotoViewer({ expense, onClose }) {
 
 /** Renders whichever shared modal is open. */
 export function ModalHost() {
-  const { modal, closeModal } = useStore();
+  const { modal, closeModal, openSheet, expenses } = useStore();
   if (!modal) return null;
+  // "Apply all": one bill after another, stopping when one is closed without its coupon saved.
+  const irdDone = () => {
+    const queue = (modal.queue || []).map((id) => expenses.find((e) => e.id === id)).filter((e) => e && getIrdStatus(e) === IRD_STATUS.NOT_APPLIED);
+    const saved = getIrdStatus(expenses.find((e) => e.id === modal.expense.id) || modal.expense) === IRD_STATUS.APPLIED;
+    if (saved && queue.length) openSheet('ird', { expense: queue[0], queue: queue.slice(1).map((e) => e.id) });
+    else closeModal();
+  };
   if (modal.type === 'editor') return <BillEditor key={modal.expense.id} expense={modal.expense} onClose={closeModal} />;
-  if (modal.type === 'ird') return <IrdModal expense={modal.expense} onClose={closeModal} />;
+  if (modal.type === 'ird') return <IrdModal key={modal.expense.id} expense={modal.expense} onClose={modal.queue ? irdDone : closeModal} />;
   if (modal.type === 'photo') return <PhotoViewer expense={modal.expense} onClose={closeModal} />;
+  if (modal.type === 'accounts') return <AccountsSheet onClose={closeModal} />;
+  if (modal.type === 'moneyIn') return <MoneyInSheet account={modal.account} onClose={closeModal} />;
+  if (modal.type === 'move') return <MoveSheet onClose={closeModal} />;
+  if (modal.type === 'quickOut') return <QuickOutSheet onClose={closeModal} />;
+  if (modal.type === 'moneyHistory') return <MoneyHistorySheet onClose={closeModal} />;
+  if (modal.type === 'shortcuts') return <ShortcutsSheet onClose={closeModal} />;
   return null;
 }

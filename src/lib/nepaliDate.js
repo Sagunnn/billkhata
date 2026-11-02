@@ -87,6 +87,12 @@ export function formatBS(bsStr) {
   return `${p.d} ${BS_MONTHS[p.m - 1]} ${p.y}`;
 }
 
+/** '2026-10-31' -> '14 Kartik' (BS day and month), falling back to the AD date. */
+export function shortBS(adStr) {
+  const p = parseYmd(adToBs(adStr) || '');
+  return p ? `${p.d} ${BS_MONTHS[p.m - 1]}` : formatAD(adStr);
+}
+
 /** '2026-10-29' -> '29 Oct 2026' */
 export function formatAD(adStr) {
   const p = parseYmd(adStr);

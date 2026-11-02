@@ -9,6 +9,7 @@ import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings 
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 import { reconcileAll } from './lib/bank/reconcile.js';
 import { cleanMoney } from './lib/money.js';
+import { applyTheme } from './lib/theme.js';
 
 const StoreContext = createContext(null);
 
@@ -260,7 +261,9 @@ export function StoreProvider({ children }) {
 
   const setSettings = useCallback((s) => {
     saveSettings(s);
-    setSettingsState(loadSettings());
+    const next = loadSettings();
+    applyTheme(next.theme);
+    setSettingsState(next);
   }, []);
 
   // Bank rows ↔ screenshots ↔ bills, worked out once for the Bank page and the ledger tags.
@@ -288,6 +291,8 @@ export function StoreProvider({ children }) {
     openEditor: (expense) => setModal({ type: 'editor', expense }),
     openIrd: (expense) => setModal({ type: 'ird', expense }),
     openPhoto: (expense) => setModal({ type: 'photo', expense }),
+    // Money sheets: 'accounts' | 'moneyIn' | 'move' | 'quickOut' | 'moneyHistory' | 'shortcuts' | 'winners'
+    openSheet: (type, props = {}) => setModal({ type, ...props }),
     closeModal: () => setModal(null),
   }), [ready, loadError, expenses, profile, settings, modal, saveExpense, removeExpense, replaceAll, mergeExpenses, removeSamples, loadSamples, trips, saveTrip, deleteTrip, replaceAllTrips, mergeTrips, setProfile, setSettings,
     statements, saveStatement, deleteStatement, payments, savePayment, deletePayment, reconOverrides, setReconOverrides, restoreBankData, clearBankData, bankRecon, lastBackupAt, markBackedUp, money, setMoney]);

@@ -67,6 +67,15 @@ export function compressQrCanvas(canvas, maxBytes = MAX_QR_IMAGE_BYTES) {
  * What a split should show for "pay me": QR text to render (carried in share links),
  * an uploaded image (summary picture only), and a short label.
  */
+/**
+ * Where friends can pay you back, for the text summary (it carries no link): the number set in
+ * Settings → Receive payments, else the eSewa ID or your profile mobile. { via: 'eSewa', number }.
+ */
+export function payNumberFor(config, profile) {
+  const number = String(config?.payNumber || (config?.mode === 'esewa' && config.esewaId) || profile?.phone || '').trim();
+  return number ? { via: String(config?.payVia || 'eSewa').trim(), number } : null;
+}
+
 export function paymentQrInfo(config, profile) {
   if (config?.mode === 'esewa') {
     const id = String(config.esewaId || profile?.phone || '').trim();

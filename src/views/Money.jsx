@@ -1,19 +1,21 @@
-// Bank: a statement PDF becomes a ledger, payment screenshots are read, and both are matched
-// with your saved bills into one table. Everything stays in this browser.
+// Money (Figma: Phone 06 · Money): what you have in each account now, and the bank rows. A statement
+// or payment screenshot is read on this device, each row matched with its bill, and the ones without
+// one wait under "Need a look". Credits are counted into their own account with one tap.
 import { useMemo, useRef, useState } from 'react';
-import { CircleCheck, Download, FileUp, Pencil, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, CircleCheck, Download, FileUp, History, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Pencil, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert, Undo2, Upload, X } from 'lucide-react';
 import { PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { downloadBlob, money } from '../lib/format.js';
-import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
+import { adToBs, formatAD, shortBS, todayAD } from '../lib/nepaliDate.js';
 import { newId } from '../lib/db.js';
 import { ACCOUNT_NAMES, bankRowKey } from '../lib/bank/statement.js';
 import { overlapWith, withoutOverlaps } from '../lib/bank/overlap.js';
-import { addEntry, creditSource, creditState, entryFromCredit, retitleCredit, sourceOptions } from '../lib/money.js';
+import { accountForName, accountsOf, addEntry, cashAccountId, creditSource, creditState, defaultAccountId, entryFromCredit, moneyNow, potOf, retitleCredit, sourceOptions } from '../lib/money.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, EmptyState, Field, Modal, PageHeader, Segmented, useFileDrop } from '../components/ui.jsx';
+import { Badge, Button, Card, Chip, EmptyState, Field, Modal, Segmented, useFileDrop } from '../components/ui.jsx';
+import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
 
 // MIME types too: iPhone's file picker greys out files whose type isn't listed.
 const STATEMENT_TYPES = [
@@ -367,7 +369,7 @@ function CreditTitle({ row }) {
                 <button key={o} type="button" onClick={() => setTitle(o)} className={`tap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${title === o ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50'}`}>{o}</button>
               ))}
             </div>
-            <p className="mt-3 text-xs text-slate-500">“Cash deposit” means you put your own cash in: in Cash &amp; bank it moves money from cash to bank instead of counting as new money.</p>
+            <p className="mt-3 text-xs text-slate-500">“Cash deposit” means you put your own cash in: on the Money page it moves money from cash into this account instead of counting as new money.</p>
             <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
           </form>
         </Modal>
@@ -417,44 +419,6 @@ function Amount({ x, region }) {
   );
 }
 
-/**
- * On a credited statement row: put it into Cash & bank with one tap (once). A cash deposit moves
- * cash into the bank; anything else is money in, source guessed from the narration.
- */
-function CreditToMoney({ row, compact }) {
-  const { money: m, setMoney } = useStore();
-  const toast = useToast();
-  const state = creditState(m, row);
-  if (state === 'added') return <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-emerald-800"><CircleCheck className="size-3.5" />In Cash &amp; bank</span>;
-  if (state === 'before') return <span className="whitespace-nowrap text-xs text-slate-500" title="Dated before you set your Cash & bank amounts, so it's already in them">Before your start</span>;
-  if (state === 'not-set') return <a href="#/" className="whitespace-nowrap text-xs font-semibold text-navy underline" title="Set your cash and bank amounts on the Dashboard first">Set up Cash &amp; bank</a>;
-  return (
-    <Button size="sm" variant={compact ? 'outline' : 'outline'} icon={Plus} onClick={() => {
-      const entry = entryFromCredit(row);
-      setMoney((cur) => addEntry(cur, entry));
-      toast(entry.kind === 'move' ? `Cash deposit: ${money(row.credit)} moved from cash to bank.` : `${money(row.credit)} added to Bank & wallets (${entry.source}).`);
-    }}>Add to Cash &amp; bank</Button>
-  );
-}
-
-/** Row buttons. `compact` (the desktop table) shows icons with tooltips, except "Add bill". */
-function RowActions({ x, onAddBill, onLink, onUnlink, onScreenshot, canLink, compact }) {
-  const { openEditor } = useStore();
-  const act = (label, icon, onClick) => (compact
-    ? <button type="button" onClick={onClick} title={label} aria-label={label} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900">{(() => { const I = icon; return <I className="size-[18px]" />; })()}</button>
-    : <Button size="sm" variant="ghost" icon={icon} onClick={onClick}>{label}</Button>);
-  return (
-    <span className={`flex items-center justify-end gap-1 ${compact ? '' : 'flex-wrap'}`}>
-      {!x.expense && x.direction === 'out' && <Button size="sm" icon={Plus} onClick={() => onAddBill(x)}>Add bill</Button>}
-      {x.direction === 'in' && x.bank && <CreditToMoney row={x.bank} compact={compact} />}
-      {x.expense && act('Open bill', Receipt, () => openEditor(x.expense))}
-      {x.payment && act('Screenshot', Smartphone, () => onScreenshot(x.payment))}
-      {canLink && act('Link to…', Link2, () => onLink(x))}
-      {x.nodes.length > 1 && act('Unlink', Link2Off, () => onUnlink(x))}
-    </span>
-  );
-}
-
 function LinkPicker({ entry, candidates, region, onPick, onClose }) {
   return (
     <Modal open onClose={onClose} title="Link to…" size="md">
@@ -475,38 +439,195 @@ function LinkPicker({ entry, candidates, region, onPick, onClose }) {
   );
 }
 
-export default function Bank() {
-  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, bankRecon, money: cashBank, setMoney } = useStore();
-  const [renaming, setRenaming] = useState(null); // { id, name }
+/* ---------- what you have now ---------- */
+
+/** "Statement up to 15 Kartik", "Screenshots up to today", "Counted by you · 2 bills today". */
+function freshness(a, { statements, payments, expenses, m, today }) {
+  if (a.kind === 'cash') {
+    const n = expenses.filter((e) => !e.isSample && e.billDateAD === today && potOf(e, m) === a.id).length;
+    return `Counted by you${n ? ` · ${plural(n, 'bill')} today` : ''}`;
+  }
+  const mine = statements.filter((s) => accountForName(m, s.bank)?.id === a.id).map((s) => s.to).filter(Boolean).sort();
+  const shots = payments.filter((p) => p.dateAD && accountForName(m, p.app)?.id === a.id).map((p) => p.dateAD).sort();
+  const main = a.id === defaultAccountId(m) ? ' · Main' : '';
+  if (shots.length && (!mine.length || shots.at(-1) > mine.at(-1))) return `Screenshots up to ${shots.at(-1) === today ? 'today' : shortBS(shots.at(-1))}${main}`;
+  if (mine.length) return `Statement up to ${shortBS(mine.at(-1))}${main}`;
+  return `Set by you ${shortBS(m.since)}${main}`;
+}
+
+const isAtm = (x) => Boolean(x.bank && !x.payment && !x.expense && x.direction === 'out' && /\b(ATM|WDL|WITHDRAWAL|CASH ?WD)\b/i.test(x.bank.description || ''));
+
+const ICON_TONE = { cash: 'bg-sunken text-ink-2', bank: 'bg-navy-soft text-navy', wallet: 'bg-leaf-soft text-leaf' };
+
+export function AccountsCard({ compact = false }) {
+  const { money: m, expenses, statements, payments, openSheet } = useStore();
+  const now = useMemo(() => moneyNow(m, expenses), [m, expenses]);
+  if (!now.ready) {
+    return (
+      <Card className="p-5">
+        <p className="t-overline text-ink-3">What you have now</p>
+        <p className="t-body mt-2 text-ink-2">Set what's in your cash, bank and wallets once. Every bill you save then comes off the account it was paid from.</p>
+        <Button variant="primary" className="mt-4 w-full" icon={Plus} onClick={() => openSheet('accounts')}>Set your accounts</Button>
+      </Card>
+    );
+  }
+  const today = todayAD();
+  const ctx = { statements, payments, expenses, m, today };
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="t-overline text-ink-3">What you have now</p>
+          <p className="t-money-xl num mt-1 font-nepali text-ink">{money(now.total)}</p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button type="button" onClick={() => openSheet('moneyHistory')} className="tap rounded-full p-2 text-ink-2 hover:bg-sunken" aria-label="Money history" title="History"><History className="size-5" /></button>
+          <button type="button" onClick={() => openSheet('accounts')} className="tap rounded-full p-2 text-ink-2 hover:bg-sunken" aria-label="Edit accounts" title="Edit accounts"><Pencil className="size-5" /></button>
+        </div>
+      </div>
+      <ul className="mt-3 divide-y divide-line">
+        {now.accounts.map((a) => {
+          const Icon = ACCOUNT_ICON[a.kind] || Landmark;
+          return (
+            <li key={a.id} className="flex items-center gap-3 py-3">
+              <span className={`flex size-10 shrink-0 items-center justify-center rounded-[12px] ${ICON_TONE[a.kind] || ICON_TONE.bank}`}><Icon className="size-5" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="t-body block truncate font-semibold text-ink">{a.name}</span>
+                {!compact && <span className="t-caption block truncate text-ink-3">{freshness(a, ctx)}</span>}
+              </span>
+              <span className={`num shrink-0 font-nepali text-[16px] font-semibold ${a.balance < 0 ? 'text-danger' : 'text-ink'}`}>{money(a.balance)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+export function MoneyActions({ className = '' }) {
+  const { openSheet, money: m } = useStore();
+  const ready = Boolean(m.since);
+  const go = (type) => openSheet(ready ? type : 'accounts');
+  return (
+    <div className={`grid grid-cols-3 gap-2 ${className}`}>
+      <Button className="w-full" onClick={() => go('moneyIn')}>Money in</Button>
+      <Button className="w-full" onClick={() => go('move')}>Move</Button>
+      <Button className="w-full whitespace-nowrap px-2" onClick={() => go('quickOut')} shortcut="Q">Quick cash out</Button>
+    </div>
+  );
+}
+
+/* ---------- bank rows ---------- */
+
+/** The one status a row shows, and whether it needs a look (credits not counted yet do too). */
+function rowStatus(x, { range, m, result }) {
+  const note = needsLook(x, range);
+  if (x.direction === 'in' && x.bank) {
+    const state = creditState(m, x.bank);
+    if (state === 'ready') return { tone: 'info', icon: ArrowDownLeft, label: 'Money in · not counted yet', look: true };
+    if (state === 'added') return { tone: 'success', icon: CircleCheck, label: 'Counted in Money' };
+    if (state === 'before') return { tone: 'neutral', label: 'Before your start', title: "Dated before you set your accounts, so it's already in them" };
+    return { tone: 'neutral', icon: ArrowDownLeft, label: 'Money in' };
+  }
+  if (x.expense && (x.bank || x.payment) && !note) return { tone: 'success', icon: Link2, label: `Matched${x.expense.billCode ? ` · ${x.expense.billCode}` : ''}`, matched: true };
+  if (x.bank?.notBill && !x.expense && !x.payment) {
+    return (m.entries || []).some((e) => e.bankKey === x.bank.key && e.kind === 'move')
+      ? { tone: 'success', icon: ArrowLeftRight, label: 'Moved to cash' }
+      : { tone: 'neutral', icon: X, label: 'Not a bill' };
+  }
+  if (note) {
+    const fits = x.bank && !x.payment && !x.expense ? linkCandidates(x, result).filter((c) => c.expense || c.payment).length : 0;
+    if (x.bank && !x.payment && !x.expense) {
+      return fits
+        ? { tone: 'warning', icon: TriangleAlert, label: `Unmatched · ${plural(fits, 'bill')} fit`, look: true, note, fits }
+        : { tone: 'warning', icon: TriangleAlert, label: 'Missing bill', look: true, note };
+    }
+    if (!x.bank && x.expense && !x.payment) return { tone: 'warning', icon: TriangleAlert, label: 'Not on the statement', look: true, note };
+    return { tone: 'warning', icon: TriangleAlert, label: note.split(':')[0], look: true, note };
+  }
+  if (x.payment && !x.expense && x.direction === 'out') return { tone: 'info', icon: Smartphone, label: x.bank ? 'Screenshot · no bill' : 'Screenshot' };
+  return { tone: 'neutral', label: afterStatement(x, range) ? 'After the last statement' : 'On the statement' };
+}
+
+/** How many Money rows need a look: for the nav count. */
+export function moneyLookCount({ bankRecon, money: m }) {
+  const { result, range } = bankRecon;
+  return visibleEntries(result.entries, range).filter((x) => rowStatus(x, { range, m, result }).look).length;
+}
+
+function rowAccount(x, statements) {
+  if (x.bank) return statements.find((s) => s.id === x.bank.statementId)?.bank || 'Bank';
+  if (x.payment) return x.payment.app || 'Screenshot';
+  return x.expense?.paymentMethod === PAYMENT.DIGITAL ? 'QR / card bill' : 'Cash';
+}
+
+function RowCard({ x, st, actions, statements }) {
+  const isIn = x.direction === 'in';
+  const narration = x.bank?.description || x.payment?.merchant || x.expense?.merchantName || '—';
+  const title = isIn && x.bank ? creditSource(x.bank) : '';
+  return (
+    <li className="card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="t-caption text-ink-3">{shortBS(x.date)}{x.time ? ` · ${x.time}` : ''} · {rowAccount(x, statements)}</p>
+          {title && <p className="t-body mt-0.5 font-semibold text-ink">{title}{!x.bank.source && <span className="t-caption font-normal text-ink-3"> (guessed)</span>}</p>}
+          <p className="t-mono-s mt-0.5 break-words text-[13px] uppercase leading-[18px] text-ink">{narration}</p>
+          {x.expense && x.bank && <p className="t-caption mt-0.5 truncate text-ink-2">Bill: {x.expense.merchantName}</p>}
+        </div>
+        <span className={`num shrink-0 font-nepali text-[16px] font-semibold ${isIn ? 'text-leaf' : 'text-ink'}`}>{isIn ? '+ ' : '− '}{money(x.amount)}</span>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <Badge tone={st.tone} icon={st.icon} title={st.note || st.title}>{st.label}</Badge>
+        {isIn && x.bank && <CreditTitle row={x.bank} />}
+      </div>
+      {actions}
+    </li>
+  );
+}
+
+export default function Money() {
+  const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, openSheet, bankRecon, money: m, setMoney } = useStore();
   const toast = useToast();
-  const [filter, setFilter] = useState('all');
+  const region = profile.region;
+  const [uploading, setUploading] = useState(false);
+  const [renaming, setRenaming] = useState(null); // { id, name }
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
   const [linking, setLinking] = useState(null);
-  const region = profile.region;
+  const [more, setMore] = useState(40);
 
   const { result, range } = bankRecon;
   const shown = useMemo(() => visibleEntries(result.entries, range), [result, range]);
-  const look = shown.filter((x) => needsLook(x, range));
+  const rows = useMemo(() => shown.map((x) => ({ x, st: rowStatus(x, { range, m, result }) })).reverse(), [shown, range, m, result]);
+  const lookCount = rows.filter((r) => r.st.look).length;
+  const [filter, setFilter] = useState(() => (lookCount ? 'look' : 'all'));
   const q = search.trim().toLowerCase();
-  const list = shown.filter((x) => {
-    if (filter === 'look' && !needsLook(x, range)) return false;
+  const list = rows.filter(({ x, st }) => {
+    if (filter === 'look' && !st.look) return false;
     if (filter === 'out' && x.direction !== 'out') return false;
     if (filter === 'in' && x.direction !== 'in') return false;
     if (!q) return true;
     const hay = [x.bank?.description, x.bank && creditSource(x.bank), x.payment?.merchant, x.payment?.ref, x.expense?.merchantName, x.expense?.billCode, x.amount].join(' ').toLowerCase();
     return hay.includes(q);
   });
-  const totals = list.reduce((t, x) => { if (x.bank || x.payment) t[x.direction] += x.amount; return t; }, { in: 0, out: 0 });
-  // Money in from the statements: how much, and how much of it is already in Cash & bank.
-  const credits = shown.filter((x) => x.direction === 'in' && x.bank);
-  const creditTotal = credits.reduce((t, x) => t + x.amount, 0);
-  const creditStates = credits.map((x) => ({ x, state: creditState(cashBank, x.bank) }));
-  const addedTotal = creditStates.filter((c) => c.state === 'added').reduce((t, c) => t + c.x.amount, 0);
-  const ready = creditStates.filter((c) => c.state === 'ready');
+  const matched = rows.filter((r) => r.st.matched);
+  const rowCount = statements.reduce((t, s) => t + s.rows.length, 0);
+  const skipped = statements.some((s) => s.overlapRemoved);
+
+  // Credits: how much came in, and how much is counted in Money.
+  const credits = rows.filter((r) => r.x.direction === 'in' && r.x.bank);
+  const ready = credits.filter((r) => creditState(m, r.x.bank) === 'ready');
+  const creditTotal = credits.reduce((t, r) => t + r.x.amount, 0);
+  const accountOf = (row) => accountForName(m, statements.find((s) => s.id === row.statementId)?.bank)?.id;
+  function addCredit(row) {
+    const entry = entryFromCredit(row, accountOf(row), m);
+    setMoney((cur) => addEntry(cur, entry));
+    const name = accountsOf(m).find((a) => a.id === (entry.account || entry.to))?.name || 'your main account';
+    toast(entry.kind === 'move' ? `Cash deposit: ${money(row.credit)} moved from cash to ${name}.` : `${money(row.credit)} added to ${name} (${entry.source}).`);
+  }
   function addAllCredits() {
-    setMoney((cur) => ready.reduce((m, c) => addEntry(m, entryFromCredit(c.x.bank)), cur));
-    toast(`${plural(ready.length, 'credit')} added to Cash & bank (${money(ready.reduce((t, c) => t + c.x.amount, 0), region)}).`);
+    setMoney((cur) => ready.reduce((acc, r) => addEntry(acc, entryFromCredit(r.x.bank, accountOf(r.x.bank), acc)), cur));
+    toast(`${plural(ready.length, 'credit')} added (${money(ready.reduce((t, r) => t + r.x.amount, 0), region)}).`);
   }
 
   function unlink(x) {
@@ -525,11 +646,12 @@ export default function Bank() {
       unlinks: reconOverrides.unlinks.filter((k) => !k.split('|').every((n) => set.has(n))),
     });
     setLinking(null);
-    toast('Linked.');
+    toast('Matched.');
   }
   function addBill(x) {
     const date = x.payment?.dateAD || x.bank?.date || todayAD();
     const e = blankExpense(region);
+    const acct = x.bank && accountOf(x.bank);
     openEditor({
       ...e,
       merchantName: x.payment?.merchant || shopFromNarration(x.bank?.description),
@@ -537,12 +659,30 @@ export default function Bank() {
       billDateAD: date,
       billDateBS: adToBs(date) || '',
       paymentMethod: PAYMENT.DIGITAL,
+      ...(acct ? { paidFrom: acct } : {}),
       source: 'bank', // no paper bill yet: a later scan of it can take this bill's place
       notes: [x.bank && `Bank: ${x.bank.description}`, x.payment?.ref && `Txn ${x.payment.ref}`].filter(Boolean).join(' · '),
     });
   }
+  async function setNotBill(x, on, quiet = false) {
+    const st = statements.find((s) => s.id === x.bank.statementId);
+    if (!st) return;
+    await saveStatement({ ...st, rows: st.rows.map((r) => (r.key === x.bank.key ? { ...r, notBill: on } : r)) });
+    // Undo also takes back an ATM move made from this row.
+    if (!on) setMoney((cur) => ({ ...cur, entries: (cur.entries || []).filter((e) => !(e.bankKey === x.bank.key && e.kind === 'move')) }));
+    if (!quiet) toast(on ? 'Marked as not a bill: a transfer, top-up or fee.' : 'Back in Need a look.');
+  }
+  // An ATM withdrawal isn't spending: the money moves from this account to cash in hand.
+  async function atmToCash(x) {
+    const from = accountOf(x.bank) || defaultAccountId(m);
+    if (!(m.entries || []).some((e) => e.bankKey === x.bank.key)) {
+      setMoney((cur) => addEntry(cur, { kind: 'move', from, to: cashAccountId(cur), amount: x.amount, date: x.bank.date, note: x.bank.description, bankKey: x.bank.key }));
+    }
+    await setNotBill(x, true, true);
+    toast(`${money(x.amount)} moved to Cash in hand.`);
+  }
   function exportCsv() {
-    downloadBlob(new Blob([mergedCsv(list, range)], { type: 'text/csv' }), `billkhata_bank_${todayAD().replace(/-/g, '_')}.csv`);
+    downloadBlob(new Blob([mergedCsv(list.map((r) => r.x).reverse(), range)], { type: 'text/csv' }), `billkhata_bank_${todayAD().replace(/-/g, '_')}.csv`);
   }
   async function removeStatement(s) {
     if (!window.confirm(`Remove the ${s.bank || 'bank'} statement (${formatAD(s.from)} – ${formatAD(s.to)}) and its ${s.rows.length} rows? Bills and screenshots stay.`)) return;
@@ -560,184 +700,185 @@ export default function Bank() {
     toast('Bank data deleted.');
   }
 
+  function actionsFor(x, st) {
+    const out = [];
+    const canLink = x.nodes.length < 3 && linkCandidates(x, result).length > 0;
+    if (x.direction === 'in' && x.bank) {
+      const state = creditState(m, x.bank);
+      if (state === 'ready') out.push(<Button key="add" icon={ArrowDownLeft} onClick={() => addCredit(x.bank)}>Add to Money</Button>);
+      if (state === 'not-set') out.push(<Button key="set" variant="ghost" onClick={() => openSheet('accounts')}>Set your accounts</Button>);
+    } else if (!x.expense && x.direction === 'out') {
+      if (st.fits) {
+        out.push(<Button key="match" variant="tonal" icon={Link2} onClick={() => setLinking(x)}>Match invoice</Button>);
+      } else {
+        if (!x.bank?.notBill) out.push(<Button key="attach" variant="tonal" icon={Plus} onClick={() => addBill(x)}>Attach bill</Button>);
+        if (canLink) out.push(<Button key="match" icon={Link2} onClick={() => setLinking(x)}>Match invoice</Button>);
+      }
+      if (isAtm(x) && !x.bank.notBill && m.since && x.bank.date >= m.since) out.push(<Button key="atm" icon={ArrowLeftRight} onClick={() => atmToCash(x)}>Moved to cash</Button>);
+      else if (x.bank && !x.payment && !x.bank.notBill) out.push(<Button key="nb" variant="ghost" icon={X} onClick={() => setNotBill(x, true)}>Not a bill</Button>);
+      if (x.bank?.notBill) out.push(<Button key="undo" variant="ghost" icon={Undo2} onClick={() => setNotBill(x, false)}>Undo</Button>);
+    }
+    const icon = (label, I, onClick) => (
+      <button key={label} type="button" onClick={onClick} title={label} aria-label={label} className="tap rounded-full p-2 text-ink-2 hover:bg-sunken hover:text-ink"><I className="size-[18px]" /></button>
+    );
+    const small = [
+      x.expense && icon('Open bill', Receipt, () => openEditor(x.expense)),
+      x.payment && icon('Screenshot', Smartphone, () => setEditing(x.payment)),
+      x.nodes.length > 1 && icon('Unlink', Link2Off, () => unlink(x)),
+    ].filter(Boolean);
+    if (!out.length && !small.length) return null;
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {out}
+        {small.length > 0 && <span className="ml-auto flex">{small}</span>}
+      </div>
+    );
+  }
+
   const empty = !statements.length && !payments.length;
+  const uploads = (
+    <div className="grid gap-3 md:grid-cols-2">
+      <StatementUpload statements={statements} onSaved={() => { setUploading(false); setFilter('look'); }} />
+      <ScreenshotUpload payments={payments} />
+    </div>
+  );
   return (
     <div>
-      <PageHeader
-        title="Bank"
-        subtitle="Your statement as a ledger: spending matched with screenshots and bills, money in ready for Cash & bank"
-        actions={!empty && <Button icon={Download} onClick={exportCsv} disabled={!list.length}>Export CSV</Button>}
-      />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <StatementUpload statements={statements} />
-        <ScreenshotUpload payments={payments} />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="t-h-l text-ink">Money</h1>
+        <Button variant="tonal" icon={Upload} onClick={() => setUploading(true)}>Statement</Button>
       </div>
-      <p className="mt-2 flex items-center gap-1.5 px-1 text-xs text-slate-500"><ShieldCheck className="size-3.5 text-emerald-700" />Statements and screenshots are read on this device and stored only in this browser. Only the last 4 digits of an account number are kept.</p>
 
-      {statements.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {withoutOverlaps(statements).sort((a, b) => a.from.localeCompare(b.from)).map((s) => (
-            <span key={s.id} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white py-1 pl-3 pr-1 text-sm">
-              <Landmark className="size-4 text-slate-500" />
-              <span><b>{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b> <span className="text-slate-600">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.filter((r) => r.debit).length} expenses{s.rows.some((r) => r.credit) ? `, ${s.rows.filter((r) => r.credit).length} in` : ''}{s.overlapRemoved ? ` (${s.overlapRemoved} also in an earlier statement, counted once)` : ''}</span></span>
-              {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-amber-600" aria-label="Some amounts don't add up" />}
-              <button type="button" onClick={() => setRenaming({ id: s.id, name: s.bank || '' })} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800" aria-label={`Rename ${s.bank || 'this'} statement`}><Pencil className="size-4" /></button>
-              <button type="button" onClick={() => removeStatement(s)} className="tap rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>
-            </span>
-          ))}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
+        <div className="space-y-3 lg:sticky lg:top-6">
+          <AccountsCard />
+          <MoneyActions />
+          {credits.length > 0 && (
+            <div className="t-label rounded-[14px] bg-leaf-soft px-3.5 py-3 text-ink">
+              <p><span className="text-leaf">Credited</span> <b className="num font-nepali">{money(creditTotal, region)}</b> in {plural(credits.length, 'row')}</p>
+              <p className="t-caption mt-0.5 text-ink-2">
+                {Object.entries(credits.reduce((by, { x }) => { const k = creditSource(x.bank) || 'Untitled'; by[k] = (by[k] || 0) + x.amount; return by; }, {}))
+                  .sort((a, b) => b[1] - a[1]).slice(0, 4)
+                  .map(([k, v]) => `${k} ${money(v, region)}`).join(' · ')}
+              </p>
+              {ready.length > 0 && m.since && <Button size="sm" className="mt-2" icon={Plus} onClick={addAllCredits}>Add the rest ({ready.length})</Button>}
+            </div>
+          )}
         </div>
+
+        <div className="min-w-0">
+          {empty ? (
+            <>
+              <h2 className="t-h-m mb-3 text-ink">Bank rows</h2>
+              <Card className="mb-3">
+                <EmptyState icon={Landmark} title="No statements yet">
+                  Upload a bank or wallet statement and each row is matched with your bills and payment screenshots, so you can see what every payment was for.
+                </EmptyState>
+              </Card>
+              {uploads}
+            </>
+          ) : (
+            <>
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="t-h-m text-ink">Bank rows</h2>
+                <span className="t-label num text-ink-3">{plural(statements.length, 'statement')} · {plural(rowCount, 'row')}</span>
+              </div>
+              <div className="-mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1">
+                <Chip selected={filter === 'look'} onClick={() => setFilter('look')}>Need a look · {lookCount}</Chip>
+                <Chip selected={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
+                <Chip selected={filter === 'out'} onClick={() => setFilter('out')}>Out</Chip>
+                <Chip selected={filter === 'in'} onClick={() => setFilter('in')}>In</Chip>
+              </div>
+              {filter !== 'look' && (
+                <div className="relative mt-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+                  <input data-search className="input pl-9" placeholder="Search narration, shop, ID, amount" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search bank rows" />
+                </div>
+              )}
+
+              {list.length ? (
+                <ul className="mt-3 space-y-3">
+                  {list.slice(0, more).map(({ x, st }) => <RowCard key={x.id} x={x} st={st} statements={statements} actions={actionsFor(x, st)} />)}
+                </ul>
+              ) : (
+                <Card className="mt-3">
+                  {filter === 'look'
+                    ? <EmptyState icon={CircleCheck} title="Nothing needs a look">Every payment has its bill or screenshot.</EmptyState>
+                    : <EmptyState icon={Search} title="No rows match">Try another filter or search.</EmptyState>}
+                </Card>
+              )}
+              {list.length > more && <Button variant="ghost" className="mt-2 w-full" onClick={() => setMore((n) => n + 40)}>Show more ({list.length - more})</Button>}
+
+              {filter === 'look' && matched.length > 0 && (
+                <section className="mt-6">
+                  <div className="flex items-baseline justify-between">
+                    <h3 className="t-overline text-ink-3">Matched lately</h3>
+                    <button type="button" onClick={() => setFilter('all')} className="t-label font-medium text-brand hover:underline">All {matched.length}</button>
+                  </div>
+                  <Card className="mt-2 divide-y divide-line px-4">
+                    {matched.slice(0, 3).map(({ x, st }) => (
+                      <div key={x.id} className="flex items-start justify-between gap-3 py-3">
+                        <div className="min-w-0">
+                          <p className="t-caption text-ink-3">{shortBS(x.date)} · {rowAccount(x, statements)}</p>
+                          <p className="t-mono-s mt-0.5 break-words text-[13px] uppercase leading-[18px] text-ink">{x.bank?.description || x.payment?.merchant}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <span className="num font-nepali text-[15px] font-semibold text-ink">− {money(x.amount)}</span>
+                          <button type="button" onClick={() => openEditor(x.expense)}><Badge tone="success" icon={Link2}>{st.label}</Badge></button>
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                </section>
+              )}
+
+              {skipped && <p className="t-caption mt-4 flex items-center gap-1.5 text-ink-3"><CircleCheck className="size-4 text-leaf" />Rows already saved from older statements were skipped.</p>}
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button size="sm" variant="ghost" icon={Download} onClick={exportCsv} disabled={!list.length}>Export CSV</Button>
+              </div>
+            </>
+          )}
+          <p className="t-caption mt-3 flex items-center gap-1.5 text-ink-3"><ShieldCheck className="size-3.5 text-leaf" />Statements and screenshots are read on this device. Only the last 4 digits of an account number are kept.</p>
+        </div>
+      </div>
+
+      {uploading && (
+        <Modal open size="xl" title="Add a statement or screenshots" subtitle="PDF, Excel, CSV or a screenshot. Read on this device." onClose={() => setUploading(false)}>
+          {uploads}
+          {statements.length > 0 && (
+            <section className="mt-5">
+              <h3 className="t-overline text-ink-3">Your statements</h3>
+              <ul className="mt-2 divide-y divide-line rounded-[14px] border border-line">
+                {withoutOverlaps(statements).sort((a, b) => b.from.localeCompare(a.from)).map((s) => (
+                  <li key={s.id} className="flex items-center gap-2 py-2 pl-3 pr-1">
+                    <Landmark className="size-4 shrink-0 text-ink-3" />
+                    <span className="t-label min-w-0 flex-1">
+                      <b className="text-ink">{s.bank || 'Unnamed statement'}{s.account ? ` ••${s.account}` : ''}</b>
+                      <span className="block text-ink-3">{shortDate(s.from)} – {formatAD(s.to)} · {s.rows.filter((r) => r.debit).length} out{s.rows.some((r) => r.credit) ? `, ${s.rows.filter((r) => r.credit).length} in` : ''}{s.overlapRemoved ? ` · ${s.overlapRemoved} counted once` : ''}</span>
+                    </span>
+                    {s.checks?.checked > 0 && s.checks.ok < s.checks.checked && <TriangleAlert className="size-4 text-warn" aria-label="Some amounts don't add up" />}
+                    <button type="button" onClick={() => setRenaming({ id: s.id, name: s.bank || '' })} className="tap rounded-full p-2 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={`Rename ${s.bank || 'this'} statement`}><Pencil className="size-4" /></button>
+                    <button type="button" onClick={() => removeStatement(s)} className="tap rounded-full p-2 text-ink-3 hover:bg-danger-soft hover:text-danger" aria-label={`Remove ${s.bank || ''} statement`}><Trash className="size-4" /></button>
+                  </li>
+                ))}
+              </ul>
+              <Button size="sm" variant="ghost" icon={Trash} className="mt-2" onClick={clearAll}>Delete all bank data</Button>
+            </section>
+          )}
+        </Modal>
       )}
 
       {renaming && (
-        <Modal
-          open
-          size="md"
-          title="Bank or wallet"
-          onClose={() => setRenaming(null)}
-          footer={<><Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button><Button variant="dark" onClick={rename}>Save</Button></>}
-        >
+        <Modal open size="md" title="Bank or wallet" onClose={() => setRenaming(null)}
+          footer={<><Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button><Button variant="primary" onClick={rename}>Save</Button></>}>
           <form onSubmit={(e) => { e.preventDefault(); rename(); }}>
             <label htmlFor="rn-name" className="label">Which account is this statement from?</label>
             <AccountName id="rn-name" value={renaming.name} onChange={(name) => setRenaming((r) => ({ ...r, name }))} statements={statements} autoFocus />
           </form>
         </Modal>
       )}
-
-      {empty ? (
-        <Card className="mt-4">
-          <EmptyState icon={Landmark} title="Nothing here yet">
-            Upload a statement to see it as a ledger. Add the screenshots of payments you made and every row is matched with its screenshot and bill, so you can see what each bank payment was for.
-          </EmptyState>
-        </Card>
-      ) : (
-        <>
-          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <Stat label="Money in" value={money(creditTotal, region)} good onClick={() => setFilter('in')} className="col-span-2 sm:col-span-1" />
-            <Stat label="Bank expenses" value={result.stats.bankRows} />
-            <Stat label="With screenshot" value={result.stats.withPayment} />
-            <Stat label="With bill" value={result.stats.withBill} />
-            <Stat label="Need a look" value={look.length} warn={look.length > 0} onClick={() => setFilter('look')} />
-          </div>
-
-          <Card className="mt-4 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented value={filter} onChange={setFilter} className="overflow-x-auto" options={[
-                { value: 'all', label: 'All' },
-                { value: 'look', label: `Need a look${look.length ? ` (${look.length})` : ''}` },
-                { value: 'out', label: 'Out' },
-                { value: 'in', label: 'In' },
-              ]} />
-              <div className="relative min-w-[160px] flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                <input className="input py-2 pl-9" placeholder="Search narration, shop, ID, amount" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search the bank ledger" />
-              </div>
-            </div>
-            <p className="mt-2 px-1 text-sm text-slate-600">
-              {plural(list.length, 'row')} · out <b className="num text-slate-900">{money(totals.out, region)}</b> · in <b className="num text-emerald-700">{money(totals.in, region)}</b>
-            </p>
-            {filter === 'in' && credits.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-950 ring-1 ring-inset ring-emerald-200">
-                <span>Credited <b className="num">{money(creditTotal, region)}</b> in {plural(credits.length, 'row')}</span>
-                <span className="text-emerald-800">·</span>
-                <span><b className="num">{money(addedTotal, region)}</b> in Cash &amp; bank</span>
-                <span className="basis-full text-xs text-emerald-900">
-                  {Object.entries(credits.reduce((by, x) => { const k = creditSource(x.bank) || 'Untitled'; by[k] = (by[k] || 0) + x.amount; return by; }, {}))
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => `${k} ${money(v, region)}`).join(' · ')}
-                </span>
-                {creditStates.some((c) => c.state === 'before') && <span className="text-xs text-emerald-800">(rows before your start are already in your amounts)</span>}
-                {ready.length > 0 && <Button size="sm" variant="outline" icon={Plus} className="ml-auto" onClick={addAllCredits}>Add the rest ({ready.length})</Button>}
-                {!cashBank.since && <a href="#/" className="ml-auto text-xs font-semibold text-navy underline">Set up Cash &amp; bank to track it</a>}
-              </div>
-            )}
-          </Card>
-
-          <Card className="mt-3 overflow-hidden">
-            {list.length ? (
-              <>
-                <table className="hidden w-full text-sm md:table">
-                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-2.5">Date</th>
-                      <th className="px-2 py-2.5">Details</th>
-                      <th className="px-2 py-2.5">Found in</th>
-                      <th className="px-2 py-2.5 text-right">Amount</th>
-                      <th className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.map((x) => {
-                      const note = needsLook(x, range);
-                      return (
-                        <tr key={x.id} className="border-t border-slate-100 align-top">
-                          <td className="whitespace-nowrap px-4 py-3">
-                            <span className="block font-medium">{formatAD(x.date)}</span>
-                            <span className="block text-xs text-slate-500">{x.time}{x.postedDate && x.postedDate !== x.date ? `${x.time ? ' · ' : ''}posted ${shortDate(x.postedDate)}` : ''}</span>
-                          </td>
-                          <td className="max-w-[26rem] px-2 py-3">
-                            <Details x={x} />
-                            {note && <Note text={note} />}
-                            {!note && afterStatement(x, range) && <p className="mt-1 text-xs text-slate-500">After the last statement</p>}
-                          </td>
-                          <td className="px-2 py-3"><Sources x={x} compact /></td>
-                          <td className="px-2 py-3 text-right"><Amount x={x} region={region} /></td>
-                          <td className="whitespace-nowrap px-4 py-2">
-                            <RowActions compact x={x} onAddBill={addBill} onLink={setLinking} onUnlink={unlink} onScreenshot={setEditing} canLink={x.nodes.length < 3 && linkCandidates(x, result).length > 0} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <ul className="divide-y divide-slate-100 md:hidden">
-                  {list.map((x) => {
-                    const note = needsLook(x, range);
-                    return (
-                      <li key={x.id} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-xs text-slate-500">{formatAD(x.date)}{x.time ? ` · ${x.time}` : ''}</span>
-                          <Amount x={x} region={region} />
-                        </div>
-                        <Details x={x} />
-                        <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <Sources x={x} />
-                        </div>
-                        {note && <Note text={note} />}
-                        <div className="mt-2">
-                          <RowActions x={x} onAddBill={addBill} onLink={setLinking} onUnlink={unlink} onScreenshot={setEditing} canLink={x.nodes.length < 3 && linkCandidates(x, result).length > 0} />
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            ) : (
-              <EmptyState icon={Search} title="No rows match">Try another filter or search.</EmptyState>
-            )}
-          </Card>
-          <div className="mt-4 text-right">
-            <Button size="sm" variant="ghost" icon={Trash} onClick={clearAll}>Delete all bank data</Button>
-          </div>
-        </>
-      )}
-
       {editing && <PaymentEditor key={editing.id} payment={editing} onClose={() => setEditing(null)} />}
       {linking && <LinkPicker entry={linking} candidates={linkCandidates(linking, result)} region={region} onPick={(c) => link(linking, c)} onClose={() => setLinking(null)} />}
     </div>
   );
-}
-
-function Stat({ label, value, warn, good, onClick, className = '' }) {
-  const Tag = onClick ? 'button' : 'div';
-  return (
-    <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={`card min-w-0 px-3 py-2.5 text-left ${onClick ? 'hover:border-slate-300' : ''} ${className}`}>
-      <span className="block text-xs font-semibold text-slate-500">{label}</span>
-      <span className={`num block truncate text-xl font-bold ${warn ? 'text-amber-700' : good ? 'text-emerald-700' : 'text-slate-900'}`}>{value}</span>
-    </Tag>
-  );
-}
-
-function Note({ text }) {
-  return <p className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-800"><TriangleAlert className="size-3.5 shrink-0" />{text}</p>;
 }

@@ -1,224 +1,415 @@
-import { useState } from 'react';
-import { CalendarDays, ChevronRight, Coins, Hourglass, PencilLine, ScanLine, SearchCheck, Ticket, Trophy, UserRound, Wallet } from 'lucide-react';
-import { REGIONS } from '../lib/constants.js';
-import { blankExpense, byCategory, filterExpenses, reportTotals, summarize } from '../lib/expense.js';
+// Home (Figma: Phone 01 · Home, Desktop 1 · Home): what you have now, the lucky draw when it's
+// relevant, this month at a glance, where it went, and the latest bills.
+import { useMemo, useState } from 'react';
+import {
+  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, PencilLine, Plus, Search,
+  SlidersHorizontal, Ticket, TriangleAlert, Trophy, Users,
+} from 'lucide-react';
+import { IRD_STATUS, PAYMENT, REGIONS } from '../lib/constants.js';
+import { blankExpense, byCategory, countsAsSpend, filterExpenses, reportTotals } from '../lib/expense.js';
 import { money } from '../lib/format.js';
-import { CLAIM_DAYS, formatCoupon, needsCouponOnly, needsManualEntry, normalizeCouponCode } from '../lib/ird.js';
-import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, todayAD, todayBS } from '../lib/nepaliDate.js';
+import { formatCoupon, needsManualEntry } from '../lib/ird.js';
+import { moneyNow } from '../lib/money.js';
+import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, shortBS, todayAD, todayBS } from '../lib/nepaliDate.js';
+import { CATEGORY_ICONS, CATEGORY_SHORT } from '../lib/categoryIcons.js';
 import { isDemoProfile, useStore } from '../store.jsx';
-import { ExpenseList, NoBillsYet } from '../components/ExpenseList.jsx';
-import { IrdAction } from '../components/Ird.jsx';
-import { Button, Card, EmptyState } from '../components/ui.jsx';
+import { NoBillsYet } from '../components/ExpenseList.jsx';
+import { BillCards, BillTable } from '../components/BillCard.jsx';
+import { StorageIndicator } from '../components/LocalFirst.jsx';
+import { Wordmark } from '../components/Brand.jsx';
+import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
+import { Button, Card, Kbd, Notice } from '../components/ui.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
-import { CashBankCard } from '../components/CashBank.jsx';
+import { moneyLookCount } from './Money.jsx';
 
-function Kpi({ label, value, sub, icon: Icon, tone = 'slate', href }) {
-  const tones = {
-    slate: 'bg-slate-100 text-slate-700',
-    brand: 'bg-red-50 text-brand',
-    green: 'bg-emerald-50 text-emerald-700',
-    amber: 'bg-amber-50 text-amber-700',
-  };
-  const Tag = href ? 'a' : 'div';
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const HERO_BG = { backgroundImage: 'linear-gradient(180deg, rgba(245,189,82,0.13) 0%, rgba(245,189,82,0) 50%)' };
+
+/** Opens the ledger with a filter (or a search) already set. */
+function openLedger(patch) {
+  try { sessionStorage.setItem('billkhata_filters', JSON.stringify({ range: 'all', ...patch })); } catch { /* ignore */ }
+  window.location.hash = '#/ledger';
+}
+
+/* ---------- what you have now ---------- */
+
+function HeroAction({ icon: Icon, label, onClick }) {
   return (
-    <Tag href={href} className={`card flex flex-col p-4 ${href ? 'transition hover:border-slate-300 hover:shadow' : ''}`}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</span>
-        <span className={`rounded-lg p-1.5 ${tones[tone]}`}><Icon className="size-4" /></span>
-      </div>
-      <div className="num mt-2 text-2xl font-extrabold tracking-tight text-slate-900 md:text-[28px]">{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-slate-500">{sub}</div>}
-    </Tag>
+    <button type="button" onClick={onClick} className="tap flex min-w-[64px] flex-col items-center gap-1.5 py-1">
+      <span className="flex size-11 items-center justify-center rounded-full bg-[rgba(255,255,255,0.1)] text-hero-ink"><Icon className="size-5" /></span>
+      <span className="whitespace-nowrap text-[13px] font-medium leading-4 text-hero-ink">{label}</span>
+    </button>
   );
 }
 
-function CategoryBars({ data, region }) {
-  const max = Math.max(...data.map((d) => d.total), 1);
-  const total = data.reduce((s, d) => s + d.total, 0);
+function HeroPill({ icon: Icon, label, onClick, shortcut }) {
   return (
-    <ul className="space-y-3">
-      {data.map((d) => (
-        <li key={d.category} title={`${d.category}: ${money(d.total, region)} (${Math.round((d.total / total) * 100)}%)`}>
-          <div className="mb-1 flex justify-between gap-2 text-sm">
-            <span className="font-medium text-slate-800">{d.category}</span>
-            <span className="num font-semibold text-slate-900">{money(d.total, region)}</span>
-          </div>
-          <div className="h-2.5 rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-navy" style={{ width: `${Math.max(2, (d.total / max) * 100)}%` }} />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <button type="button" onClick={onClick} className="tap inline-flex h-9 items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.1)] px-3.5 text-[14px] font-medium text-hero-ink hover:bg-[rgba(255,255,255,0.16)]">
+      <Icon className="size-4" />{label}{shortcut && <Kbd tone="hero">{shortcut}</Kbd>}
+    </button>
   );
 }
 
-// Validated two-colour palette (dataviz check): cash orange, digital blue.
-const SPLIT = { cash: '#ea580c', digital: '#2563eb' };
-
-/** Cash (enter by hand) vs digital (auto-entered) spend, plus VAT paid. */
-function CashDigitalCard({ list, region, label }) {
-  const t = reportTotals(list);
-  const vatBills = list.filter((e) => Number(e.vatAmount) > 0).length;
-  const total = t.cash + t.digital;
-  const parts = [
-    { key: 'cash', name: 'Cash', note: 'enter on the IRD portal yourself', value: t.cash },
-    { key: 'digital', name: 'Digital QR / Card', note: 'entered automatically', value: t.digital },
-  ];
-  const pct = (v) => (total ? Math.round((v / total) * 100) : 0);
+function Tile({ icon: Icon, label, value, sub }) {
   return (
-    <Card className="p-4">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="font-bold">Cash vs digital</h2>
-        <span className="text-xs text-slate-500">{label}</span>
+    <div className="min-w-0 flex-1 rounded-[14px] bg-hero-soft p-3">
+      <p className="flex items-center gap-1.5 text-[13px] leading-4 text-hero-muted"><Icon className="size-3.5 shrink-0" /><span className="truncate">{label}</span></p>
+      <p className="num mt-1 truncate font-nepali text-[18px] font-semibold leading-6 text-hero-ink">{value}</p>
+      {sub && <p className="mt-0.5 truncate text-[12px] leading-4 text-hero-muted">{sub}</p>}
+    </div>
+  );
+}
+
+function WalletHero() {
+  const { money: m, expenses, openSheet } = useStore();
+  const now = useMemo(() => moneyNow(m, expenses), [m, expenses]);
+  const go = (type) => openSheet(now.ready ? type : 'accounts');
+  const more = () => { window.location.hash = '#/money'; };
+  const head = (
+    <div className="flex items-center justify-between">
+      <p className="t-overline text-hero-muted">What you have now</p>
+      {now.ready && <button type="button" onClick={() => openSheet('moneyHistory')} className="flex items-center gap-0.5 text-[13px] font-medium text-hero-muted hover:text-hero-ink md:hidden">History<ChevronRight className="size-4" /></button>}
+    </div>
+  );
+  if (!now.ready) {
+    return (
+      <section className="rounded-2xl bg-hero p-5 text-hero-ink shadow-lg" style={HERO_BG}>
+        {head}
+        <p className="mt-2 text-[22px] font-semibold leading-7">Set your cash, bank and wallets once</p>
+        <p className="mt-1 text-[14px] leading-5 text-hero-muted">Every bill you save then comes off the account it was paid from, so this stays right.</p>
+        <button type="button" onClick={() => openSheet('accounts')} className="tap mt-4 inline-flex h-11 items-center gap-2 rounded-[12px] bg-hero-ink px-4 text-[15px] font-semibold text-hero"><Plus className="size-5" />Set your accounts</button>
+      </section>
+    );
+  }
+  const today = todayAD();
+  const cash = now.accounts.filter((a) => a.kind === 'cash');
+  const banks = now.accounts.filter((a) => a.kind !== 'cash');
+  const cashToday = expenses.filter((e) => !e.isSample && countsAsSpend(e) && e.billDateAD === today && e.paymentMethod !== PAYMENT.DIGITAL).length;
+  const spent = now.accounts.reduce((t, a) => t + a.spent, 0);
+  const desk = now.accounts.length > 4 ? [...now.accounts.slice(0, 3), { id: '_more', name: `${now.accounts.length - 3} more`, kind: 'bank', balance: now.accounts.slice(3).reduce((t, a) => t + a.balance, 0) }] : now.accounts;
+  return (
+    <section className="rounded-2xl bg-hero p-5 text-hero-ink shadow-lg md:p-6" style={HERO_BG}>
+      <div className="md:flex md:items-start md:justify-between">
+        <div>
+          {head}
+          <p className="t-money-xl num mt-1 font-nepali">{money(now.total)}</p>
+        </div>
+        <div className="hidden text-right md:block">
+          <p className="text-[13px] text-hero-muted">Spent since {shortBS(m.since)}</p>
+          <p className="num font-nepali text-[18px] font-semibold">{money(spent)}</p>
+        </div>
       </div>
-      {total ? (
+      {/* Phone: cash and banks together; desktop: each account. */}
+      <div className="mt-4 flex gap-2.5 md:hidden">
+        {cash.length > 0 && <Tile icon={ACCOUNT_ICON.cash} label={cash.length > 1 ? 'Cash' : cash[0].name} value={money(now.cash)} sub={cashToday ? `After ${cashToday} bill${cashToday === 1 ? '' : 's'} today` : 'Counted by you'} />}
+        {banks.length > 0 && <Tile icon={ACCOUNT_ICON.bank} label={banks.length > 1 ? 'Bank & wallets' : banks[0].name} value={money(now.bank)} sub={banks.length > 1 ? banks.map((a) => a.name.split(' ')[0]).join(' · ') : ''} />}
+      </div>
+      <div className="mt-5 hidden gap-2.5 md:flex">
+        {desk.map((a) => <Tile key={a.id} icon={ACCOUNT_ICON[a.kind]} label={a.name} value={money(a.balance)} />)}
+      </div>
+      <div className="mt-4 flex items-center justify-between border-t border-hero-line pt-3 md:hidden">
+        <span className="text-[14px] text-hero-muted">Spent since {shortBS(m.since)}</span>
+        <span className="num font-nepali text-[15px] font-semibold">{money(spent)}</span>
+      </div>
+      <div className="mt-3 flex justify-between md:hidden">
+        <HeroAction icon={ArrowDownLeft} label="Money in" onClick={() => go('moneyIn')} />
+        <HeroAction icon={ArrowLeftRight} label="ATM / Move" onClick={() => go('move')} />
+        <HeroAction icon={ArrowUpRight} label="Quick cash out" onClick={() => go('quickOut')} />
+        <HeroAction icon={Plus} label="More" onClick={more} />
+      </div>
+      <div className="mt-5 hidden flex-wrap gap-2 md:flex">
+        <HeroPill icon={ArrowDownLeft} label="Money in" onClick={() => go('moneyIn')} />
+        <HeroPill icon={ArrowLeftRight} label="ATM / Move" onClick={() => go('move')} />
+        <HeroPill icon={ArrowUpRight} label="Quick cash out" shortcut="Q" onClick={() => go('quickOut')} />
+        <HeroPill icon={History} label="History" onClick={() => openSheet('moneyHistory')} />
+      </div>
+    </section>
+  );
+}
+
+/* ---------- lucky draw ---------- */
+
+/** Cash bills in this draw window still to enter, newest first. */
+function useLucky() {
+  const { expenses, profile, settings } = useStore();
+  const tBs = todayBS();
+  const win = drawWindowFor(tBs);
+  const ready = filterExpenses(expenses.filter((e) => needsManualEntry(e) && (!win || !e.billDateBS || (e.billDateBS >= win.startBS && e.billDateBS <= win.endBS))), { range: 'all' });
+  const coupons = expenses.filter((e) => /^\d{12}$/.test(e.irdCoupon || '')).length;
+  const show = profile.region === REGIONS.NEPAL && settings.showLuckyDraw !== false && Boolean(win);
+  return { win, ready, coupons, show };
+}
+
+function LuckyStrip() {
+  const { win, ready, show } = useLucky();
+  if (!show || !ready.length) return null;
+  return (
+    <button type="button" onClick={() => openLedger({ status: IRD_STATUS.NOT_APPLIED })} className="tap flex w-full items-center gap-3 rounded-[18px] bg-marigold-soft p-3.5 text-left md:hidden">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-marigold text-[#2b1a00]"><Ticket className="size-5" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold leading-[22px] text-ink">{ready.length} cash bill{ready.length === 1 ? '' : 's'} ready for the lucky draw</span>
+        <span className="block text-[14px] leading-[18px] text-ink-2">{win.label.split(' ')[0]} window {win.daysLeft === 0 ? 'closes today' : `closes in ${win.daysLeft} day${win.daysLeft === 1 ? '' : 's'}`}</span>
+      </span>
+      <ChevronRight className="size-5 shrink-0 text-ink-2" />
+    </button>
+  );
+}
+
+function LuckyPanel() {
+  const { openIrd, openSheet } = useStore();
+  const { win, ready, coupons, show } = useLucky();
+  if (!show) return null;
+  const month = win.label.split(' ')[0];
+  return (
+    <section className="rounded-2xl bg-marigold-soft p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-marigold text-[#2b1a00]"><Ticket className="size-5" /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-ink">Lucky draw · {month}</p>
+          <p className="t-caption text-ink-2">{coupons} coupon{coupons === 1 ? '' : 's'} saved · {ready.length} ready to apply</p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-raised px-2 py-1 text-[12px] font-medium text-marigold-ink"><CalendarDays className="size-3.5" />{win.daysLeft === 0 ? 'Last day' : `${win.daysLeft} days left`}</span>
+      </div>
+      {ready.length > 0 && (
         <>
-          <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={parts.map((p) => `${p.name} ${pct(p.value)}%`).join(', ')}>
-            {parts.filter((p) => p.value > 0).map((p) => (
-              <div key={p.key} title={`${p.name}: ${money(p.value, region)} (${pct(p.value)}%)`} style={{ width: `${(p.value / total) * 100}%`, background: SPLIT[p.key] }} className="h-full first:rounded-l-full last:rounded-r-full" />
+          <ul className="mt-3 space-y-2">
+            {ready.slice(0, 3).map((e) => (
+              <li key={e.id} className="flex items-center gap-3 rounded-[12px] bg-raised px-3 py-2.5">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium text-ink">{e.merchantName || 'Untitled bill'}</span>
+                  <span className="t-caption num block text-ink-3">{money(e.totalAmount)} · cash</span>
+                </span>
+                <button type="button" onClick={() => openIrd(e)} className="text-[14px] font-medium text-brand hover:underline">Apply</button>
+              </li>
             ))}
-          </div>
-          <dl className="mt-3 grid grid-cols-2 gap-3">
-            {parts.map((p) => (
-              <div key={p.key}>
-                <dt className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><span className="size-2.5 rounded-sm" style={{ background: SPLIT[p.key] }} />{p.name} · {pct(p.value)}%</dt>
-                <dd className="num text-lg font-extrabold text-slate-900">{money(p.value, region)}</dd>
-                <dd className="text-xs text-slate-500">{p.note}</dd>
-              </div>
-            ))}
-          </dl>
+          </ul>
+          {ready.length > 3 && <button type="button" onClick={() => openLedger({ status: IRD_STATUS.NOT_APPLIED })} className="t-caption mt-2 font-medium text-ink-2 hover:underline">and {ready.length - 3} more</button>}
+          <Button variant="primary" size="lg" icon={Ticket} className="mt-3 w-full" onClick={() => openSheet('ird', { expense: ready[0], queue: ready.slice(1).map((e) => e.id) })}>
+            Apply all ({ready.length})
+          </Button>
+          <p className="t-caption mt-2 text-ink-2">One at a time, since the IRD site asks for a captcha each time. Close a bill without saving to stop.</p>
         </>
-      ) : <p className="py-3 text-sm text-slate-500">No bills this month yet.</p>}
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-sm">
-        <span className="flex items-center gap-1.5 text-slate-600"><Coins className="size-4" />VAT paid</span>
-        <span><b className="num text-slate-900">{money(t.vat, region)}</b> <span className="text-xs text-slate-500">on {vatBills} bill{vatBills === 1 ? '' : 's'} with VAT recorded</span></span>
+      )}
+      <p className="t-caption mt-3 text-ink-2">Fonepay and card bills are entered by your bank. Nothing to do.</p>
+    </section>
+  );
+}
+
+/* ---------- this month ---------- */
+
+function StatTile({ label, value, sub, tone = 'muted' }) {
+  return (
+    <div className="card flex min-w-0 flex-col gap-1 rounded-2xl p-3.5">
+      <p className="t-overline truncate text-ink-3">{label}</p>
+      <p className="num truncate font-nepali text-[22px] font-semibold leading-7 tracking-[-0.3px] text-ink">{value}</p>
+      <p className={`truncate text-[12px] leading-4 ${tone === 'good' ? 'text-leaf' : tone === 'bad' ? 'text-warn' : 'text-ink-3'}`}>{sub}</p>
+    </div>
+  );
+}
+
+/** Bills in the BS month `ym` ("2083-07"), up to day `upTo` when given. */
+const inBsMonth = (expenses, ym, upTo = 32) => expenses.filter((e) => countsAsSpend(e) && (e.billDateBS || '').slice(0, 7) === ym && Number((e.billDateBS || '').slice(8, 10)) <= upTo);
+
+function useMonth() {
+  const { expenses, profile } = useStore();
+  const isNepal = profile.region === REGIONS.NEPAL;
+  const tBs = todayBS();
+  const p = tBs && parseYmd(tBs);
+  if (isNepal && p) {
+    const ym = tBs.slice(0, 7);
+    const prev = p.m === 1 ? `${p.y - 1}-12` : `${p.y}-${String(p.m - 1).padStart(2, '0')}`;
+    return {
+      list: inBsMonth(expenses, ym),
+      before: inBsMonth(expenses, prev, p.d),
+      name: BS_MONTHS[p.m - 1],
+      prevName: BS_MONTHS[(p.m + 10) % 12],
+    };
+  }
+  const now = new Date();
+  const prevD = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const pre = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}`;
+  return {
+    list: filterExpenses(expenses.filter(countsAsSpend), { range: 'month' }),
+    before: expenses.filter((e) => countsAsSpend(e) && (e.billDateAD || '').slice(0, 7) === pre && Number(e.billDateAD.slice(8, 10)) <= now.getDate()),
+    name: now.toLocaleDateString('en-GB', { month: 'long' }),
+    prevName: prevD.toLocaleDateString('en-GB', { month: 'long' }),
+  };
+}
+
+function Stats({ month }) {
+  const { expenses } = useStore();
+  const today = todayAD();
+  const todays = expenses.filter((e) => countsAsSpend(e) && e.billDateAD === today);
+  const t = reportTotals(month.list);
+  const before = reportTotals(month.before).total;
+  const change = before > 0 ? Math.round(((t.total - before) / before) * 100) : null;
+  const taxBills = month.list.filter((e) => Number(e.vatAmount) > 0).length;
+  const paid = t.cash + t.digital;
+  const qr = paid ? Math.round((t.digital / paid) * 100) : 0;
+  const sum = (l) => l.reduce((s, e) => s + (Number(e.totalAmount) || 0), 0);
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <StatTile label="Today" value={money(sum(todays))} sub={todays.length ? `${todays.length} bill${todays.length === 1 ? '' : 's'} · ${todays.filter((e) => e.paymentMethod !== PAYMENT.DIGITAL).length} cash` : 'No bills yet today'} />
+      <StatTile label={`${month.name} so far`} value={money(t.total)}
+        sub={change == null ? `${month.list.length} bill${month.list.length === 1 ? '' : 's'}` : `${change <= 0 ? '↓' : '↑'} ${Math.abs(change)}% vs ${month.prevName}`}
+        tone={change == null ? 'muted' : change <= 0 ? 'good' : 'bad'} />
+      <StatTile label="VAT paid" value={money(t.vat)} sub={`on ${taxBills} tax bill${taxBills === 1 ? '' : 's'}`} />
+      <StatTile label="Paid by" value={paid ? `${qr}% QR` : '—'} sub={paid ? `${100 - qr}% cash` : 'No bills this month'} />
+    </div>
+  );
+}
+
+function WhereItWent({ month, icons = true }) {
+  const data = byCategory(month.list).slice(0, 5);
+  const max = Math.max(...data.map((d) => d.total), 1);
+  return (
+    <Card className="rounded-[20px] p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[18px] font-semibold leading-6 text-ink">Where it went · {month.name}</h2>
+        <a href="#/reports" className="text-[14px] font-medium text-brand hover:underline">Report</a>
       </div>
+      {data.length ? (
+        <ul className="mt-3.5 space-y-3.5">
+          {data.map((d) => {
+            const Icon = CATEGORY_ICONS[d.category] || CATEGORY_ICONS.Other;
+            return (
+              <li key={d.category} className="flex items-center gap-3">
+                {icons && <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[10px] bg-sunken text-ink-2"><Icon className="size-[18px]" /></span>}
+                <div className="min-w-0 flex-1">
+                  <div className="flex justify-between gap-2 text-[14px] leading-[18px] text-ink">
+                    <span className="truncate font-medium">{icons ? d.category : CATEGORY_SHORT[d.category] || d.category}</span>
+                    <span className="num font-nepali font-medium">{money(d.total)}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 rounded-[3px] bg-sunken">
+                    <div className="h-full rounded-[3px] bg-navy" style={{ width: `${Math.max(3, (d.total / max) * 100)}%` }} />
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : <p className="t-body py-4 text-ink-3">No bills in {month.name} yet.</p>}
     </Card>
+  );
+}
+
+function BankLookCard() {
+  const { bankRecon, money: m } = useStore();
+  const n = moneyLookCount({ bankRecon, money: m });
+  if (!n) return null;
+  return (
+    <a href="#/money" className="card flex items-center gap-3 rounded-2xl p-4 transition hover:border-line-strong">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-warn-soft text-warn"><TriangleAlert className="size-5" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold text-ink">{n} bank row{n === 1 ? '' : 's'} need{n === 1 ? 's' : ''} a look</span>
+        <span className="t-caption block text-ink-3">Payments without a bill, or money in not counted yet</span>
+      </span>
+      <ChevronRight className="size-5 shrink-0 text-ink-3" />
+    </a>
+  );
+}
+
+/* ---------- page ---------- */
+
+function DeskSearch() {
+  const [q, setQ] = useState('');
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); openLedger({ search: q.trim() }); }} className="relative w-72">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+      <input data-search className="input h-10 py-0 pl-9 pr-10" placeholder="Search bills" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search bills" />
+      <Kbd className="absolute right-2.5 top-1/2 -translate-y-1/2">/</Kbd>
+    </form>
   );
 }
 
 export default function Dashboard() {
   const { expenses, profile, openEditor } = useStore();
   const region = profile.region;
-  const isNepal = region === REGIONS.NEPAL;
-  const s = summarize(expenses, { region });
   const tBs = todayBS();
-  const win = drawWindowFor(tBs);
-  const pending = filterExpenses(expenses.filter((e) => needsManualEntry(e)), { range: 'all' });
-  // Fonepay / QR bills are already entered; they only need their coupon number saved.
-  const couponOnly = filterExpenses(expenses.filter((e) => needsCouponOnly(e)), { range: 'all' });
-  const actions = [...pending, ...couponOnly];
-  // Nepal users count months in BS; everyone else in AD.
-  const monthList = isNepal
-    ? expenses.filter((e) => tBs && (e.billDateBS || '').slice(0, 7) === tBs.slice(0, 7))
-    : filterExpenses(expenses, { range: 'month' });
-  const monthLabel = isNepal && tBs ? `${BS_MONTHS[parseYmd(tBs).m - 1]} ${tBs.slice(0, 4)}` : new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-  const recent = filterExpenses(expenses, { range: 'all' }).slice(0, 6);
+  const month = useMonth();
+  const recent = filterExpenses(expenses, { range: 'all' }).slice(0, 5);
   const [winnerModal, setWinnerModal] = useState(null); // null | [] (check) | [bill] (claim)
   const wins = openWins(expenses);
-  const couponCount = expenses.filter((e) => normalizeCouponCode(e.irdCoupon)).length;
+  const first = profile.fullName && !isDemoProfile(profile) ? profile.fullName.split(' ')[0] : '';
+  const d = new Date();
+  const dateLine = [WEEKDAYS[d.getDay()], tBs && formatBS(tBs), formatAD(todayAD())].filter(Boolean).join(' · ');
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      {/* Phone header: logo, where your data is, settings. */}
+      <div className="-mx-1 mb-5 flex items-center justify-between md:hidden">
+        <Wordmark size={36} />
+        <div className="flex items-center gap-2">
+          <StorageIndicator />
+          <a href="#/settings" aria-label="Settings" className="tap flex size-10 items-center justify-center rounded-full border border-line bg-surface text-ink"><SlidersHorizontal className="size-5" /></a>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-slate-500">{formatAD(todayAD())}{tBs ? ` · ${formatBS(tBs)} BS` : ''}</p>
-          <h1 className="text-2xl font-bold tracking-tight">Namaste{profile.fullName && !isDemoProfile(profile) ? `, ${profile.fullName.split(' ')[0]}` : ''}</h1>
+          <h1 className="t-h-l text-ink">Namaste{first ? `, ${first}` : ''}</h1>
+          <p className="mt-0.5 text-[14px] font-medium leading-[18px] text-ink-2">{dateLine}</p>
         </div>
-        {/* Scan and Add by hand side by side (full width on phones). */}
-        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-          <a href="#/scan" className="tap inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark sm:h-10">
-            <ScanLine className="size-[18px]" />Scan a bill
-          </a>
-          <Button icon={PencilLine} className="h-11 sm:h-10" onClick={() => openEditor(blankExpense(region))}>Add by hand</Button>
+        <div className="hidden items-center gap-2 md:flex">
+          <DeskSearch />
+          <Button icon={Trophy} onClick={() => setWinnerModal([])}>Check IRD winners</Button>
         </div>
       </div>
 
-      {isDemoProfile(profile) && (
-        <a href="#/settings" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 hover:bg-amber-100">
-          <UserRound className="size-5 shrink-0" />
-          <span className="flex-1">You’re looking at <b>sample bills</b> and a <b>demo profile</b>. Add your own details in Settings before applying to the IRD draw.</span>
-          <ChevronRight className="size-4" />
-        </a>
-      )}
+      {/* Phone quick actions, scrolling sideways. */}
+      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden">
+        <button type="button" className="chip tap" onClick={() => openEditor(blankExpense(region))}><PencilLine className="size-4" />Add by hand</button>
+        <a href="#/split" className="chip tap"><Users className="size-4" />Split a bill</a>
+        <button type="button" className="chip tap" onClick={() => setWinnerModal([])}><Trophy className="size-4" />Check IRD winners</button>
+      </div>
 
-      {wins.map((b) => (
-        <button key={b.id} type="button" onClick={() => setWinnerModal([b])} className="flex w-full items-center gap-3 rounded-xl bg-emerald-600 px-4 py-3 text-left text-sm text-white shadow hover:bg-emerald-700">
-          <Trophy className="size-6 shrink-0" />
-          <span className="flex-1">
-            <b>Coupon {formatCoupon(b.irdCoupon)} won!</b> {b.merchantName} · claim by {formatAD(b.irdWin.claimByAD)} with the original paper bill.
-          </span>
-          <span className="font-semibold underline">Claim checklist</span>
-        </button>
-      ))}
+      <div className="mt-4 space-y-3">
+        {isDemoProfile(profile) && (
+          <Notice tone="warning" title="These are sample bills">
+            Add your own details in <a href="#/settings" className="font-medium text-brand underline">Settings</a> before applying to the IRD draw.
+          </Notice>
+        )}
+        {wins.map((b) => (
+          <Notice key={b.id} tone="prize" icon={Trophy} title={`Coupon ${formatCoupon(b.irdCoupon)} won!`}
+            action={<button type="button" onClick={() => setWinnerModal([b])} className="text-[14px] font-medium text-marigold-ink underline">Claim checklist</button>}>
+            {b.merchantName} · claim by {formatAD(b.irdWin.claimByAD)} with the original paper bill.
+          </Notice>
+        ))}
+      </div>
 
-      {isNepal && win && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white">
-          <span className="flex items-center gap-2 font-semibold"><CalendarDays className="size-4 text-amber-300" />Current IRD draw window: {win.label}</span>
-          <span className="text-slate-300">{formatAD(win.startAD)} – {formatAD(win.endAD)} · {win.daysLeft === 0 ? 'last day today' : `${win.daysLeft} day${win.daysLeft === 1 ? '' : 's'} left`}</span>
+      <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <div className="min-w-0 space-y-4">
+          <WalletHero />
+          <LuckyStrip />
+          <Stats month={month} />
+          <div className="lg:hidden"><WhereItWent month={month} /></div>
+          <div className="lg:hidden"><BankLookCard /></div>
+
+          <section>
+            <div className="flex items-center justify-between px-1 pt-2 md:hidden">
+              <h2 className="text-[18px] font-semibold leading-6 text-ink">Recent bills</h2>
+              <a href="#/ledger" className="text-[14px] font-medium text-brand hover:underline">Open ledger</a>
+            </div>
+            <div className="mt-3 md:hidden">{recent.length ? <BillCards list={recent} /> : <Card><NoBillsYet /></Card>}</div>
+            <Card className="hidden overflow-hidden rounded-[20px] md:block">
+              <div className="flex items-center justify-between gap-3 px-5 py-4">
+                <h2 className="text-[18px] font-semibold text-ink">Recent bills</h2>
+                <div className="flex items-center gap-3">
+                  <span className="kbd hidden items-center gap-1 text-[12px] text-ink-3 lg:flex"><Kbd>J</Kbd><Kbd>K</Kbd> move <Kbd className="ml-2">↵</Kbd> open</span>
+                  <a href="#/ledger" className="text-[14px] font-medium text-brand hover:underline">Open ledger</a>
+                </div>
+              </div>
+              {recent.length ? <BillTable list={recent} /> : <NoBillsYet />}
+            </Card>
+          </section>
         </div>
-      )}
 
-      <CashBankCard />
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Today’s spend" value={money(s.today, region)} icon={Wallet} sub={formatAD(todayAD())} />
-        <Kpi label="This month" value={money(s.month, region)} icon={CalendarDays} sub={monthLabel} tone="brand" />
-        <Kpi label="Eligible IRD bills" value={s.eligible} icon={Ticket} sub={`${s.applied} with coupon saved`} tone="green" href="#/ledger" />
-        <Kpi label="Pending IRD entries" value={s.pending} icon={Hourglass} sub="Cash bills to enter" tone="amber" href="#/ledger" />
+        <aside className="hidden space-y-4 lg:block">
+          <LuckyPanel />
+          <WhereItWent month={month} icons={false} />
+          <BankLookCard />
+        </aside>
       </div>
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <Card>
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <h2 className="font-bold">Needs IRD action</h2>
-            <span className="text-xs font-semibold text-slate-500">{pending.length} to enroll · {couponOnly.length} coupon{couponOnly.length === 1 ? '' : 's'} to save</span>
-          </div>
-          {actions.length ? (
-            <ul className="divide-y divide-slate-100">
-              {actions.slice(0, 6).map((e) => (
-                <li key={e.id} className="flex flex-col items-start gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold">{e.merchantName}</div>
-                    <div className="num text-[0.8rem] text-slate-500">{formatBS(e.billDateBS) || formatAD(e.billDateAD)} · Bill {e.invoiceNumber || '—'} · <span className="font-semibold text-slate-700">{money(e.totalAmount, region)}</span></div>
-                  </div>
-                  <IrdAction expense={e} compact={needsCouponOnly(e)} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState icon={Ticket} title="All caught up">Eligible cash bills to enter, and Fonepay/QR bills whose coupon isn’t saved yet, show up here.</EmptyState>
-          )}
-        </Card>
-
-        <Card className="p-4">
-          <h2 className="mb-0.5 font-bold">Spend by category</h2>
-          <p className="mb-4 text-xs text-slate-500">{monthLabel}</p>
-          {monthList.length ? <CategoryBars data={byCategory(monthList)} region={region} /> : <p className="py-6 text-center text-sm text-slate-500">No bills this month yet.</p>}
-        </Card>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <CashDigitalCard list={monthList} region={region} label={monthLabel} />
-        <Card className="flex flex-col p-4">
-          <h2 className="mb-1 flex items-center gap-2 font-bold"><Trophy className="size-4 text-amber-600" />Winning coupons</h2>
-          <p className="text-sm text-slate-600">
-            IRD draws winners on the 1st and 16th of each Nepali month. Paste the winners list from prize.ird.gov.np (विजेता सूची) to check your {couponCount} saved coupon{couponCount === 1 ? '' : 's'}.
-            Winners have {CLAIM_DAYS} days to claim with the original paper bill.
-          </p>
-          <div className="mt-auto pt-3">
-            <Button variant="dark" icon={SearchCheck} onClick={() => setWinnerModal([])}>Check winning coupons</Button>
-          </div>
-        </Card>
-      </div>
-
-      <Card>
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <h2 className="font-bold">Recent bills</h2>
-          <a href="#/ledger" className="flex items-center gap-1 text-sm font-semibold text-navy hover:underline">Open ledger<ChevronRight className="size-4" /></a>
-        </div>
-        {recent.length ? <ExpenseList list={recent} /> : <NoBillsYet />}
-      </Card>
       {winnerModal && <WinnerCheckModal initial={winnerModal} onClose={() => setWinnerModal(null)} />}
     </div>
   );

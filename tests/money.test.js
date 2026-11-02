@@ -51,7 +51,8 @@ test('setting the amounts again starts over (old entries kept as history)', () =
 test('cleanMoney drops malformed entries from storage or a backup', () => {
   const m = cleanMoney({ since: '2026-11-02', start: { cash: '100', bank: null }, entries: [{ id: 'a', kind: 'in', pot: 'cash', amount: 50 }, { id: 'b', kind: 'weird', amount: 5 }, null] });
   assert.equal(m.entries.length, 1);
-  assert.deepEqual(m.start, { cash: 100, bank: 0 });
+  // Two-pot data from before accounts becomes two accounts with the same ids.
+  assert.deepEqual(m.accounts.map((a) => [a.id, a.kind, a.start]), [['cash', 'cash', 100], ['bank', 'bank', 0]]);
   assert.deepEqual(cleanMoney('nope').entries, []);
 });
 
@@ -75,17 +76,17 @@ test('a credited statement row: guessed source, cash deposits are moves, added o
   const { entryFromCredit, creditState } = await import('../src/lib/money.js');
   const salary = { key: 'k1', date: '2026-11-03', credit: 85000, description: 'SALARY OCT 2026' };
   assert.deepEqual(
-    (({ kind, pot, source, amount }) => ({ kind, pot, source, amount }))(entryFromCredit(salary)),
-    { kind: 'in', pot: 'bank', source: 'Salary', amount: 85000 },
+    (({ kind, account, source, amount }) => ({ kind, account, source, amount }))(entryFromCredit(salary, 'bank')),
+    { kind: 'in', account: 'bank', source: 'Salary', amount: 85000 },
   );
-  const dep = entryFromCredit({ key: 'k2', date: '2026-11-03', credit: 20000, description: 'CASH DEPOSIT' });
+  const dep = entryFromCredit({ key: 'k2', date: '2026-11-03', credit: 20000, description: 'CASH DEPOSIT' }, 'bank');
   assert.deepEqual([dep.kind, dep.from, dep.to], ['move', 'cash', 'bank']);
   assert.equal(entryFromCredit({ key: 'k3', credit: 50, description: 'REVERSAL FP123' }).source, 'Refund');
   assert.equal(creditState(EMPTY_MONEY, salary), 'not-set');
   let money = setStart(EMPTY_MONEY, { cash: 1000, bank: 1000 }, at); // since 2026-11-02
   assert.equal(creditState(money, { ...salary, date: '2026-11-01' }), 'before');
   assert.equal(creditState(money, salary), 'ready');
-  money = addEntry(money, entryFromCredit(salary), at);
+  money = addEntry(money, entryFromCredit(salary, 'bank'), at);
   assert.equal(creditState(money, salary), 'added');
   assert.equal(moneyNow(money, []).bank, 86000);
   money = addEntry(money, dep, at);
@@ -107,5 +108,39 @@ test('a credit titled on the Bank page: the title wins over the guess and follow
   money = retitleCredit(money, 'k9', 'Cash deposit');
   assert.deepEqual([money.entries[0].kind, money.entries[0].from, money.entries[0].to], ['move', 'cash', 'bank']);
   money = retitleCredit(money, 'k9', 'Salary');
-  assert.deepEqual([money.entries[0].kind, money.entries[0].pot, money.entries[0].source], ['in', 'bank', 'Salary']);
+  assert.deepEqual([money.entries[0].kind, money.entries[0].account, money.entries[0].source], ['in', 'bank', 'Salary']);
+});
+
+test('separate accounts: each bank and wallet has its own balance; QR bills come off the one they were paid from', async () => {
+  const { setAccounts, potOf, accountForName, defaultAccountId, kindForName } = await import('../src/lib/money.js');
+  let money = setAccounts(EMPTY_MONEY, [
+    { name: 'Cash in hand', kind: 'cash', start: 8000 },
+    { name: 'Laxmi Sunrise Bank', start: 90000 },
+    { name: 'eSewa', start: 20000 },
+  ], { now: at });
+  assert.deepEqual(money.accounts.map((a) => [a.id, a.kind]), [['cash', 'cash'], ['laxmisunrisebank', 'bank'], ['esewa', 'wallet']]);
+  assert.equal(defaultAccountId(money), 'laxmisunrisebank'); // the first bank, until you choose
+  assert.equal(kindForName('Khalti'), 'wallet');
+  const later = new Date(at.getTime() + 3600e3).toISOString();
+  const bills = [
+    bill(630, 'Cash', '2026-11-02', later),
+    bill(380, 'Digital QR / Card', '2026-11-02', later, { paidFrom: 'esewa' }),
+    bill(1250, 'Digital QR / Card', '2026-11-03', later), // no account picked: the main one
+    bill(500, 'Cash', '2026-11-03', later, { quick: true, paidFrom: 'cash' }), // quick cash out
+  ];
+  assert.equal(potOf(bills[1], money), 'esewa');
+  assert.equal(potOf(bills[2], money), 'laxmisunrisebank');
+  money = addEntry(money, { kind: 'in', account: 'esewa', amount: 1000, source: 'Friend paid back' }, at);
+  money = addEntry(money, { kind: 'move', from: 'laxmisunrisebank', to: 'cash', amount: 5000 }, at);
+  const m = moneyNow(money, bills);
+  const bal = Object.fromEntries(m.accounts.map((a) => [a.id, a.balance]));
+  assert.deepEqual(bal, { cash: 11870, laxmisunrisebank: 83750, esewa: 20620 });
+  assert.deepEqual([m.cash, m.bank, m.total], [11870, 104370, 116240]);
+  assert.equal(accountForName(money, 'Laxmi Sunrise')?.id, 'laxmisunrisebank');
+  assert.equal(accountForName(money, 'esewa')?.id, 'esewa');
+  assert.equal(accountForName(money, 'Nabil Bank'), null);
+  // Setting the amounts again keeps account ids, so bills keep their "paid from".
+  const again = setAccounts(money, money.accounts.map((a) => ({ ...a, start: 0 })), { defaultAccount: 'esewa', now: at });
+  assert.deepEqual(again.accounts.map((a) => a.id), ['cash', 'laxmisunrisebank', 'esewa']);
+  assert.equal(defaultAccountId(again), 'esewa');
 });

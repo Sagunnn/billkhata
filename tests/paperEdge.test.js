@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { findPaper, isBill, otsu, sameBox, toGray } from '../src/lib/paperEdge.js';
+
+// A dark frame with a light rectangle (the bill), plus some noise and dark "text" lines on it.
+function frame(w, h, r, { bg = 50, paper = 225 } = {}) {
+  const g = new Uint8Array(w * h);
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+      const text = inside && y % 6 === 0 && x > r.x + 4 && x < r.x + r.w - 4;
+      g[y * w + x] = Math.max(0, Math.min(255, (text ? 80 : inside ? paper : bg) + (rnd() - 0.5) * 30));
+    }
+  }
+  return g;
+}
+
+test('findPaper: finds the bill on a darker table', () => {
+  const r = { x: 40, y: 30, w: 80, h: 150 };
+  const box = findPaper(frame(160, 220, r), 160, 220);
+  assert.ok(box);
+  for (const k of ['x', 'y', 'w', 'h']) assert.ok(Math.abs(box[k] - r[k]) <= 4, `${k}: ${box[k]} vs ${r[k]}`);
+  assert.ok(isBill(box));
+});
+
+test('findPaper: an empty, even frame is not a bill', () => {
+  const g = new Uint8Array(160 * 220).fill(120);
+  assert.equal(isBill(findPaper(g, 160, 220)), false);
+});
+
+test('findPaper: a tiny scrap far away is not a bill', () => {
+  assert.equal(isBill(findPaper(frame(160, 220, { x: 70, y: 90, w: 12, h: 18 }), 160, 220)), false);
+});
+
+test('sameBox and otsu', () => {
+  assert.ok(sameBox({ x: 10, y: 10, w: 50, h: 80 }, { x: 12, y: 11, w: 49, h: 81 }, 160, 220));
+  assert.equal(sameBox({ x: 10, y: 10, w: 50, h: 80 }, { x: 40, y: 11, w: 49, h: 81 }, 160, 220), false);
+  const t = otsu(Uint8Array.from([...Array(50).fill(40), ...Array(50).fill(220)]));
+  assert.ok(t >= 40 && t < 220);
+  assert.deepEqual([...toGray(Uint8ClampedArray.from([255, 255, 255, 255, 0, 0, 0, 255]))], [255, 0]);
+});

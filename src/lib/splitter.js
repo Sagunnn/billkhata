@@ -475,3 +475,26 @@ export async function decodeSplit(token) {
 
 /** eSewa personal QR payload as described for BillKhata: {"eSewa_id":"98…","name":"…"}. */
 export const esewaQrText = (id, name) => JSON.stringify({ eSewa_id: String(id || '').trim(), name: String(name || '').trim() });
+
+const rs = (n) => `रु ${(Math.round(n * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * "Copy text summary": each person's share and where to pay, as plain text for a group chat. It
+ * carries no link (a link can't prove who made it); `pay` is { via, number } from Settings.
+ */
+export function splitText(split, result, { payerName = '', pay = null, date = '' } = {}) {
+  const people = result.members.filter((r) => !r.out);
+  const how = split.mode === 'equal' ? 'Split equally' : `Split by what each had${split.taxMode === 'equal' ? ', VAT shared equally' : ', VAT shared in proportion'}`;
+  const lines = [
+    [split.title || 'Bill', date, rs(result.total)].filter(Boolean).join(' · '),
+    `${how}.`,
+    '',
+    ...people.filter((r) => !r.isPayer).map((r) => `${r.name || 'Friend'}: ${rs(r.share)}${split.paid?.[r.id] ? ' (paid)' : ''}`),
+    ...people.filter((r) => r.isPayer).map((r) => `${r.name || 'Me'} (paid the bill): ${rs(r.share)}`),
+  ];
+  const owed = outstanding(split, result);
+  const name = payerName || people.find((r) => r.isPayer)?.name || '';
+  if (owed > 0 && pay?.number) lines.push('', `Pay ${name || 'me'} on ${pay.via || 'eSewa'} ${pay.number}.`);
+  else if (owed <= 0) lines.push('', 'Everyone has paid. Thank you!');
+  return lines.join('\n');
+}

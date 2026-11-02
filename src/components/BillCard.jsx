@@ -105,7 +105,7 @@ export function BillCard({ e, pan = false }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {e.billCode && <span className="stamp">{e.billCode}</span>}
+        {e.billCode && <span className="t-mono-s text-ink-2" title="Voucher code">{e.billCode}</span>}
         <BillBadge e={e} />
         <ChevronRight className="ml-auto size-5 shrink-0 text-ink-3" aria-hidden="true" />
       </div>
@@ -161,7 +161,7 @@ export function BillTable({ list, pan = false }) {
         {list.map((e, i) => (
           <tr key={e.id} data-bill-row={i} onClick={() => openEditor(e)} onMouseEnter={() => setSel(i)}
             className={`cursor-pointer border-t border-line align-middle transition ${sel === i ? 'bg-navy-soft shadow-[inset_3px_0_0_var(--bk-navy)]' : 'hover:bg-sunken/60'}`}>
-            <td className="py-3 pl-5 pr-2">{e.billCode ? <span className="stamp">{e.billCode}</span> : <span className="text-ink-3">—</span>}</td>
+            <td className="py-3 pl-5 pr-2">{e.billCode ? <span className="t-mono-s text-ink-2">{e.billCode}</span> : <span className="text-ink-3">—</span>}</td>
             <td className="px-2 py-3">
               <p className="line-clamp-2 text-[15px] font-medium leading-5 text-ink">{e.merchantName || 'Untitled bill'}</p>
               <p className="t-caption truncate text-ink-3">{billMeta(e, { pan })} · {payLabel(e, m)}</p>

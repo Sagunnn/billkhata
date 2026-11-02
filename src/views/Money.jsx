@@ -2,7 +2,7 @@
 // or payment screenshot is read on this device, each row matched with its bill, and the ones without
 // one wait under "Need a look". Credits are counted into their own account with one tap.
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDownLeft, ArrowLeftRight, CircleCheck, Download, FileUp, History, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Pencil, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert, Undo2, Upload, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, CircleCheck, Download, FileUp, History, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Pencil, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert, Undo2, X } from 'lucide-react';
 import { PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { downloadBlob, money } from '../lib/format.js';
@@ -39,7 +39,7 @@ function shopFromNarration(text = '') {
 
 /* ---------- statement upload ---------- */
 
-function StatementUpload({ statements, onSaved }) {
+function StatementUpload({ statements, onSaved, defaultName = '' }) {
   const { saveStatement } = useStore();
   const toast = useToast();
   const input = useRef(null);
@@ -119,7 +119,7 @@ function StatementUpload({ statements, onSaved }) {
           </div>
         </form>
       )}
-      {step === 'preview' && <StatementPreview st={state.st} statements={statements} onSave={save} onCancel={() => setState({ step: 'idle' })} />}
+      {step === 'preview' && <StatementPreview st={state.st} statements={statements} defaultName={defaultName} onSave={save} onCancel={() => setState({ step: 'idle' })} />}
     </Card>
   );
 }
@@ -146,9 +146,9 @@ function AccountName({ id, value, onChange, statements, autoFocus }) {
   );
 }
 
-function StatementPreview({ st, statements, onSave, onCancel }) {
+function StatementPreview({ st, statements, onSave, onCancel, defaultName = '' }) {
   const { profile } = useStore();
-  const [name, setName] = useState(st.bank || '');
+  const [name, setName] = useState(st.bank || defaultName);
   const spent = st.rows.filter((r) => r.debit);
   const out = spent.reduce((s, r) => s + r.debit, 0);
   const credits = st.rows.filter((r) => r.credit);
@@ -459,7 +459,7 @@ const isAtm = (x) => Boolean(x.bank && !x.payment && !x.expense && x.direction =
 
 const ICON_TONE = { cash: 'bg-sunken text-ink-2', bank: 'bg-navy-soft text-navy', wallet: 'bg-leaf-soft text-leaf' };
 
-export function AccountsCard({ compact = false }) {
+export function AccountsCard({ compact = false, onAddStatement }) {
   const { money: m, expenses, statements, payments, openSheet } = useStore();
   const now = useMemo(() => moneyNow(m, expenses), [m, expenses]);
   if (!now.ready) {
@@ -493,7 +493,14 @@ export function AccountsCard({ compact = false }) {
               <span className={`flex size-10 shrink-0 items-center justify-center rounded-[12px] ${ICON_TONE[a.kind] || ICON_TONE.bank}`}><Icon className="size-5" /></span>
               <span className="min-w-0 flex-1">
                 <span className="t-body block truncate font-semibold text-ink">{a.name}</span>
-                {!compact && <span className="t-caption block truncate text-ink-3">{freshness(a, ctx)}</span>}
+                {!compact && (
+                  <span className="t-caption flex min-w-0 items-center gap-1.5 text-ink-3">
+                    <span className="truncate">{freshness(a, ctx)}</span>
+                    {onAddStatement && a.kind !== 'cash' && (
+                      <button type="button" onClick={() => onAddStatement(a.name)} className="shrink-0 font-medium text-brand hover:underline" aria-label={`Upload a ${a.name} statement`}>· {/^(Statement|Screenshots)/.test(freshness(a, ctx)) ? 'Upload newer' : 'Upload statement'}</button>
+                    )}
+                  </span>
+                )}
               </span>
               <span className={`num shrink-0 font-nepali text-[16px] font-semibold ${a.balance < 0 ? 'text-danger' : 'text-ink'}`}>{money(a.balance)}</span>
             </li>
@@ -738,21 +745,23 @@ export default function Money() {
   const empty = !statements.length && !payments.length;
   const uploads = (
     <div className="grid gap-3 md:grid-cols-2">
-      <StatementUpload statements={statements} onSaved={() => { setUploading(false); setFilter('look'); }} />
+      <StatementUpload statements={statements} defaultName={uploading?.name || ''} onSaved={() => { setUploading(false); setFilter('look'); }} />
       <ScreenshotUpload payments={payments} />
     </div>
   );
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="t-h-l text-ink">Money</h1>
-        <Button variant="tonal" icon={Upload} onClick={() => setUploading(true)}>Statement</Button>
-      </div>
+      <h1 className="t-h-l mb-4 text-ink">Money</h1>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
-        <div className="space-y-3 lg:sticky lg:top-6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
+        <div className="min-w-0 space-y-3 lg:sticky lg:top-6">
           <AccountsCard />
           <MoneyActions />
+          {/* Uploading a statement is this page's main job, so it's a big button, not a corner icon. */}
+          <div>
+            <Button variant="primary" size="lg" icon={FileUp} className="w-full" onClick={() => setUploading({ name: '' })}>Upload statement</Button>
+            <p className="t-caption mt-1.5 text-center text-ink-3">Bank or wallet · PDF, Excel, CSV or screenshot · read on this device</p>
+          </div>
           {credits.length > 0 && (
             <div className="t-label rounded-[14px] bg-leaf-soft px-3.5 py-3 text-ink">
               <p><span className="text-leaf">Credited</span> <b className="num font-nepali">{money(creditTotal, region)}</b> in {plural(credits.length, 'row')}</p>
@@ -775,7 +784,6 @@ export default function Money() {
                   Upload a bank or wallet statement and each row is matched with your bills and payment screenshots, so you can see what every payment was for.
                 </EmptyState>
               </Card>
-              {uploads}
             </>
           ) : (
             <>
@@ -843,7 +851,7 @@ export default function Money() {
       </div>
 
       {uploading && (
-        <Modal open size="xl" title="Add a statement or screenshots" subtitle="PDF, Excel, CSV or a screenshot. Read on this device." onClose={() => setUploading(false)}>
+        <Modal open size="xl" title={uploading.name ? `Upload a ${uploading.name} statement` : 'Upload a statement or screenshots'} subtitle="PDF, Excel, CSV or a screenshot. Read on this device." onClose={() => setUploading(false)}>
           {uploads}
           {statements.length > 0 && (
             <section className="mt-5">

@@ -5,7 +5,7 @@ import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Plus, Trash, 
 import { CATEGORIES, PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { money as fmt } from '../lib/format.js';
-import { formatAD, todayAD } from '../lib/nepaliDate.js';
+import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import {
   ACCOUNT_SUGGESTIONS, addEntry, cashAccountId, creditsBySource, defaultAccountId, kindForName, moneyNow, potOf,
   removeEntry, setAccounts, sourceOptions, spentBills,
@@ -160,7 +160,7 @@ export function MoneyInSheet({ onClose, account: preset }) {
     } catch (e) { setError(e.message); }
   }
   return (
-    <Modal open onClose={onClose} size="md" title="Money in" subtitle="Salary, a friend paying you back, a refund"
+    <Modal open keepFooter onClose={onClose} size="md" title="Money in" subtitle="Salary, a friend paying you back, a refund"
       footer={<Button variant="primary" size="lg" icon={Check} className="w-full" onClick={save}>Add {amount ? fmt(Number(amount)) : 'money'}</Button>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
         <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
@@ -202,7 +202,7 @@ export function MoveSheet({ onClose }) {
     } catch (e) { setError(e.message); }
   }
   return (
-    <Modal open onClose={onClose} size="md" title="ATM / Move" subtitle="Money between your own accounts"
+    <Modal open keepFooter onClose={onClose} size="md" title="ATM / Move" subtitle="Money between your own accounts"
       footer={<Button variant="primary" size="lg" icon={ArrowLeftRight} className="w-full" onClick={save} disabled={from === to}>Move {amount ? fmt(Number(amount)) : 'money'}</Button>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
         <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
@@ -215,58 +215,101 @@ export function MoveSheet({ onClose }) {
   );
 }
 
-/* ---------- Quick cash out (Phone 12) ---------- */
+/* ---------- Quick expense (Phone 12: Quick cash out) ---------- */
 
-// Quick labels and the Ledger category each one files under.
-const QUICK = [['Transport', 'Transport'], ['Snacks', 'Food & Dining'], ['Parking', 'Transport'], ['Tips', 'Other'], ['Other', 'Other']];
+// What it was for, and the Ledger category each files under.
+const QUICK = [
+  ['Food', 'Food & Dining'], ['Transport', 'Transport'], ['Groceries', 'Groceries'], ['Medicine', 'Medicine'],
+  ['Recharge', 'Utilities & Telecom'], ['Shopping', 'Retail/Shopping'], ['Tips', 'Other'], ['Other', 'Other'],
+];
+const LAST_KEY = 'billkhata_quick_last';
+const lastQuick = () => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || '{}'); } catch { return {}; } };
 
+/**
+ * Spending with no bill (a fare, snacks, a tip): amount, what it was for, an optional note. Saved as
+ * a Ledger expense (in spending and categories, never in the IRD draw); with accounts set up, it
+ * comes off the one picked.
+ */
 export function QuickOutSheet({ onClose }) {
   const { money, profile, saveExpense } = useStore();
   const toast = useToast();
   const now = useAccountsNow();
+  const last = lastQuick();
   const [amount, setAmount] = useState('');
-  const [label, setLabel] = useState('Transport');
-  const [account, setAccount] = useState(cashAccountId(money));
+  const [label, setLabel] = useState(QUICK.some(([l]) => l === last.label) ? last.label : 'Food');
+  const [account, setAccount] = useState(now.accounts.some((a) => a.id === last.account) ? last.account : cashAccountId(money));
+  const [method, setMethod] = useState(last.method || PAYMENT.CASH); // without accounts: cash or QR / card
   const [note, setNote] = useState('');
+  const [day, setDay] = useState(todayAD());
   const [error, setError] = useState('');
-  const acc = now.accounts.find((a) => a.id === account);
+  const [count, setCount] = useState(0); // saved in this sheet, with "Save & add another"
+  const hasAccounts = money.since && now.accounts.length > 0;
+  const acc = hasAccounts ? now.accounts.find((a) => a.id === account) : null;
   const after = acc ? acc.balance - (Number(amount) || 0) : null;
-  async function save() {
+  const yesterday = new Date(Date.now() - 864e5).toLocaleDateString('en-CA');
+
+  async function save(again = false) {
     if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
     const category = QUICK.find(([l]) => l === label)?.[1] || CATEGORIES.at(-1);
+    const paymentMethod = acc ? (acc.kind === 'cash' ? PAYMENT.CASH : PAYMENT.DIGITAL) : method;
     await saveExpense({
       ...blankExpense(profile.region),
       merchantName: note.trim() || label,
       totalAmount: Number(amount),
+      billDateAD: day,
+      billDateBS: adToBs(day) || '',
       category,
-      paymentMethod: acc?.kind === 'cash' || !acc ? PAYMENT.CASH : PAYMENT.DIGITAL,
-      paidFrom: account,
+      paymentMethod,
+      ...(acc ? { paidFrom: account } : {}),
       isNepalBill: false,
       quick: true,
       quickLabel: label,
       notes: note.trim(),
     });
-    toast(`${fmt(Number(amount))} cash out logged${acc ? ` from ${acc.name}` : ''}.`);
+    try { localStorage.setItem(LAST_KEY, JSON.stringify({ label, account, method })); } catch { /* ignore */ }
+    toast(`${fmt(Number(amount))} for ${note.trim() || label.toLowerCase()} saved${acc ? `, off ${acc.name}` : ''}.`);
+    if (again) { setAmount(''); setNote(''); setError(''); setCount((n) => n + 1); return; }
     onClose();
   }
+
   return (
-    <Modal open onClose={onClose} size="md" title="Quick cash out" subtitle="No receipt: bus fare, snacks, parking"
+    <Modal open keepFooter onClose={onClose} size="md" title="Quick expense" subtitle={count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
       footer={(
         <div className="w-full">
-          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={save}>Log {amount ? `${fmt(Number(amount))} ` : ''}cash out</Button>
-          {acc && amount && <p className="t-caption mt-2 text-center text-ink-3">{acc.name} will show {fmt(after)}. No PAN or bill number needed.</p>}
+          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={() => save(false)}>Save {amount ? `${fmt(Number(amount))} ` : ''}expense</Button>
+          <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Save &amp; add another</button>
+          {acc && amount && <p className="t-caption mt-1 text-center text-ink-3">{acc.name} will show {fmt(after)}.</p>}
         </div>
       )}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(false); }}>
         <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
         <fieldset>
-          <legend className="label">Category</legend>
+          <legend className="label">For</legend>
           <div className="flex flex-wrap gap-2">
             {QUICK.map(([l]) => <button key={l} type="button" aria-pressed={label === l} className="chip tap" onClick={() => setLabel(l)}>{label === l && <Check className="size-4" />}{l}</button>)}
           </div>
         </fieldset>
-        <AccountPicker label="Paid from" value={account} onChange={setAccount} accounts={now.accounts.length ? now.accounts : [{ id: 'cash', name: 'Cash in hand', balance: 0 }]} />
-        <NoteField value={note} onChange={setNote} placeholder="Microbus, Jhamsikhel → Ratnapark" />
+        <NoteField value={note} onChange={setNote} placeholder="Microbus to Ratnapark, momo with Ram…" />
+        <fieldset>
+          <legend className="label">When</legend>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" aria-pressed={day === todayAD()} className="chip tap" onClick={() => setDay(todayAD())}>Today</button>
+            <button type="button" aria-pressed={day === yesterday} className="chip tap" onClick={() => setDay(yesterday)}>Yesterday</button>
+            <input type="date" aria-label="Another day" className="input h-9 w-auto py-0" value={day} max={todayAD()} onChange={(e) => e.target.value && setDay(e.target.value)} />
+          </div>
+        </fieldset>
+        {hasAccounts
+          ? <AccountPicker label="Paid from" value={account} onChange={setAccount} accounts={now.accounts} />
+          : (
+            <div>
+              <p className="label">Paid with</p>
+              <div className="flex gap-2">
+                {[[PAYMENT.CASH, 'Cash'], [PAYMENT.DIGITAL, 'QR / card']].map(([v, l]) => (
+                  <button key={v} type="button" aria-pressed={method === v} className="chip tap" onClick={() => setMethod(v)}>{method === v && <Check className="size-4" />}{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
       </form>
     </Modal>
@@ -286,7 +329,7 @@ export function MoneyHistorySheet({ onClose }) {
     ...(money.entries || []).map((x) => ({ ...x, sort: `${x.date}|${x.createdAt}` })),
     ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: Number(e.totalAmount) || 0, date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
   ].sort((a, b) => b.sort.localeCompare(a.sort));
-  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick cash out' };
+  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
   return (
     <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)}` : ''}>
       {bySource.length > 0 && (

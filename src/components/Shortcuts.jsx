@@ -4,7 +4,7 @@ import { Modal, Kbd } from './ui.jsx';
 const KEYS = [
   ['S', 'Scan a bill'],
   ['N', 'Add a bill by hand'],
-  ['Q', 'Quick cash out'],
+  ['Q', 'Quick expense (no bill)'],
   ['/', 'Search'],
   ['J / K', 'Next / previous bill'],
   ['↵', 'Open the selected bill'],

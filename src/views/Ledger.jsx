@@ -1,7 +1,7 @@
 // Ledger (Figma: Phone 03 · Ledger): every bill, grouped by Nepali day with the day's total, a
 // search, range chips (this Nepali month among them), and filters for category, payment and IRD.
 import { useEffect, useRef, useState } from 'react';
-import { Download, PencilLine, RotateCcw, ScanLine, Search, SlidersHorizontal } from 'lucide-react';
+import { Download, PencilLine, RotateCcw, ScanLine, Search, SlidersHorizontal, Zap } from 'lucide-react';
 import { CATEGORIES, IRD_STATUSES, PAYMENT_METHODS } from '../lib/constants.js';
 import { blankExpense, filterExpenses, reportTotals } from '../lib/expense.js';
 import { money } from '../lib/format.js';
@@ -81,7 +81,7 @@ function FilterSheet({ f, update, onClose }) {
 const iconBtn = 'tap relative flex size-10 items-center justify-center rounded-full border border-line bg-surface text-ink hover:bg-sunken';
 
 export default function Ledger() {
-  const { expenses, profile, openEditor } = useStore();
+  const { expenses, profile, openEditor, openSheet } = useStore();
   const [f, setF] = useState(readFilters);
   const [filtering, setFiltering] = useState(false);
   const searchRef = useRef(null);
@@ -118,6 +118,7 @@ export default function Ledger() {
       <div className="mb-4 flex items-center justify-between gap-3">
         <h1 className="t-h-l text-ink">Ledger</h1>
         <div className="flex items-center gap-2">
+          <Button variant="tonal" icon={Zap} onClick={() => openSheet('quickOut')} aria-label="Quick expense, no bill"><span className="sm:hidden">Expense</span><span className="hidden sm:inline">Quick expense</span></Button>
           <span className="hidden md:block"><Button icon={PencilLine} onClick={() => openEditor(blankExpense(profile.region))}>Add by hand</Button></span>
           <a href="#/reports" className={iconBtn} aria-label="Export: CSV and PDF reports" title="Export"><Download className="size-5" /></a>
           <button type="button" className={iconBtn} onClick={() => setFiltering(true)} aria-label={`Filters${extra ? ` (${extra} on)` : ''}`} title="Filters">

@@ -37,7 +37,7 @@ function ineligibleWhy(e) {
 
 /** The one badge a bill shows, and what tapping it does ('ird' opens the IRD sheet). */
 export function billBadge(e) {
-  if (e.quick) return { tone: 'neutral', label: 'Quick cash out' };
+  if (e.quick) return { tone: 'neutral', label: 'No bill' };
   if (e.tripShareOf) return { tone: 'neutral', icon: Map, label: 'Trip share' };
   if (e.split && !e.isNepalBill) return { tone: 'neutral', icon: Users, label: 'Split · my share' };
   if (!e.isNepalBill) return null;

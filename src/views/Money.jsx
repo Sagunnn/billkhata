@@ -527,8 +527,24 @@ export function MoneyActions({ className = '' }) {
 /* ---------- bank rows ---------- */
 
 /** The one status a row shows, and whether it needs a look (credits not counted yet do too). */
+/** A transfer row's two accounts in Money (ids, or '' when that account isn't set up). */
+function transferAccounts(x, m, statements) {
+  const t = x.bank.transfer;
+  const here = accountForName(m, statements.find((s) => s.id === x.bank.statementId)?.bank)?.id || '';
+  const there = accountForName(m, t.other)?.id || '';
+  return t.dir === 'out' ? { from: here, to: there } : { from: there, to: here };
+}
+const movedFor = (x, m) => (m.entries || []).some((e) => e.kind === 'move' && (e.bankKey === x.bank.key || (x.bank.transfer?.partner && e.bankKey === x.bank.transfer.partner)));
+
 function rowStatus(x, { range, m, result }) {
   const note = needsLook(x, range);
+  if (x.bank?.transfer) {
+    const t = x.bank.transfer;
+    const where = t.dir === 'out' ? `to ${t.other || 'your wallet'}` : `from ${t.other || 'your bank'}`;
+    return movedFor(x, m)
+      ? { tone: 'success', icon: ArrowLeftRight, label: `Moved ${where} · counted` }
+      : { tone: 'info', icon: ArrowLeftRight, label: `Transfer ${where}`, title: 'Between your own accounts: not spending, not money in' };
+  }
   if (x.direction === 'in' && x.bank) {
     const state = creditState(m, x.bank);
     if (state === 'ready') return { tone: 'info', icon: ArrowDownLeft, label: 'Money in · not counted yet', look: true };
@@ -571,7 +587,7 @@ function rowAccount(x, statements) {
 function RowCard({ x, st, actions, statements }) {
   const isIn = x.direction === 'in';
   const narration = x.bank?.description || x.payment?.merchant || x.expense?.merchantName || '—';
-  const title = isIn && x.bank ? creditSource(x.bank) : '';
+  const title = isIn && x.bank && !x.bank.transfer ? creditSource(x.bank) : '';
   return (
     <li className="card p-4">
       <div className="flex items-start justify-between gap-3">
@@ -585,7 +601,7 @@ function RowCard({ x, st, actions, statements }) {
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <Badge tone={st.tone} icon={st.icon} title={st.note || st.title}>{st.label}</Badge>
-        {isIn && x.bank && <CreditTitle row={x.bank} />}
+        {isIn && x.bank && !x.bank.transfer && <CreditTitle row={x.bank} />}
       </div>
       {actions}
     </li>
@@ -622,7 +638,7 @@ export default function Money() {
   const skipped = statements.some((s) => s.overlapRemoved);
 
   // Credits: how much came in, and how much is counted in Money.
-  const credits = rows.filter((r) => r.x.direction === 'in' && r.x.bank);
+  const credits = rows.filter((r) => r.x.direction === 'in' && r.x.bank && !r.x.bank.transfer);
   const ready = credits.filter((r) => creditState(m, r.x.bank) === 'ready');
   const creditTotal = credits.reduce((t, r) => t + r.x.amount, 0);
   const accountOf = (row) => accountForName(m, statements.find((s) => s.id === row.statementId)?.bank)?.id;
@@ -679,6 +695,20 @@ export default function Money() {
     if (!on) setMoney((cur) => ({ ...cur, entries: (cur.entries || []).filter((e) => !(e.bankKey === x.bank.key && e.kind === 'move')) }));
     if (!quiet) toast(on ? 'Marked as not a bill: a transfer, top-up or fee.' : 'Back in Need a look.');
   }
+  /** Marks a row as a transfer between your own accounts (true), never one (false). */
+  async function setTransfer(x, on) {
+    const st = statements.find((s) => s.id === x.bank.statementId);
+    if (!st) return;
+    await saveStatement({ ...st, rows: st.rows.map((r) => (r.key === x.bank.key ? { ...r, isTransfer: on } : r)) });
+    if (!on) setMoney((cur) => ({ ...cur, entries: (cur.entries || []).filter((e) => !(e.kind === 'move' && e.bankKey === x.bank.key)) }));
+    toast(on ? 'Marked as a transfer between your accounts: not spending, not money in.' : 'Not a transfer: it counts again.');
+  }
+  // A transfer counted in Money: the amount moves from one account to the other, once per pair.
+  function countMove(x, from, to) {
+    setMoney((cur) => addEntry(cur, { kind: 'move', from, to, amount: x.amount, date: x.bank.date, note: x.bank.description, bankKey: x.bank.key }));
+    const name = (id) => accountsOf(m).find((a) => a.id === id)?.name || id;
+    toast(`${money(x.amount)} moved from ${name(from)} to ${name(to)}.`);
+  }
   // An ATM withdrawal isn't spending: the money moves from this account to cash in hand.
   async function atmToCash(x) {
     const from = accountOf(x.bank) || defaultAccountId(m);
@@ -710,7 +740,14 @@ export default function Money() {
   function actionsFor(x, st) {
     const out = [];
     const canLink = x.nodes.length < 3 && linkCandidates(x, result).length > 0;
-    if (x.direction === 'in' && x.bank) {
+    if (x.bank?.transfer) {
+      const { from, to } = transferAccounts(x, m, statements);
+      if (!movedFor(x, m) && m.since && x.bank.date >= m.since) {
+        if (from && to && from !== to) out.push(<Button key="mv" icon={ArrowLeftRight} onClick={() => countMove(x, from, to)}>Count as move</Button>);
+        else out.push(<span key="mv" className="t-caption text-ink-3">Add {x.bank.transfer.other || 'the other account'} under your accounts to count it</span>);
+      }
+      out.push(<Button key="nt" variant="ghost" icon={X} onClick={() => setTransfer(x, false)}>Not a transfer</Button>);
+    } else if (x.direction === 'in' && x.bank) {
       const state = creditState(m, x.bank);
       if (state === 'ready') out.push(<Button key="add" icon={ArrowDownLeft} onClick={() => addCredit(x.bank)}>Add to Money</Button>);
       if (state === 'not-set') out.push(<Button key="set" variant="ghost" onClick={() => openSheet('accounts')}>Set your accounts</Button>);
@@ -729,6 +766,7 @@ export default function Money() {
       <button key={label} type="button" onClick={onClick} title={label} aria-label={label} className="tap rounded-full p-2 text-ink-2 hover:bg-sunken hover:text-ink"><I className="size-[18px]" /></button>
     );
     const small = [
+      x.bank && !x.bank.transfer && !x.expense && !x.payment && icon('Transfer between my own accounts', ArrowLeftRight, () => setTransfer(x, true)),
       x.expense && icon('Open bill', Receipt, () => openEditor(x.expense)),
       x.payment && icon('Screenshot', Smartphone, () => setEditing(x.payment)),
       x.nodes.length > 1 && icon('Unlink', Link2Off, () => unlink(x)),

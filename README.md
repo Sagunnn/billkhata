@@ -65,8 +65,11 @@ Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with 
   sticky bars, toasts and bottom sheets (sized with `dvh`), so nothing hides behind the notch, the
   home bar or the browser's toolbars.
 - **Live camera:** on a phone the Scan tab opens the back camera in the app. Each preview frame is
-  checked for the bill (`paperEdge.js`); when it holds still for about a second it's taken by itself
-  and cropped to the paper, or tap the shutter. Flash where the phone allows it. Without camera
+  checked for the bill (`paperEdge.js`) so the corner brackets follow it; you take the photo with
+  the shutter (never by itself, as the camera may not have focused yet) and it's cropped to the
+  paper. The photo is then checked for blur (`focusScore`: edge strength over contrast, measured
+  inside the paper); a blurry one asks to be taken again, or used anyway. Photos from the phone's
+  camera app or an upload get the same check, as a warning on Check the details. Flash where the phone allows it. Without camera
   access, **Use phone camera** opens the phone's own camera app. Photo, PDF or photo file, Type it,
   Upload and Try a sample sit under the shutter.
 - **Checking a scan ("Check the details"):** each field says where its value came from: **Read
@@ -76,6 +79,17 @@ Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with 
   desktop) sticks to the top on phones and folds away; on desktop it stays beside the form. The
   save bar is Split, IRD (greyed with the reason, e.g. "Complete the 9-digit PAN to apply") and
   Save bill. "Write KT1-07 on bill" shows the voucher code to copy onto the paper.
+- **One part at a time on phones:** Check the details is four steps, **Shop**, **Bill**, **Amount**
+  and **More**. The photo above zooms to the part of the bill each step is about and boxes the
+  fields read there (the PAN line, the total row), or the one field being edited. The boxes come
+  from the OCR word positions (`src/lib/ocr/locate.js`, turned back onto the photo after
+  straightening); a photo without them (a vision read, an attached photo) zooms to the usual area.
+  Save works from any step; a Save error opens its step. On desktop, clicking a field boxes it.
+- **Typing on a phone:** while a text field has focus, the Save bar, the bottom tabs and long
+  sheets' footers step aside and the photo shrinks, so nothing covers the field being fixed.
+- **Quick expense** (Home, Ledger, Money, the sidebar, or Q): spending with no bill, an amount, what
+  it was for, a note and the day. It's a Ledger expense marked **No bill**, in spending and
+  categories, never in the IRD draw; with accounts set up it comes off the one picked.
 - **Adding a bill:** Scan and Add by hand sit side by side on the Scan page, the Dashboard and the
   sidebar. Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
   PDF has a text layer, its exact text goes through the receipt parser instead of OCR
@@ -354,6 +368,14 @@ an ATM withdrawal, or **Add to Money** for a credit, which goes into the stateme
 (matched by name) or the main one. Each credit can be titled with where it came from; "Cash deposit"
 moves cash into the account instead of counting as new money. **Need a look** gathers the rows that
 want something; matched ones are listed under it.
+
+**Transfers between your own accounts** (`src/lib/bank/transfer.js`): a bank loading a linked
+wallet ("ESEWA LOAD …"), a wallet credited from its linked bank and then debited for the payment
+("Load Fund from … Bank"), or money sent back to the bank. These rows are neither spending nor money
+in: they never ask for a bill, aren't in the credited totals, and with both statements uploaded the
+two sides are paired (same amount, within two days). The payment from the wallet stays the one
+expense. **Count as move** moves the amount between the two accounts in Money; **Not a transfer**
+undoes the guess, and any other row can be marked as one by hand.
 
 ## Bank: spending from statements, payment screenshots, one merged table
 

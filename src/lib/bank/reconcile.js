@@ -4,6 +4,7 @@
 //   either   ↔ saved bill: same total (or rounded off), same or next day, similar shop name.
 // Each item is used once; the strongest pairs are taken first. You can unlink a wrong pair or
 // link two items by hand, and that choice wins over the scores. Pure; tests/reconcile.test.js.
+import { findTransfers } from './transfer.js';
 import { toAsciiDigits } from '../nepaliDate.js';
 import { csvCell } from '../format.js';
 import { withoutOverlaps } from './overlap.js';
@@ -111,7 +112,7 @@ export function reconcile({ bankRows = [], payments = [], expenses = [], overrid
   const pairs = [];
   for (const r of bankRows) {
     const rid = nodeId.bank(r);
-    if (used.has(rid)) continue;
+    if (used.has(rid) || r.transfer) continue; // a transfer between your accounts has no screenshot to match
     for (const p of payments) {
       const pid = nodeId.payment(p);
       if (used.has(pid) || blocked.has(pairKey(rid, pid))) continue;
@@ -136,6 +137,7 @@ export function reconcile({ bankRows = [], payments = [], expenses = [], overrid
   groups.forEach((g, gi) => {
     if (g.expense) return;
     if (g.bank && directionOf(g.bank) === 'in') return; // money in isn't a bill you paid
+    if (g.bank?.transfer) return; // nor is moving money to your own wallet
     if (g.payment && g.payment.direction === 'in') return;
     const ids = [g.bank && nodeId.bank(g.bank), g.payment && nodeId.payment(g.payment)].filter(Boolean);
     for (const e of expenses) {
@@ -232,6 +234,7 @@ export function needsLook(x, range) {
   if (x.payment?.status === 'failed') return 'Failed payment: it should not be on the statement';
   if (x.unsure) return 'Two payments fit equally well: check this pair';
   if (x.bank?.balanceMismatch) return "Balance doesn't follow from the row above: check the amounts";
+  if (x.bank?.transfer) return ''; // between your own accounts: not spending, not money in
   if (x.bank && !x.payment && !x.expense && x.direction === 'out' && !x.bank.notBill) return 'No bill or screenshot for this payment';
   if (!x.bank && within(x.date, range, 0) && dayDiff(range.to, x.date) >= 3) return 'Not on the statement';
   return '';
@@ -273,7 +276,10 @@ const shiftDay = (d, n) => new Date(Date.parse(d) + n * DAY).toISOString().slice
 export function reconcileAll({ statements: saved = [], payments = [], expenses = [], overrides = {} }) {
   // A transaction in two overlapping statements of one account counts once.
   const statements = withoutOverlaps(saved);
-  const bankRows = statements.flatMap((s) => s.rows || []);
+  // Transfers between your own accounts (a bank loading a wallet…) are marked, and paired across
+  // statements, so they're neither spending nor money in.
+  const transfers = findTransfers(statements);
+  const bankRows = statements.flatMap((s) => (s.rows || []).map((r) => (transfers.has(r.key) ? { ...r, transfer: transfers.get(r.key) } : r)));
   const ds = statements.flatMap((s) => [s.from, s.to]).filter(Boolean).sort();
   const range = ds.length ? { from: ds[0], to: ds.at(-1) } : null;
   const dates = [...ds, ...payments.map((p) => p.dateAD)].filter(Boolean).sort();

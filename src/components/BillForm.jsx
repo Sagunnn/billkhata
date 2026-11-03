@@ -230,9 +230,9 @@ function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto }) {
   return (
     <div className="sticky-top sticky z-20 -mx-4 bg-sunken lg:hidden">
       {open
-        ? <ReceiptViewer src={src} onExpand={onViewPhoto} className="h-[24dvh] max-h-60 min-h-36" />
+        ? <ReceiptViewer src={src} onExpand={onViewPhoto} className="photo-typing h-[24dvh] max-h-60 min-h-36" />
         : <button type="button" onClick={toggle} className="flex h-14 w-full items-center gap-3 px-4 text-left"><img src={src} alt="" className="size-10 rounded object-cover object-top" /><span className="t-label text-ink-2">Bill photo · tap to show</span></button>}
-      <div className="pointer-events-none absolute inset-x-3 top-2 flex items-center justify-between">
+      <div className="hide-typing pointer-events-none absolute inset-x-3 top-2 flex items-center justify-between">
         {open && <button type="button" onClick={toggle} aria-expanded={open} className="tap pointer-events-auto inline-flex h-8 items-center gap-1 rounded-full bg-raised px-3 text-[13px] font-medium text-ink shadow-md"><ChevronUp className="size-4" />Fold photo</button>}
         <span className="pointer-events-auto ml-auto flex gap-1.5">
           {onPhoto && (

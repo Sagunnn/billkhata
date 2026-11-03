@@ -761,7 +761,7 @@ export function SplitEditor({ billId }) {
       {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} />}
 
       {/* Pinned above the bottom bar on phones, inline on desktop. */}
-      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+      <div className="hide-typing fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
         <div className="mx-auto max-w-xl">
           {step === 2 ? <ShareBar split={live} result={result} payerInfo={payerInfo} /> : (
             <div className="flex gap-2">

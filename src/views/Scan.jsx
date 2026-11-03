@@ -290,7 +290,7 @@ export default function Scan() {
           </details>
         )}
         {/* Pinned save bar: Split, IRD (greyed with the reason while it can't apply), Save bill. */}
-        <div className="above-nav sticky z-20 -mx-4 mt-5 flex items-center gap-2 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:justify-end md:rounded-[16px] md:border md:px-3">
+        <div className="hide-typing above-nav sticky z-20 -mx-4 mt-5 flex items-center gap-2 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:justify-end md:rounded-[16px] md:border md:px-3">
           <span className="mr-auto hidden items-center gap-1.5 text-[12px] text-ink-3 md:inline-flex"><ShieldCheck className="size-3.5 text-leaf" />Saved only on this device</span>
           <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
           <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>

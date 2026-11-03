@@ -98,7 +98,7 @@ function Sidebar({ route }) {
 
 function BottomNav({ route }) {
   return (
-    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-safe backdrop-blur md:hidden">
+    <nav aria-label="Main" className="hide-typing fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-safe backdrop-blur md:hidden">
       <div className="relative mx-auto grid h-[66px] max-w-lg grid-cols-5 items-center">
         {ROUTES.filter((r) => r.tab).map(({ path, label, icon: Icon }) => {
           const active = route === path;
@@ -138,6 +138,39 @@ function LoadingView() {
       <span className="sr-only">Loading your bills…</span>
     </div>
   );
+}
+
+/**
+ * Phones: while a text field has focus (the keyboard is up), mark <html data-typing> so the
+ * floating Save bar, bottom tabs and sheet footers get out of the way (see index.css).
+ */
+const TEXT_INPUT = /^(text|search|tel|number|email|url|password|)$/;
+function isTextField(el) {
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && TEXT_INPUT.test((el.getAttribute('type') || '').toLowerCase());
+}
+function useTypingFlag() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let timer = 0;
+    const sync = () => {
+      clearTimeout(timer);
+      // Moving from one field to the next blurs then focuses: wait a moment so the bar doesn't flash.
+      timer = setTimeout(() => {
+        if (isTextField(document.activeElement)) root.setAttribute('data-typing', '');
+        else root.removeAttribute('data-typing');
+      }, 80);
+    };
+    document.addEventListener('focusin', sync);
+    document.addEventListener('focusout', sync);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('focusin', sync);
+      document.removeEventListener('focusout', sync);
+      root.removeAttribute('data-typing');
+    };
+  }, []);
 }
 
 /** A file dropped outside a drop zone would make the browser open it and leave the app. */
@@ -188,6 +221,7 @@ export default function App() {
   const route = useHashRoute();
   useDropGuard();
   useShortcuts();
+  useTypingFlag();
   const { ready, loadError } = useStore();
   // #/coupon/<billId>/<code> comes back from the portal helper.
   const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);

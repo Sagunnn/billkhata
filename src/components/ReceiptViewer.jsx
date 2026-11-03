@@ -164,11 +164,11 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
         />
       </div>
       {!zoomed && (
-        <span className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-slate-900/60 px-1.5 py-0.5 text-[11px] font-medium text-white">
+        <span className="hide-typing pointer-events-none absolute bottom-2 left-2 rounded-md bg-slate-900/60 px-1.5 py-0.5 text-[11px] font-medium text-white">
           {coarse() ? 'Pinch or double-tap to zoom' : 'Double-click or Ctrl + scroll to zoom'}
         </span>
       )}
-      <div className="absolute bottom-2 right-2 flex gap-1.5">
+      <div className="hide-typing absolute bottom-2 right-2 flex gap-1.5">
         <button type="button" className={ctl} aria-label="Zoom out" disabled={!zoomed} onClick={() => zoomAt(1 / STEP, ...centre())}><Minus className="size-4" /></button>
         <button type="button" className={ctl} aria-label="Zoom in" disabled={view.s >= MAX} onClick={() => zoomAt(STEP, ...centre())}><Plus className="size-4" /></button>
         {zoomed && <button type="button" className={ctl} aria-label="Fit the whole bill" onClick={() => setView({ s: 1, x: 0, y: 0 })}><Shrink className="size-4" /></button>}

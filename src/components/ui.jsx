@@ -243,7 +243,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         </div>
         {/* Sticky parts inside (the bill photo) stick to the top of this scroll area. */}
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-1" style={{ '--sticky-top': '-0.25rem' }}>{children}</div>
-        {footer && <div className="pb-safe-3 flex flex-wrap justify-end gap-2 border-t border-line px-5 pt-3">{footer}</div>}
+        {footer && <div className="hide-typing pb-safe-3 flex flex-wrap justify-end gap-2 border-t border-line px-5 pt-3">{footer}</div>}
       </div>
     </div>
   );

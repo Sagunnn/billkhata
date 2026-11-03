@@ -8,7 +8,11 @@ const MAX = 6;
 const STEP = 1.6;
 const coarse = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
-export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpand }) {
+/**
+ * `focus`: a part of the photo (fractions 0-1) to zoom to, e.g. the PAN line; null shows the whole
+ * bill. `marks`: boxes drawn on the photo, [{ box, label, tone: 'read' | 'unsure' }].
+ */
+export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpand, focus = null, marks = [] }) {
   const box = useRef(null);
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
   const [gesturing, setGesturing] = useState(false);
@@ -16,6 +20,7 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
   const pointers = useRef(new Map());
   const gesture = useRef(null);
   const lastTap = useRef({ t: 0, x: 0, y: 0 });
+  const [nat, setNat] = useState(null); // the photo's own size, to place boxes on it
 
   useEffect(() => { live.current = view; }, [view]);
   useEffect(() => setView({ s: 1, x: 0, y: 0 }), [src]);
@@ -37,6 +42,30 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
       return fit(ns, cx - (cx - p.x) * r, cy - (cy - p.y) * r);
     });
   }, [fit]);
+
+  // Where the photo sits in the box at fit (object-contain), and a photo fraction → box pixels.
+  const placed = () => {
+    const el = box.current;
+    if (!el || !nat) return null;
+    const W = el.clientWidth;
+    const H = el.clientHeight;
+    const k = Math.min(W / nat.w, H / nat.h);
+    return { W, H, k, ox: (W - nat.w * k) / 2, oy: (H - nat.h * k) / 2 };
+  };
+
+  // Zoom to the focus area (with some room around it), or back to the whole bill.
+  const focusKey = focus ? [focus.x, focus.y, focus.w, focus.h].map((v) => v.toFixed(3)).join() : '';
+  useEffect(() => {
+    const p = placed();
+    if (!p) return;
+    if (!focus) { setView({ s: 1, x: 0, y: 0 }); return; }
+    const bw = focus.w * nat.w * p.k;
+    const bh = focus.h * nat.h * p.k;
+    const s = Math.min(3, Math.max(1, Math.min(p.W / (bw * 1.15 + 24), p.H / (bh * 1.6 + 24))));
+    const cx = p.ox + (focus.x + focus.w / 2) * nat.w * p.k;
+    const cy = p.oy + (focus.y + focus.h / 2) * nat.h * p.k;
+    setView(fit(s, p.W / 2 - cx * s, p.H / 2 - cy * s));
+  }, [focusKey, nat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const centre = () => {
     const el = box.current;
@@ -161,7 +190,25 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
           draggable={false}
           className={`pointer-events-none absolute inset-0 size-full origin-top-left object-contain will-change-transform ${gesturing ? '' : 'transition-transform duration-150 ease-out'}`}
           style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.s})` }}
+          onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
         />
+        {(() => {
+          const p = marks.length ? placed() : null;
+          if (!p) return null;
+          return marks.map((m, i) => {
+            const left = view.x + view.s * (p.ox + m.box.x * nat.w * p.k) - 4;
+            const top = view.y + view.s * (p.oy + m.box.y * nat.h * p.k) - 3;
+            const width = view.s * m.box.w * nat.w * p.k + 8;
+            const height = view.s * m.box.h * nat.h * p.k + 6;
+            const tone = m.tone === 'unsure' ? 'border-[#b26a00] bg-[#f5c04a]/15' : 'border-navy bg-navy/10';
+            const chip = m.tone === 'unsure' ? 'bg-[#b26a00] text-white' : 'bg-navy text-white';
+            return (
+              <div key={m.label} className={`pointer-events-none absolute rounded-md border-2 border-dashed ${tone} ${gesturing ? '' : 'transition-all duration-150 ease-out'}`} style={{ left, top, width, height }}>
+                {m.label && <span className={`absolute ${i % 2 ? '-bottom-[22px] right-0' : '-top-[22px] left-0'} whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 ${chip}`}>{m.label}</span>}
+              </div>
+            );
+          });
+        })()}
       </div>
       {!zoomed && (
         <span className="hide-typing pointer-events-none absolute bottom-2 left-2 rounded-md bg-slate-900/60 px-1.5 py-0.5 text-[11px] font-medium text-white">

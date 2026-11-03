@@ -1,6 +1,6 @@
 // The editable verification form for a bill. Used after a scan and when editing.
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Banknote, ChevronDown, ChevronUp, CircleAlert, CircleCheck, ImagePlus, Info, ListPlus, Pencil, PenLine, QrCode, ReceiptText, Sparkle, Store, Trash, TriangleAlert } from 'lucide-react';
+import { Banknote, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, ImagePlus, Info, ListPlus, Pencil, PenLine, QrCode, ReceiptText, Sparkle, Store, Trash, TriangleAlert } from 'lucide-react';
 import { CATEGORIES, PAYMENT, REGIONS } from '../lib/constants.js';
 import { lookupMerchant, merchantDirectory } from '../lib/merchants.js';
 import { makeItem } from '../lib/splitter.js';
@@ -8,7 +8,8 @@ import { assignBillCode } from '../lib/billCode.js';
 import { money } from '../lib/format.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
-import { Chip, Field, Notice, Segmented, StageBadge, Toggle } from './ui.jsx';
+import { Button, Chip, Field, Notice, Segmented, StageBadge, Toggle } from './ui.jsx';
+import { BILL_AREAS, joinBoxes } from '../lib/ocr/locate.js';
 import { accountsOf, defaultAccountId } from '../lib/money.js';
 import { CATEGORY_SHORT } from '../lib/categoryIcons.js';
 import { ReceiptViewer } from './ReceiptViewer.jsx';
@@ -219,7 +220,7 @@ function readPanel() {
  * Phones: the bill photo sticks to the top while you scroll through the fields, so each one can be
  * checked against the paper. "Fold photo" shrinks it to a strip when it's in the way.
  */
-function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto }) {
+function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto, focus, marks }) {
   const [open, setOpen] = useState(readPanel);
   const toggle = () => {
     setOpen((v) => {
@@ -230,7 +231,7 @@ function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto }) {
   return (
     <div className="sticky-top sticky z-20 -mx-4 bg-sunken lg:hidden">
       {open
-        ? <ReceiptViewer src={src} onExpand={onViewPhoto} className="photo-typing h-[24dvh] max-h-60 min-h-36" />
+        ? <ReceiptViewer src={src} onExpand={onViewPhoto} focus={focus} marks={marks} className="photo-typing h-[26dvh] max-h-64 min-h-40" />
         : <button type="button" onClick={toggle} className="flex h-14 w-full items-center gap-3 px-4 text-left"><img src={src} alt="" className="size-10 rounded object-cover object-top" /><span className="t-label text-ink-2">Bill photo · tap to show</span></button>}
       <div className="hide-typing pointer-events-none absolute inset-x-3 top-2 flex items-center justify-between">
         {open && <button type="button" onClick={toggle} aria-expanded={open} className="tap pointer-events-auto inline-flex h-8 items-center gap-1 rounded-full bg-raised px-3 text-[13px] font-medium text-ink shadow-md"><ChevronUp className="size-4" />Fold photo</button>}
@@ -310,7 +311,33 @@ const PAY_OPTIONS = [
   { value: PAYMENT.CBMS, label: 'CBMS' },
 ];
 
-export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel, onUseFor, read = null }) {
+/**
+ * The phone steps. `fields`: what a Save error in it points to; `boxes`: what's boxed on the photo;
+ * `area`: where to look on a photo with no word boxes.
+ */
+const STEPS = [
+  { label: 'Shop', next: 'Shop', fields: ['merchantName', 'sellerPan'], boxes: ['merchantName', 'sellerPan'], area: 'shop', hint: 'Check the shop name and PAN against the top of the bill.' },
+  { label: 'Bill', next: 'Bill no. & date', fields: ['invoiceNumber', 'billDateAD'], boxes: ['invoiceNumber', 'billDate'], area: 'bill', hint: 'The bill number and date, as printed.' },
+  { label: 'Amount', next: 'Amount', fields: ['totalAmount', 'vatAmount'], boxes: ['totalAmount', 'vatAmount'], area: 'amount', hint: 'The total you paid, and the VAT if it’s shown.' },
+  { label: 'More', next: 'Paid by & category', fields: [], boxes: ['lineItems'], area: '', hint: 'Save any time: the other steps keep what you typed.' },
+];
+// Field ids → the box to show on the photo while that field is being edited.
+const FIELD_OF = { 'f-merchant': 'merchantName', 'f-pan': 'sellerPan', 'f-inv': 'invoiceNumber', 'f-bs': 'billDate', 'f-ad': 'billDate', 'f-total': 'totalAmount', 'f-vat': 'vatAmount' };
+
+function useMediaQuery(q) {
+  const get = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(q).matches);
+  const [on, setOn] = useState(get);
+  useEffect(() => {
+    const mq = window.matchMedia?.(q);
+    if (!mq) return undefined;
+    const ch = () => setOn(mq.matches);
+    mq.addEventListener('change', ch);
+    return () => mq.removeEventListener('change', ch);
+  }, [q]);
+  return on;
+}
+
+export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel, onUseFor, read = null, boxes = null }) {
   const { expenses, trips, openEditor, money: m } = useStore();
   const [allCats, setAllCats] = useState(false);
   const saved = expenses.some((x) => x.id === e.id);
@@ -359,138 +386,218 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
   const cats = allCats ? CATEGORIES : [...new Set([e.category, ...CATEGORIES.slice(0, 5)])];
   const vatHint = vat ? `13% of ${money(vat.subtotal)}` : Number(e.vatAmount) > 0 && Number(e.totalAmount) > 0 ? `${money(Number(e.totalAmount) - Number(e.vatAmount))} before VAT` : 'Optional';
 
-  return (
-    <div className="space-y-4">
-    {e.receiptImage && <MobilePhoto src={e.receiptImage} onViewPhoto={onViewPhoto} onPhoto={onPhoto} onRemovePhoto={onRemovePhoto} />}
-    <CrossReferenceCard
-      matches={matches}
-      bill={e}
-      region={region}
-      codeForThis={code}
-      onView={openEditor}
-      onDiscard={onDiscard}
-      discardLabel={discardLabel}
-      onOverride={(id, on) => onChange({ duplicateOverride: on ? [...new Set([...(e.duplicateOverride || []), id])] : (e.duplicateOverride || []).filter((x) => x !== id) })}
-    />
-    <BankMatchCard bill={e} match={bankMatch} region={region} onChange={onChange} onUseFor={onUseFor} />
-    <div className="flex flex-wrap items-center gap-2">
-      <WriteOnBill code={code} saved={saved} />
-      <StageBadge stage={billStage(e, saved)} />
+  // Phones and tablets: the form in four short steps, the photo zoomed to what each step is about.
+  const stepped = useMediaQuery('(max-width: 1023px)');
+  const [step, setStep] = useState(0);
+  const [active, setActive] = useState(''); // the field being edited, to box it on the photo
+  const top = useRef(null);
+  const go = (n) => { setStep(n); setActive(''); top.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
+  // Save found a problem: open the step that has it.
+  useEffect(() => {
+    const first = STEPS.findIndex((st) => st.fields.some((k) => errors[k]));
+    if (first >= 0) setStep(first);
+  }, [errors]);
+
+  const panShort = /^\d{1,8}$/.test(String(e.sellerPan || ''));
+  const MARKS = {
+    merchantName: { label: 'Shop' },
+    sellerPan: { label: panShort ? `Seller PAN · ${String(e.sellerPan).length} of 9` : 'Seller PAN', tone: panShort ? 'unsure' : 'read' },
+    invoiceNumber: { label: 'Bill no.' },
+    billDate: { label: 'Date' },
+    totalAmount: { label: 'Total' },
+    vatAmount: { label: 'VAT' },
+    lineItems: { label: 'Items' },
+  };
+  const markFor = (k) => (boxes?.[k] ? { box: boxes[k], label: MARKS[k].label, tone: MARKS[k].tone || 'read' } : null);
+  const activeKey = FIELD_OF[active] || '';
+  let marks;
+  let focus;
+  if (stepped) {
+    marks = (activeKey ? [activeKey] : STEPS[step].boxes).map(markFor).filter(Boolean);
+    focus = (activeKey && boxes?.[activeKey]) || joinBoxes(STEPS[step].boxes.map((k) => boxes?.[k])) || BILL_AREAS[STEPS[step].area] || null;
+  } else {
+    marks = activeKey ? [markFor(activeKey)].filter(Boolean) : [];
+    focus = (activeKey && boxes?.[activeKey]) || null;
+  }
+  const stepState = STEPS.map((st) => (st.fields.some((k) => errors[k]) ? 'error' : st.fields.some((k) => k === 'sellerPan' && panShort) ? 'unsure' : ''));
+
+  const shopBlock = (
+    <div>
+      <ProvLabel htmlFor="f-merchant" state={prov('merchantName')}>Shop name</ProvLabel>
+      <ShopInput
+        value={e.merchantName}
+        onChange={changeMerchant}
+        shops={shops}
+        error={errors.merchantName}
+        read={prov('merchantName') === 'read'}
+        onPick={(x) => onChange({
+          merchantName: x.merchantName,
+          ...(x.sellerPan && !/^\d{9}$/.test(e.sellerPan || '') ? { sellerPan: x.sellerPan } : {}),
+          ...(e.category === DEFAULT_CATEGORY ? { category: x.category } : {}),
+        })}
+      />
+      <Hint error={errors.merchantName}>{memory && !memoryDiffers ? `Saved shop${memory.count > 1 ? ` · ${memory.count} bills` : ''}` : ''}</Hint>
+      {memoryDiffers && (
+        <div className="t-caption mt-1.5 flex flex-wrap items-center gap-2 rounded-[10px] bg-sunken px-2.5 py-1.5 text-ink-2">
+          <Store className="size-3.5" />
+          <span>Seen before{memory.matchedBy === 'pan' ? ' (same PAN)' : ''}: <b className="text-ink">{memory.merchantName}</b> · {memory.category}{memory.count > 1 ? ` · ${memory.count} bills` : ''}</span>
+          <button type="button" className="ml-auto font-medium text-brand underline"
+            onClick={() => onChange({ merchantName: memory.merchantName, category: memory.category, ...(memory.sellerPan ? { sellerPan: memory.sellerPan } : {}) })}>
+            Use these
+          </button>
+        </div>
+      )}
     </div>
+  );
+  const panBlock = (
+    <PanField value={e.sellerPan} error={errors.sellerPan} onChange={changePan} state={prov('sellerPan', false)}
+      knownShop={/^\d{9}$/.test(e.sellerPan || '') && memory?.matchedBy === 'pan' ? memory.merchantName : ''} />
+  );
+  const billBlock = (
+    <div className={`grid gap-3 ${stepped ? '' : 'grid-cols-2'}`}>
+      <div>
+        <ProvLabel htmlFor="f-inv" state={prov('invoiceNumber')} compact={!stepped}>Bill no.</ProvLabel>
+        <input id="f-inv" className={`input font-mono ${inputState(prov('invoiceNumber'))}`} maxLength={40} value={e.invoiceNumber} onChange={set('invoiceNumber')} placeholder="बिल नं" autoComplete="off" />
+      </div>
+      <DateField ad={e.billDateAD} bs={e.billDateBS} error={errors.billDateAD} onChange={onChange} state={prov('billDateBS')} />
+    </div>
+  );
+  const amountBlock = (
+    <div className={`grid gap-3 ${stepped ? '' : 'grid-cols-2'}`}>
+      <div>
+        <ProvLabel htmlFor="f-total" state={vat ? 'checked' : prov('totalAmount')} compact={!stepped}>Total{isNepal ? ' (रु)' : ''}</ProvLabel>
+        <input id="f-total" inputMode="decimal" className={`input num text-[17px] font-semibold ${inputState(vat ? '' : prov('totalAmount'), errors.totalAmount)}`} value={e.totalAmount ?? ''} onChange={(ev) => onChange({ totalAmount: toAsciiDigits(ev.target.value).replace(/[^\d.]/g, '') })} placeholder="0.00" />
+        <Hint error={errors.totalAmount}>{vat ? 'Matches the sum' : ''}</Hint>
+      </div>
+      <div>
+        <ProvLabel htmlFor="f-vat" state={vat && Math.abs(Number(e.vatAmount) - vat.vat) <= 1 ? 'checked' : prov('vatAmount')} compact={!stepped}>VAT 13%{isNepal ? ' (रु)' : ''}</ProvLabel>
+        <input id="f-vat" inputMode="decimal" className={`input num ${inputState(vat ? '' : prov('vatAmount'), errors.vatAmount)}`} value={e.vatAmount ?? ''} onChange={(ev) => onChange({ vatAmount: toAsciiDigits(ev.target.value).replace(/[^\d.]/g, '') })} placeholder="0.00" />
+        <Hint error={errors.vatAmount}>{vatHint}</Hint>
+      </div>
+    </div>
+  );
+  const moreBlock = (
+    <>
+      <div>
+        <p className="label">Paid by</p>
+        <Segmented value={e.paymentMethod} onChange={(paymentMethod) => onChange({ paymentMethod, ...(paymentMethod !== PAYMENT.DIGITAL ? { paidFrom: '' } : {}) })} options={PAY_OPTIONS} className="w-full" />
+        <Hint>{e.paymentMethod === PAYMENT.DIGITAL ? 'Fonepay, eSewa, Khalti, mobile banking or card: entered in the IRD draw for you.' : ''}</Hint>
+        {e.paymentMethod === PAYMENT.DIGITAL && m.since && banks.length > 1 && (
+          <fieldset className="mt-3">
+            <legend className="label">Paid from</legend>
+            <div className="flex flex-wrap gap-2">
+              {banks.map((a) => (
+                <Chip key={a.id} selected={(e.paidFrom || mainBank) === a.id} onClick={() => onChange({ paidFrom: a.id === mainBank ? '' : a.id })}>{a.name}</Chip>
+              ))}
+            </div>
+          </fieldset>
+        )}
+      </div>
+
+      <fieldset>
+        <legend className="label">Category</legend>
+        <div className="flex flex-wrap gap-2">
+          {cats.map((c) => <Chip key={c} selected={e.category === c} onClick={() => onChange({ category: c })}>{CATEGORY_SHORT[c] || c}</Chip>)}
+          {!allCats && CATEGORIES.length > cats.length && <button type="button" className="chip tap" onClick={() => setAllCats(true)}>{CATEGORIES.length - cats.length} more</button>}
+        </div>
+      </fieldset>
+
+      <LineItems items={e.lineItems || []} total={e.totalAmount} onChange={(lineItems) => onChange({ lineItems })} />
+
+      <Field label="Notes" htmlFor="f-notes">
+        <textarea id="f-notes" rows={2} className="input" value={e.notes || ''} onChange={set('notes')} placeholder="Optional" />
+      </Field>
+
+      <div className="card space-y-4 rounded-2xl p-4">
+        <Toggle id="f-nepal" checked={e.isNepalBill} onChange={(v) => onChange({ isNepalBill: v })} label="Nepal PAN/VAT bill" description="Counts for VAT and the lucky draw" />
+        {(e.isEstimate || isNepal) && (
+          <Toggle id="f-estimate" checked={Boolean(e.isEstimate)} onChange={(v) => onChange({ isEstimate: v })} label="Estimate slip" description="Not a tax bill. Kept, but not entered in the draw" />
+        )}
+        {e.isEstimate && <Notice tone="warning">The IRD draw needs the shop’s PAN/VAT bill: ask for it and scan that one instead.</Notice>}
+      </div>
+    </>
+  );
+  const attachPhoto = onPhoto && !e.receiptImage && (
+    <label className="card flex cursor-pointer flex-col items-center gap-2 border-dashed px-4 py-8 text-center text-[14px] text-ink-2 hover:bg-sunken">
+      <ImagePlus className="size-6 text-ink-3" />
+      <span className="font-semibold text-ink">Attach bill photo</span>
+      <span className="t-caption">Kept as proof, compressed under 300 KB</span>
+      <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} />
+    </label>
+  );
+  const cards = (
+    <>
+      <CrossReferenceCard
+        matches={matches}
+        bill={e}
+        region={region}
+        codeForThis={code}
+        onView={openEditor}
+        onDiscard={onDiscard}
+        discardLabel={discardLabel}
+        onOverride={(id, on) => onChange({ duplicateOverride: on ? [...new Set([...(e.duplicateOverride || []), id])] : (e.duplicateOverride || []).filter((x) => x !== id) })}
+      />
+      <BankMatchCard bill={e} match={bankMatch} region={region} onChange={onChange} onUseFor={onUseFor} />
+      <div className="flex flex-wrap items-center gap-2">
+        <WriteOnBill code={code} saved={saved} />
+        <StageBadge stage={billStage(e, saved)} />
+      </div>
+    </>
+  );
+  const track = (ev) => { if (FIELD_OF[ev.target.id]) setActive(ev.target.id); };
+
+  if (stepped) {
+    const st = STEPS[step];
+    return (
+      <div className="space-y-4" onFocusCapture={track}>
+        {e.receiptImage && <MobilePhoto src={e.receiptImage} onViewPhoto={onViewPhoto} onPhoto={onPhoto} onRemovePhoto={onRemovePhoto} focus={focus} marks={marks} />}
+        <div ref={top} className="scroll-mt-[calc(var(--header-h)+16rem)]" />
+        <div role="tablist" aria-label="Parts of the bill" className="grid grid-cols-4 gap-1 rounded-[14px] bg-sunken p-1">
+          {STEPS.map((x, i) => (
+            <button key={x.label} type="button" role="tab" aria-selected={step === i} onClick={() => go(i)}
+              className={`tap relative rounded-[10px] py-2 text-[13px] font-medium ${step === i ? 'bg-raised text-ink shadow-sm' : 'text-ink-2'}`}>
+              {x.label}
+              {stepState[i] && <span className={`absolute right-1.5 top-1.5 size-2 rounded-full ${stepState[i] === 'error' ? 'bg-danger' : 'bg-warn'}`} aria-label={stepState[i] === 'error' ? 'has a problem' : 'check this'} />}
+            </button>
+          ))}
+        </div>
+        <p className="t-caption -mt-2 px-1 text-ink-3">{st.hint}</p>
+        {step === 0 && <>{cards}{shopBlock}{panBlock}</>}
+        {step === 1 && billBlock}
+        {step === 2 && amountBlock}
+        {step === 3 && <>{moreBlock}<EligibilityPanel expense={e} />{attachPhoto}</>}
+        {step < STEPS.length - 1 && (
+          <Button className="w-full" icon={ChevronRight} onClick={() => go(step + 1)}>Next: {STEPS[step + 1].next}</Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" onFocusCapture={track}>
+    {cards}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,42%)]">
       <div className="space-y-4">
-        <div>
-          <ProvLabel htmlFor="f-merchant" state={prov('merchantName')}>Shop name</ProvLabel>
-          <ShopInput
-            value={e.merchantName}
-            onChange={changeMerchant}
-            shops={shops}
-            error={errors.merchantName}
-            read={prov('merchantName') === 'read'}
-            onPick={(x) => onChange({
-              merchantName: x.merchantName,
-              ...(x.sellerPan && !/^\d{9}$/.test(e.sellerPan || '') ? { sellerPan: x.sellerPan } : {}),
-              ...(e.category === DEFAULT_CATEGORY ? { category: x.category } : {}),
-            })}
-          />
-          <Hint error={errors.merchantName}>{memory && !memoryDiffers ? `Saved shop${memory.count > 1 ? ` · ${memory.count} bills` : ''}` : ''}</Hint>
-          {memoryDiffers && (
-            <div className="t-caption mt-1.5 flex flex-wrap items-center gap-2 rounded-[10px] bg-sunken px-2.5 py-1.5 text-ink-2">
-              <Store className="size-3.5" />
-              <span>Seen before{memory.matchedBy === 'pan' ? ' (same PAN)' : ''}: <b className="text-ink">{memory.merchantName}</b> · {memory.category}{memory.count > 1 ? ` · ${memory.count} bills` : ''}</span>
-              <button type="button" className="ml-auto font-medium text-brand underline"
-                onClick={() => onChange({ merchantName: memory.merchantName, category: memory.category, ...(memory.sellerPan ? { sellerPan: memory.sellerPan } : {}) })}>
-                Use these
-              </button>
-            </div>
-          )}
-        </div>
-
-        <PanField value={e.sellerPan} error={errors.sellerPan} onChange={changePan} state={prov('sellerPan', false)}
-          knownShop={/^\d{9}$/.test(e.sellerPan || '') && memory?.matchedBy === 'pan' ? memory.merchantName : ''} />
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <ProvLabel htmlFor="f-inv" state={prov('invoiceNumber')} compact>Bill no.</ProvLabel>
-            <input id="f-inv" className={`input font-mono ${inputState(prov('invoiceNumber'))}`} maxLength={40} value={e.invoiceNumber} onChange={set('invoiceNumber')} placeholder="बिल नं" autoComplete="off" />
-          </div>
-          <DateField ad={e.billDateAD} bs={e.billDateBS} error={errors.billDateAD} onChange={onChange} state={prov('billDateBS')} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <ProvLabel htmlFor="f-total" state={vat ? 'checked' : prov('totalAmount')} compact>Total{isNepal ? ' (रु)' : ''}</ProvLabel>
-            <input id="f-total" inputMode="decimal" className={`input num text-[17px] font-semibold ${inputState(vat ? '' : prov('totalAmount'), errors.totalAmount)}`} value={e.totalAmount ?? ''} onChange={(ev) => onChange({ totalAmount: toAsciiDigits(ev.target.value).replace(/[^\d.]/g, '') })} placeholder="0.00" />
-            <Hint error={errors.totalAmount}>{vat ? 'Matches the sum' : ''}</Hint>
-          </div>
-          <div>
-            <ProvLabel htmlFor="f-vat" state={vat && Math.abs(Number(e.vatAmount) - vat.vat) <= 1 ? 'checked' : prov('vatAmount')} compact>VAT 13%{isNepal ? ' (रु)' : ''}</ProvLabel>
-            <input id="f-vat" inputMode="decimal" className={`input num ${inputState(vat ? '' : prov('vatAmount'), errors.vatAmount)}`} value={e.vatAmount ?? ''} onChange={(ev) => onChange({ vatAmount: toAsciiDigits(ev.target.value).replace(/[^\d.]/g, '') })} placeholder="0.00" />
-            <Hint error={errors.vatAmount}>{vatHint}</Hint>
-          </div>
-        </div>
-
-        <div>
-          <p className="label">Paid by</p>
-          <Segmented value={e.paymentMethod} onChange={(paymentMethod) => onChange({ paymentMethod, ...(paymentMethod !== PAYMENT.DIGITAL ? { paidFrom: '' } : {}) })} options={PAY_OPTIONS} className="w-full" />
-          <Hint>{e.paymentMethod === PAYMENT.DIGITAL ? 'Fonepay, eSewa, Khalti, mobile banking or card: entered in the IRD draw for you.' : ''}</Hint>
-          {e.paymentMethod === PAYMENT.DIGITAL && m.since && banks.length > 1 && (
-            <fieldset className="mt-3">
-              <legend className="label">Paid from</legend>
-              <div className="flex flex-wrap gap-2">
-                {banks.map((a) => (
-                  <Chip key={a.id} selected={(e.paidFrom || mainBank) === a.id} onClick={() => onChange({ paidFrom: a.id === mainBank ? '' : a.id })}>{a.name}</Chip>
-                ))}
-              </div>
-            </fieldset>
-          )}
-        </div>
-
-        <fieldset>
-          <legend className="label">Category</legend>
-          <div className="flex flex-wrap gap-2">
-            {cats.map((c) => <Chip key={c} selected={e.category === c} onClick={() => onChange({ category: c })}>{CATEGORY_SHORT[c] || c}</Chip>)}
-            {!allCats && CATEGORIES.length > cats.length && <button type="button" className="chip tap" onClick={() => setAllCats(true)}>{CATEGORIES.length - cats.length} more</button>}
-          </div>
-        </fieldset>
-
-        <LineItems items={e.lineItems || []} total={e.totalAmount} onChange={(lineItems) => onChange({ lineItems })} />
-
-        <Field label="Notes" htmlFor="f-notes">
-          <textarea id="f-notes" rows={2} className="input" value={e.notes || ''} onChange={set('notes')} placeholder="Optional" />
-        </Field>
-
-        <div className="card space-y-4 rounded-2xl p-4">
-          <Toggle id="f-nepal" checked={e.isNepalBill} onChange={(v) => onChange({ isNepalBill: v })} label="Nepal PAN/VAT bill" description="Counts for VAT and the lucky draw" />
-          {(e.isEstimate || isNepal) && (
-            <Toggle id="f-estimate" checked={Boolean(e.isEstimate)} onChange={(v) => onChange({ isEstimate: v })} label="Estimate slip" description="Not a tax bill. Kept, but not entered in the draw" />
-          )}
-          {e.isEstimate && <Notice tone="warning">The IRD draw needs the shop’s PAN/VAT bill: ask for it and scan that one instead.</Notice>}
-        </div>
+        {shopBlock}
+        {panBlock}
+        {billBlock}
+        {amountBlock}
+        {moreBlock}
       </div>
 
       {/* The aside is as tall as the form, so the photo can stay in view while you scroll. */}
       <aside className="space-y-4">
         <EligibilityPanel expense={e} />
         {e.receiptImage ? (
-          // Phones show the photo in the sticky panel above the form instead.
-          <div className="card sticky-top hidden overflow-hidden lg:sticky lg:block">
-            <ReceiptViewer src={e.receiptImage} onExpand={onViewPhoto} className="h-[min(58dvh,560px)] bg-sunken" />
+          <div className="card sticky-top sticky overflow-hidden">
+            <ReceiptViewer src={e.receiptImage} onExpand={onViewPhoto} focus={focus} marks={marks} className="h-[min(58dvh,560px)] bg-sunken" />
             <div className="flex gap-2 border-t border-line p-2">
               {onPhoto && <label className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg py-1.5 text-[14px] font-medium text-ink hover:bg-sunken"><ImagePlus className="size-4" />Replace<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} /></label>}
               {onRemovePhoto && <button type="button" onClick={onRemovePhoto} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[14px] font-medium text-danger hover:bg-danger-soft"><Trash className="size-4" />Remove</button>}
             </div>
+            {boxes && Object.keys(boxes).length > 0 && <p className="t-caption border-t border-line px-3 py-2 text-center text-ink-3">Click a field to find it on the bill</p>}
           </div>
-        ) : (
-          onPhoto && (
-            <label className="card flex cursor-pointer flex-col items-center gap-2 border-dashed px-4 py-8 text-center text-[14px] text-ink-2 hover:bg-sunken">
-              <ImagePlus className="size-6 text-ink-3" />
-              <span className="font-semibold text-ink">Attach bill photo</span>
-              <span className="t-caption">Kept as proof, compressed under 300 KB</span>
-              <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} />
-            </label>
-          )
-        )}
+        ) : attachPhoto}
       </aside>
     </div>
     </div>

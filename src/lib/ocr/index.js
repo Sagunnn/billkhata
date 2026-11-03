@@ -47,6 +47,7 @@ async function runLocal(images, { nepali, onProgress }) {
   const confs = reads.map((r) => r.confidence).filter((c) => c != null);
   return {
     reads,
+    words: first.words, // the first read's word boxes, to find each field on the photo
     texts: reads.filter((r) => r.kind !== 'words').map((r) => r.text),
     confidence: confs.length ? Math.max(...confs) : null,
   };
@@ -123,7 +124,8 @@ export function normalizeExtraction(raw = {}) {
 
 /**
  * @param {string|{color: string, enhanced: string}} image data URL, or both OCR copies from prepareForOcr
- * @returns {Promise<{fields: object, rawText: string, engine: string, confidence: number|null}>}
+ * @returns {Promise<{fields: object, rawText: string, engine: string, confidence: number|null, words: object[]}>}
+ *   words: on-device reads only, the word boxes in the read image's pixels (for locateFields)
  */
 export async function extractBill(image, settings, { region, onProgress } = {}) {
   let fields;
@@ -131,6 +133,7 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
   let rawText = '';
   let engine = settings.ocrEngine;
   let confidence = null;
+  let words = [];
   const color = typeof image === 'string' ? image : image.color;
   const enhanced = typeof image === 'string' ? image : image.enhanced || image.color;
 
@@ -147,6 +150,7 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
   } else {
     const read = await runLocal({ color, enhanced }, { nepali: settings.nepaliScript, onProgress });
     confidence = read.confidence;
+    words = read.words || [];
     texts = read.texts;
     rawText = read.texts.length > 1
       ? read.texts.map((t, i) => `----- read ${i + 1} of ${read.texts.length} -----\n${t.trim()}`).join('\n\n')
@@ -164,7 +168,7 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
     const check = texts.map((t) => parseReceiptText(t).vatCheck).find((c) => c && Math.abs(c.total - fields.totalAmount) <= 1.5);
     if (check) fields = { ...fields, vatCheck: check, mathVerified: true, vatAmount: fields.vatAmount || check.vat };
   }
-  return finishFields(fields, { rawText, engine, confidence, region });
+  return { ...finishFields(fields, { rawText, engine, confidence, region }), words };
 }
 
 /** Shared clean-up for every way of reading a bill. */

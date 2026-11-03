@@ -41,3 +41,25 @@ test('sameBox and otsu', () => {
   assert.ok(t >= 40 && t < 220);
   assert.deepEqual([...toGray(Uint8ClampedArray.from([255, 255, 255, 255, 0, 0, 0, 255]))], [255, 0]);
 });
+
+test('sharpness: crisp text scores far above the same text blurred', async () => {
+  const { sharpness } = await import('../src/lib/paperEdge.js');
+  const w = 120;
+  const h = 80;
+  const crisp = new Uint8Array(w * h).fill(230);
+  for (let y = 10; y < h - 10; y += 8) for (let x = 10; x < w - 10; x++) if ((x >> 2) % 3) { crisp[y * w + x] = 30; crisp[(y + 1) * w + x] = 30; }
+  // 5 × 5 box blur, as a shaky or out-of-focus photo
+  const blur = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let s = 0; let c = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const yy = y + dy; const xx = x + dx; if (yy >= 0 && yy < h && xx >= 0 && xx < w) { s += crisp[yy * w + xx]; c++; } }
+    blur[y * w + x] = s / c;
+  }
+  assert.ok(sharpness(crisp, w, h) > 8 * sharpness(blur, w, h));
+  const { focusScore } = await import('../src/lib/paperEdge.js');
+  // The same, faded to a third of the contrast: the focus score hardly moves.
+  const faded = crisp.map((v) => 180 + Math.round((v - 180) / 3));
+  assert.ok(focusScore(crisp, w, h) > 40 && focusScore(faded, w, h) > 40);
+  assert.ok(focusScore(blur, w, h) < focusScore(crisp, w, h) / 5);
+  assert.equal(sharpness(new Uint8Array(w * h).fill(128), w, h), 0);
+});

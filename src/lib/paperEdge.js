@@ -89,3 +89,37 @@ export function toGray(rgba) {
   for (let i = 0, j = 0; j < out.length; i += 4, j++) out[j] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
   return out;
 }
+
+/**
+ * How sharp a grey image is: the variance of its Laplacian (edges). Text in focus gives strong,
+ * thin edges and a high value; a blurred or shaken photo, a low one. Compare at a fixed width.
+ */
+export function sharpness(gray, w, h) {
+  if (!gray || w < 3 || h < 3) return 0;
+  let sum = 0;
+  let sq = 0;
+  let n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+      sum += lap;
+      sq += lap * lap;
+      n++;
+    }
+  }
+  const mean = sum / n;
+  return sq / n - mean * mean;
+}
+
+/**
+ * Focus score: edge strength over overall contrast (× 1000), so faded and dark photos compare with
+ * crisp ones. At 480 px wide, bills in focus score well over 100; blurred ones under 20.
+ */
+export function focusScore(gray, w, h) {
+  let s = 0;
+  let q = 0;
+  for (let i = 0; i < gray.length; i++) { s += gray[i]; q += gray[i] * gray[i]; }
+  const varGray = q / gray.length - (s / gray.length) ** 2;
+  return varGray > 1 ? (1000 * sharpness(gray, w, h)) / varGray : 0;
+}

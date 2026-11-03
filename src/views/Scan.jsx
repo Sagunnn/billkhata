@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import { Camera, Check, ChevronLeft, FileDown, FileText, LoaderCircle, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
-import { compressImage, fileToDataUrl, imageHash, prepareForOcr, validateImageFile } from '../lib/image.js';
+import { BLURRY_FOCUS, compressImage, fileToDataUrl, imageHash, photoFocus, prepareForOcr, validateImageFile } from '../lib/image.js';
 import { checkEligibility, findDuplicateBill, getIrdStatus } from '../lib/ird.js';
 import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
+import { locateFields } from '../lib/ocr/locate.js';
 import { money } from '../lib/format.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
@@ -62,14 +63,16 @@ export default function Scan() {
     : `PaddleOCR, on this device${settings.nepaliScript ? ' (Nepali model)' : ''}`;
 
   /** `text`: a PDF bill's own text, read instead of running OCR on the picture. */
-  async function processImage(src, { text = '' } = {}) {
+  /** `checkFocus`: a photo that didn't come through the in-app camera's own blur check. */
+  async function processImage(src, { text = '', checkFocus = false } = {}) {
     setStep('reading');
     setPreview(src);
     setProgress({ status: 'Preparing the photo', progress: 0 });
     const base = blankExpense(profile.region);
     const t0 = performance.now();
     try {
-      const [stored, images] = await Promise.all([compressImage(src), prepareForOcr(src)]);
+      const [stored, images, focus] = await Promise.all([compressImage(src), prepareForOcr(src), checkFocus ? photoFocus(src).catch(() => Infinity) : Infinity]);
+      const blurry = focus < BLURRY_FOCUS;
       setOcrImages(images);
       let fields = {};
       let engine = settings.ocrEngine;
@@ -80,9 +83,11 @@ export default function Scan() {
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
-        setLastRead({ engine: text ? 'pdf-text' : settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed, ms: performance.now() - t0 });
+        // Where each field sits on the photo, so the form can zoom to it.
+        const boxes = out.words?.length ? locateFields(out.words, out.fields, images) : {};
+        setLastRead({ engine: text ? 'pdf-text' : settings.ocrEngine, confidence: out.confidence, fields: out.fields, totalGuessed: out.totalGuessed, ms: performance.now() - t0, boxes, blurry });
       } catch (err) {
-        setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {} });
+        setLastRead({ engine: settings.ocrEngine, confidence: 0, fields: {}, blurry });
         toast(`Could not read the bill automatically: ${err.message} Fill in the details below.`, 'error');
       }
       // Shops seen before: fill a missing name/PAN and reuse the category picked last time.
@@ -132,7 +137,7 @@ export default function Scan() {
     }
     const err = validateImageFile(file);
     if (err) return toast(`${err.replace(/\.$/, '')}, or a PDF.`, 'error');
-    processImage(await fileToDataUrl(file));
+    processImage(await fileToDataUrl(file), { checkFocus: true });
   }
 
   // Drop a photo or PDF anywhere on the page while choosing.
@@ -249,6 +254,12 @@ export default function Scan() {
           </div>
         </div>
         <div className="mb-4 grid gap-3 md:grid-cols-2">
+          {lastRead?.blurry && (
+            <Notice tone="warning" title="The photo looks blurry"
+              action={<ActionChip icon={Camera} onClick={() => { reset(); setCamera(phoneCamera()); }}>Take it again</ActionChip>}>
+              Digits may be misread. Check each one against the paper bill, or take a sharper photo.
+            </Notice>
+          )}
           {vat && (
             <Notice tone="success" title="Total checked">
               <span className="num">{money(vat.subtotal)} + 13% VAT {money(vat.vat)} = {money(vat.total)}</span>
@@ -266,6 +277,7 @@ export default function Scan() {
         <BillForm
           value={draft}
           read={read}
+          boxes={lastRead?.boxes}
           errors={errors}
           region={profile.region}
           onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}

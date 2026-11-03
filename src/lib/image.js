@@ -229,7 +229,29 @@ export async function prepareForOcr(src) {
   contrastStretchPixels(pixels.data);
   ctx.putImageData(pixels, 0, 0);
   const enhanced = canvas.toDataURL('image/jpeg', 0.92);
-  return { color, enhanced, angle };
+  return { color, enhanced, angle, width: canvas.width, height: canvas.height };
+}
+
+// Below this focus score (paperEdge.focusScore at 480 px wide) a bill photo is blurry enough that
+// digits get misread.
+export const BLURRY_FOCUS = 40;
+
+/** How sharp a bill photo is, measured inside the paper (its edge is sharp even when blurred). */
+export async function photoFocus(src) {
+  const { focusScore, toGray } = await import('./paperEdge.js');
+  const img = await loadImage(src);
+  const sx = img.naturalWidth * 0.08;
+  const sy = img.naturalHeight * 0.08;
+  const sw = img.naturalWidth * 0.84;
+  const sh = img.naturalHeight * 0.84;
+  const w = 480;
+  const h = Math.max(3, Math.round((sh / sw) * w));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+  return focusScore(toGray(g.getImageData(0, 0, w, h).data), w, h);
 }
 
 export function validateImageFile(file) {

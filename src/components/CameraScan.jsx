@@ -1,14 +1,14 @@
 // Live in-app camera (Figma: Phone 02 · Scan). The back camera fills the screen; each preview frame
-// is checked for a bill (a bright sheet on a darker table). Once the bill holds still it's taken by
-// itself and cropped to the paper. Nothing leaves the phone. Without camera access, the phone's own
-// camera app is used instead.
+// is checked for a bill (a bright sheet on a darker table) so the brackets follow it. You take the
+// photo with the shutter (never by itself: the camera may not have focused yet); it's cropped to the
+// paper and checked for blur, and a blurry one asks to be taken again. Nothing leaves the phone.
+// Without camera access, the phone's own camera app is used instead.
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Image as ImageIcon, ReceiptText, ShieldCheck, X, Zap, ZapOff } from 'lucide-react';
-import { findPaper, isBill, sameBox, toGray } from '../lib/paperEdge.js';
+import { findPaper, isBill, toGray } from '../lib/paperEdge.js';
+import { BLURRY_FOCUS, photoFocus } from '../lib/image.js';
 
 const PREVIEW_W = 160; // frames are checked at this width
-const HOLD_MS = 1200; // still this long → taken by itself
-
 /** The bill's box from a preview frame, scaled to the full video, with a small margin. */
 function cropFrom(video, box, pw, ph) {
   const vw = video.videoWidth;
@@ -31,12 +31,13 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
   const video = useRef(null);
   const upload = useRef(null);
   const fallback = useRef(null);
-  const [state, setState] = useState('starting'); // starting | live | found | taking | denied | none
+  const [state, setState] = useState('starting'); // starting | live | found | taking | blurry | denied | none
+  const [shot, setShot] = useState(''); // the photo just taken, while it's checked or shown as blurry
   const [box, setBox] = useState(null); // in preview pixels, for the brackets
   const [size, setSize] = useState({ w: PREVIEW_W, h: 200 });
   const [torch, setTorch] = useState(null); // null: not available; else on/off
   const stream = useRef(null);
-  const steady = useRef({ box: null, since: 0 });
+  const tickRef = useRef(null);
   const taken = useRef(false);
   const onPhotoRef = useRef(onPhoto);
   onPhotoRef.current = onPhoto;
@@ -54,7 +55,10 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
         video.current.srcObject = s;
         await video.current.play();
         const track = s.getVideoTracks()[0];
-        if (track?.getCapabilities?.().torch) setTorch(false);
+        const caps = track?.getCapabilities?.() || {};
+        if (caps.torch) setTorch(false);
+        // Keep refocusing as the phone moves, where the browser allows it.
+        if (caps.focusMode?.includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
         setState('live');
         tick();
       } catch {
@@ -75,16 +79,11 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
         const ok = isBill(found);
         setSize({ w, h });
         setBox(ok ? found : null);
-        const now = performance.now();
-        if (ok && sameBox(found, steady.current.box, w, h)) {
-          if (now - steady.current.since > HOLD_MS) { take(found, w, h); return; }
-        } else {
-          steady.current = { box: ok ? found : null, since: now };
-        }
         setState(ok ? 'found' : 'live');
       }
       timer = setTimeout(tick, 180);
     }
+    tickRef.current = tick;
     start();
     return () => {
       stop = true;
@@ -93,15 +92,30 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function take(found = box, w = size.w, h = size.h) {
+  async function take() {
     const v = video.current;
     if (!v?.videoWidth || taken.current) return;
     taken.current = true;
     setState('taking');
     navigator.vibrate?.(30);
-    const url = found ? cropFrom(v, found, w, h) : cropFrom(v, { x: 0, y: 0, w, h }, w, h);
+    const url = cropFrom(v, box || { x: 0, y: 0, w: size.w, h: size.h }, size.w, size.h);
+    setShot(url);
+    let sharp = Infinity;
+    try { sharp = await photoFocus(url); } catch { /* can't measure: use it */ }
+    if (sharp < BLURRY_FOCUS) { setState('blurry'); return; }
+    use(url);
+  }
+
+  function use(url) {
     stream.current?.getTracks().forEach((t) => t.stop());
     onPhotoRef.current(url);
+  }
+
+  function retake() {
+    setShot('');
+    taken.current = false;
+    setState('live');
+    tickRef.current?.();
   }
 
   async function flash() {
@@ -115,8 +129,8 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
   const pill = {
     starting: 'Starting the camera',
     live: 'Point at a bill',
-    found: 'Bill found · hold steady',
-    taking: 'Got it',
+    found: 'Bill found · tap the button',
+    taking: 'Checking the photo',
   }[state];
   // Brackets: around the bill when found (mapped through the video's object-cover crop), else a
   // default frame.
@@ -155,6 +169,19 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
             <span className={`size-2 rounded-full ${state === 'found' ? 'bg-[#f5c04a]' : 'bg-white/60'}`} />{pill}
           </p>
         )}
+        {state === 'blurry' && shot && (
+          <div className="absolute inset-0 flex flex-col bg-[#14110e]" role="alertdialog" aria-label="The photo looks blurry">
+            <img src={shot} alt="The photo you took" className="min-h-0 flex-1 object-contain p-4 pt-[calc(var(--safe-top)+4rem)] opacity-90" />
+            <div className="m-4 rounded-[18px] bg-[#27231d] p-4">
+              <p className="text-[16px] font-semibold">This photo looks blurry</p>
+              <p className="mt-1 text-[14px] text-white/70">Digits could be misread. Hold the phone steady, a little further from the bill, in good light, then tap the button.</p>
+              <div className="mt-3 flex gap-2">
+                <button type="button" onClick={retake} className="tap h-11 flex-1 rounded-[12px] bg-[#b91c1c] text-[15px] font-semibold text-white">Take again</button>
+                <button type="button" onClick={() => use(shot)} className="tap h-11 rounded-[12px] bg-white/10 px-4 text-[15px] font-medium">Use anyway</button>
+              </div>
+            </div>
+          </div>
+        )}
         {noCamera && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
             <Camera className="size-10 text-white/70" />
@@ -175,7 +202,7 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
           <button type="button" onClick={() => upload.current?.click()} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-white/80">
             <span className="flex size-12 items-center justify-center rounded-[14px] bg-white/10"><ImageIcon className="size-5" /></span>Upload
           </button>
-          <button type="button" onClick={() => (noCamera ? fallback.current?.click() : take())} disabled={state === 'starting' || state === 'taking'}
+          <button type="button" onClick={() => (noCamera ? fallback.current?.click() : take())} disabled={state === 'starting' || state === 'taking' || state === 'blurry'}
             aria-label="Take the photo" className="tap flex size-[76px] items-center justify-center rounded-full border-4 border-white disabled:opacity-50">
             <span className="size-[60px] rounded-full bg-white" />
           </button>

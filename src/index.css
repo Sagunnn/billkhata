@@ -253,6 +253,11 @@
 
 @layer base {
   html { -webkit-tap-highlight-color: transparent; }
+  /* Nothing may make the page wider than the screen (it would slide sideways on a phone). clip, not
+     hidden: it makes no scroll box, so sticky bars keep working. */
+  html, body { overflow-x: clip; }
+  /* The installed app doesn't bounce or pull past its ends like a web page. */
+  @media (display-mode: standalone) { html, body { overscroll-behavior: none; } }
   body { @apply bg-canvas text-ink antialiased; font-feature-settings: "ss01"; }
   :focus-visible { @apply outline-2 outline-offset-2 outline-navy; }
   /* Digits line up in lists, tables and number fields. */

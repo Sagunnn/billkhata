@@ -279,7 +279,7 @@ export function Toggle({ checked, onChange, label, description, id }) {
 
 export function Segmented({ value, onChange, options, className = '' }) {
   return (
-    <div className={`inline-flex rounded-[14px] bg-sunken p-1 ${className}`} role="radiogroup">
+    <div className={`inline-flex max-w-full rounded-[14px] bg-sunken p-1 ${className}`} role="radiogroup">
       {options.map((o) => (
         <button
           key={o.value}
@@ -287,7 +287,7 @@ export function Segmented({ value, onChange, options, className = '' }) {
           role="radio"
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
-          className={`tap inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-3 py-2 text-[14px] font-medium transition ${value === o.value ? 'bg-raised text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+          className={`tap inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 py-2 text-[14px] font-medium transition sm:px-3 ${value === o.value ? 'bg-raised text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
         >
           {o.icon && <o.icon className="size-4" aria-hidden="true" />}{o.label}
         </button>

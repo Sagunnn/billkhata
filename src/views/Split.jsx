@@ -394,7 +394,7 @@ function BillStep({ expense, split, update, result, region, readPhoto, reading, 
   );
 }
 
-function PeopleStep({ split, update }) {
+function PeopleStep({ split, update, onNext, nextLabel }) {
   const [friends, setFriends] = useState(loadFriends);
   const [groups, setGroups] = useState(loadGroups);
   const byItems = split.mode !== 'equal';
@@ -471,6 +471,8 @@ function PeopleStep({ split, update }) {
                   value={m.name}
                   onChange={(e) => update({ ...split, members: split.members.map((x) => (x.id === m.id ? { ...x, name: e.target.value } : x)) })}
                   aria-label="Name"
+                  enterKeyHint="done"
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                 />
                 {(m.out || m.isPayer) && <div className="text-xs text-slate-500">{m.out ? 'Left out' : 'Paid the bill'}</div>}
               </div>
@@ -494,6 +496,12 @@ function PeopleStep({ split, update }) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-slate-500">Tap a name to rename, its circle to leave someone out.{byItems ? ' Veg and the beer button decide who shares which items; fine-tune it under Shares.' : ''}</p>
+        {/* While a name is being typed the pinned bar steps aside for the keyboard: Next is here instead. */}
+        {onNext && (
+          <div className="show-typing mt-3">
+            <Button variant="primary" size="lg" className="w-full" onMouseDown={(e) => e.preventDefault()} onClick={onNext}>{nextLabel}</Button>
+          </div>
+        )}
 
         {(friends.length > 0 || groups.length > 0 || others.length > 0) && (
           <details className="mt-3 text-sm">
@@ -752,12 +760,12 @@ export function SplitEditor({ billId }) {
           <h1 className="text-[20px] font-semibold leading-6 text-ink">Split the bill</h1>
           <p className="t-caption num truncate text-ink-3">{expense.merchantName || 'Bill'} · {money(total, profile.region)}</p>
         </div>
-        {expense.split && <button type="button" onClick={removeSplit} className="text-[13px] font-medium text-ink-3 hover:text-danger">Remove split</button>}
+        {expense.split && <Button size="sm" variant="danger" icon={Trash} onClick={removeSplit} className="shrink-0">Remove split</Button>}
       </div>
       <div className="mb-4"><Stepper step={step} setStep={setStep} /></div>
 
       {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={expense.receiptImage ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
-      {step === 1 && <PeopleStep split={split} update={update} />}
+      {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} />}
       {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} />}
 
       {/* Pinned above the bottom bar on phones, inline on desktop. */}

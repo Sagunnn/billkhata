@@ -333,10 +333,13 @@
 }
 /* Room for the bottom nav and the Scan button that sticks up out of it. */
 .main-pad { padding-bottom: calc(7rem + var(--safe-bottom)); }
+.show-typing { display: none; }
 /* Phones, while typing in a field (App sets data-typing): the Save bar, the bottom tabs and sheet
    footers step aside so they don't sit over the field being fixed, and the bill photo shrinks. */
 @media (max-width: 767px) {
   html[data-typing] .hide-typing { display: none !important; }
+  /* …and what should be in reach then instead (the step's Next under the list). */
+  html[data-typing] .show-typing { display: flex !important; }
   html[data-typing] .photo-typing { height: 15dvh !important; min-height: 0 !important; }
 }
 .above-nav { bottom: calc(5.4rem + var(--safe-bottom)); }

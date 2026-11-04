@@ -522,7 +522,7 @@ export function MoneyActions({ className = '' }) {
     <div className={`grid grid-cols-3 gap-2 ${className}`}>
       <Button className="w-full" onClick={() => go('moneyIn')}>Money in</Button>
       <Button className="w-full" onClick={() => go('move')}>Move</Button>
-      <Button className="w-full whitespace-nowrap px-2" onClick={() => openSheet('quickOut')} shortcut="Q">No-bill expense</Button>
+      <Button className="w-full whitespace-nowrap px-2" onClick={() => openSheet('quickOut')} shortcut="Q">Quick expense</Button>
     </div>
   );
 }

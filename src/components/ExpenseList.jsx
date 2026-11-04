@@ -1,6 +1,5 @@
 // Bills as a table (desktop) or cards (mobile), with photo, edit, delete and IRD actions.
-import { Image as ImageIcon, PencilLine, Pencil, ScanLine, Sparkles, Trash } from 'lucide-react';
-import { blankExpense } from '../lib/expense.js';
+import { Image as ImageIcon, Pencil, ScanLine, Sparkles, Trash, Zap } from 'lucide-react';
 import { money } from '../lib/format.js';
 import { getIrdStatus } from '../lib/ird.js';
 import { formatAD, formatBS } from '../lib/nepaliDate.js';
@@ -187,7 +186,7 @@ export function ExpenseList({ list }) {
 
 /** No bills at all yet: what to do first. */
 export function NoBillsYet() {
-  const { loadSamples, openEditor, profile } = useStore();
+  const { loadSamples, openSheet } = useStore();
   const toast = useToast();
   return (
     <EmptyState
@@ -198,7 +197,7 @@ export function NoBillsYet() {
           <a href="#/scan" className="tap inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white shadow-sm hover:bg-brand-dark">
             <ScanLine className="size-[18px]" />Scan a bill
           </a>
-          <Button icon={PencilLine} onClick={() => openEditor(blankExpense(profile.region))}>Add by hand</Button>
+          <Button icon={Zap} onClick={() => openSheet('quickOut')}>Quick expense</Button>
           <Button variant="ghost" icon={Sparkles} onClick={async () => { await loadSamples(); toast('Sample bills added. Remove them any time in Settings.'); }}>Load sample bills</Button>
         </div>
       )}

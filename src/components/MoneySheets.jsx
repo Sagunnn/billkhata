@@ -67,9 +67,9 @@ function AccountPicker({ label, value, onChange, accounts, exclude }) {
   );
 }
 
-function NoteField({ value, onChange, placeholder, id = 'mn-note' }) {
+function NoteField({ value, onChange, placeholder, id = 'mn-note', label = 'Note (optional)' }) {
   return (
-    <Field label="Note (optional)" htmlFor={id}>
+    <Field label={label} htmlFor={id}>
       <input id={id} className="input" value={value} maxLength={80} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </Field>
   );
@@ -222,7 +222,7 @@ export function MoveSheet({ onClose }) {
   );
 }
 
-/* ---------- No-bill expense (Phone 12: Quick cash out) ---------- */
+/* ---------- Quick expense (Phone 12: Quick cash out) ---------- */
 
 // What it was for, and the Ledger category each files under.
 const QUICK = [
@@ -238,8 +238,10 @@ const lastQuick = () => { try { return JSON.parse(localStorage.getItem(LAST_KEY)
  * comes off the one picked.
  */
 /** `split`: opened from Split, so after saving it goes on to sharing it with friends. */
-export function QuickOutSheet({ onClose, split = false }) {
-  const { money, profile, saveExpense, trips, openSheet } = useStore();
+export function QuickOutSheet({ onClose, split = false, details: withDetails = false }) {
+  const { money, profile, saveExpense, trips, openSheet, openEditor } = useStore();
+  // "Add bill details": the same start, then the full bill form (shop, PAN, bill no., items).
+  const [details, setDetails] = useState(withDetails);
   const onTrip = ongoingTrips(trips)[0];
   const toast = useToast();
   const now = useAccountsNow();
@@ -258,9 +260,25 @@ export function QuickOutSheet({ onClose, split = false }) {
   const yesterday = new Date(Date.now() - 864e5).toLocaleDateString('en-CA');
 
   async function save(again = false) {
-    if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
     const category = QUICK.find(([l]) => l === label)?.[1] || CATEGORIES.at(-1);
     const paymentMethod = acc ? (acc.kind === 'cash' ? PAYMENT.CASH : PAYMENT.DIGITAL) : method;
+    if (details && !split) {
+      // On to the bill form with what's filled in so far; it's saved there, as a bill.
+      try { localStorage.setItem(LAST_KEY, JSON.stringify({ label, account, method })); } catch { /* ignore */ }
+      onClose();
+      openEditor({
+        ...blankExpense(profile.region),
+        merchantName: note.trim(),
+        totalAmount: Number(amount) > 0 ? Number(amount) : '',
+        billDateAD: day,
+        billDateBS: adToBs(day) || '',
+        category,
+        paymentMethod,
+        ...(acc ? { paidFrom: account } : {}),
+      });
+      return;
+    }
+    if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
     const saved = await saveExpense({
       ...blankExpense(profile.region),
       merchantName: note.trim() || label,
@@ -283,12 +301,12 @@ export function QuickOutSheet({ onClose, split = false }) {
   }
 
   return (
-    <Modal open keepFooter onClose={onClose} size="md" title={split ? 'No-bill expense to split' : 'No-bill expense'}
-      subtitle={split ? 'No bill: you paid, friends pay you back their part' : count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
+    <Modal open keepFooter onClose={onClose} size="md" title={split ? 'Quick expense to split' : details ? 'Add an expense' : 'Quick expense'}
+      subtitle={split ? 'No bill: you paid, friends pay you back their part' : details ? 'Start here, then the bill’s shop, PAN and items' : count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
       footer={(
         <div className="w-full">
-          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={() => save(false)}>{split ? `Next: who shares ${amount ? fmt(Number(amount)) : 'it'}` : `Save ${amount ? `${fmt(Number(amount))} ` : ''}expense`}</Button>
-          {!split && <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Save &amp; add another</button>}
+          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={() => save(false)}>{split ? `Next: who shares ${amount ? fmt(Number(amount)) : 'it'}` : details ? 'Next: bill details' : `Save ${amount ? `${fmt(Number(amount))} ` : ''}expense`}</Button>
+          {!split && !details && <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Save &amp; add another</button>}
           {acc && amount && <p className="t-caption mt-1 text-center text-ink-3">{acc.name} will show {fmt(after)}.</p>}
         </div>
       )}>
@@ -307,7 +325,7 @@ export function QuickOutSheet({ onClose, split = false }) {
             {QUICK.map(([l]) => <button key={l} type="button" aria-pressed={label === l} className="chip tap" onClick={() => setLabel(l)}>{label === l && <Check className="size-4" />}{l}</button>)}
           </div>
         </fieldset>
-        <NoteField value={note} onChange={setNote} placeholder="Microbus to Ratnapark, momo with Ram…" />
+        <NoteField value={note} onChange={setNote} label={details ? 'Shop name' : 'Note (optional)'} placeholder={details ? 'e.g. Bhatbhateni Supermarket' : 'Microbus to Ratnapark, momo with Ram…'} />
         <fieldset>
           <legend className="label">When</legend>
           <div className="flex flex-wrap items-center gap-2">
@@ -328,6 +346,15 @@ export function QuickOutSheet({ onClose, split = false }) {
               </div>
             </div>
           )}
+        {!split && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-[14px] border border-line p-3">
+            <input type="checkbox" checked={details} onChange={(e) => setDetails(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[#b91c1c]" />
+            <span>
+              <span className="block text-[15px] font-medium text-ink">Add bill details</span>
+              <span className="t-caption block text-ink-3">Shop, PAN, bill number and items, for a paper bill you’re typing in: it can go in the IRD draw and be split by item.</span>
+            </span>
+          </label>
+        )}
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
       </form>
     </Modal>
@@ -347,7 +374,7 @@ export function MoneyHistorySheet({ onClose }) {
     ...(money.entries || []).map((x) => ({ ...x, sort: `${x.date}|${x.createdAt}` })),
     ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: Number(e.totalAmount) || 0, date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
   ].sort((a, b) => b.sort.localeCompare(a.sort));
-  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'No-bill expense' };
+  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
   return (
     <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)}` : ''}>
       {bySource.length > 0 && (

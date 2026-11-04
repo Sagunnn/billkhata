@@ -3,8 +3,8 @@ import { Modal, Kbd } from './ui.jsx';
 
 const KEYS = [
   ['S', 'Scan a bill'],
-  ['N', 'Add a bill by hand'],
-  ['Q', 'No-bill expense (a fare, a tip…)'],
+  ['N', 'Add an expense with bill details'],
+  ['Q', 'Quick expense'],
   ['/', 'Search'],
   ['J / K', 'Next / previous bill'],
   ['↵', 'Open the selected bill'],

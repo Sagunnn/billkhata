@@ -419,8 +419,8 @@ export default function Scan() {
         )}
         <button type="button" onClick={byHand} className="card flex flex-col items-center gap-2 border-2 border-dashed border-slate-300 px-3 py-6 text-center transition hover:border-slate-500 sm:gap-3 sm:px-6 sm:py-10">
           <span className="flex size-12 items-center justify-center rounded-full bg-slate-900 text-white shadow sm:size-14"><PencilLine className="size-6 sm:size-7" /></span>
-          <span className="text-base font-bold text-slate-900 sm:text-lg">Add by hand</span>
-          <span className="text-xs text-slate-600 sm:text-sm">Type the shop, date and total. Your saved shops are suggested.</span>
+          <span className="text-base font-bold text-slate-900 sm:text-lg">Type it in</span>
+          <span className="text-xs text-slate-600 sm:text-sm">No photo: type the shop, date and total. Your saved shops are suggested.</span>
         </button>
         <label className="card col-span-2 flex cursor-pointer items-center gap-3 border-2 border-dashed border-slate-300 px-4 py-4 text-left transition hover:border-slate-500 md:col-span-1 md:flex-col md:justify-center md:gap-3 md:px-6 md:py-10 md:text-center">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 md:size-14 md:bg-slate-900 md:text-white md:shadow"><Upload className="size-5 md:size-7" /></span>

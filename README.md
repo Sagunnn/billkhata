@@ -52,7 +52,7 @@ Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with 
   Badge, Notice, Chip, ActionChip, Segmented, Toggle, Tooltip, Kbd and the bottom sheet (Modal).
 - **Navigation:** phones have five tabs (Home, Ledger, Scan raised in the middle, Split, Money);
   Trips sit inside Split, Reports inside Ledger, Settings in the Home header. Desktop has a sidebar
-  with Scan a bill / Add by hand, counts beside each item, and the backup card.
+  with Scan a bill / Quick expense, counts beside each item, and the backup card.
 - **Keyboard (desktop):** S scan, N add by hand, Q quick cash out, / search, J / K / ↵ through
   bills, ? the list of shortcuts.
 
@@ -84,7 +84,7 @@ needs a server. The app itself works offline too:
   instead; a scan before the reader is downloaded says so and leaves the form to fill in by hand.
   Only the IRD website and vision AI need the internet.
 - **Install:** `manifest.webmanifest` with PNG and maskable icons (`public/icons`) and shortcuts
-  (Scan a bill, No-bill expense → `/#/?quick`). **Add to home screen** (a card on Home on phones,
+  (Scan a bill, Quick expense → `/#/?quick`). **Add to home screen** (a card on Home on phones,
   Settings → Use offline, and the end of the welcome) uses the browser's own **Install app** where
   it offers one, else shows the steps for that phone and browser (`src/lib/install.js`): Safari's
   Share button on iPhone, Chrome's ⋮ menu on Android, Brave (found by `navigator.brave`, as it
@@ -123,11 +123,12 @@ needs a server. The app itself works offline too:
   Save works from any step; a Save error opens its step. On desktop, clicking a field boxes it.
 - **Typing on a phone:** while a text field has focus, the Save bar, the bottom tabs and long
   sheets' footers step aside and the photo shrinks, so nothing covers the field being fixed.
-- **No-bill expense** (Home, Ledger, Money, the sidebar, or Q): spending with no bill, an amount, what
+- **Quick expense** (Home, Ledger, Money, the sidebar, or Q): spending with no bill, an amount, what
   it was for, a note and the day. It's a Ledger expense marked **No bill**, in spending and
   categories, never in the IRD draw; with accounts set up it comes off the one picked.
-- **Adding a bill:** Scan and Add by hand sit side by side on the Scan page, the Dashboard and the
-  sidebar. Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
+- **Adding a bill:** Scan a bill, or **Quick expense**; ticking **Add bill details** there goes on to
+  the full bill form (shop, PAN, bill no., items) for a paper bill typed in (N on desktop). The Scan page also has **Type it in**.
+  Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
   PDF has a text layer, its exact text goes through the receipt parser instead of OCR
   (`extractBillFromText`). Drop a photo or PDF anywhere on the Scan page, a statement on the Bank
   page's statement box, or several screenshots on its screenshots box; a file dropped anywhere else
@@ -145,7 +146,7 @@ needs a server. The app itself works offline too:
   JSON backup / restore and a CSV export for spreadsheets (no photos, not restorable).
 - **First load:** `index.html` carries a CSS-only skeleton of the app inside `#root`, so there is
   no blank page while the JavaScript loads; React replaces it. With no bills, the Dashboard and
-  Ledger offer Scan, Add by hand and Load sample bills.
+  Ledger offer Scan, Quick expense and Load sample bills.
 
 ## IRD rules
 
@@ -525,8 +526,8 @@ No server, so trips and splits travel as files (`src/lib/share.js`, `src/compone
 **On a trip:** a trip is *on now* until you press **End trip**. While it's on, Home shows it (day,
 people, the total so far and your part) with **Scan a bill**, which runs the normal camera and
 Check the details and then adds the bill to the trip as one you paid (in your ledger for the IRD
-draw, not counted as spending), and **No-bill expense**, for cash with no bill: how much, what, who paid
-and who it's split between. The everyday No-bill expense offers the trip too. **End trip** can log your
+draw, not counted as spending), and **Quick expense**, for cash with no bill: how much, what, who paid
+and who it's split between. The everyday Quick expense offers the trip too. **End trip** can log your
 share to your ledger in the same step; the trip then shows *Ended · settle up* until it's marked
 settled, and can be reopened.
 

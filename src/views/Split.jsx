@@ -68,7 +68,7 @@ export function SplitHub() {
         </a>
         <button type="button" onClick={() => openSheet('quickOut', { split: true })} className="card flex flex-col gap-2 rounded-2xl p-4 text-left hover:border-line-strong">
           <span className="flex size-10 items-center justify-center rounded-[12px] bg-leaf-soft text-leaf"><Zap className="size-5" /></span>
-          <span className="text-[15px] font-semibold text-ink">No-bill expense</span>
+          <span className="text-[15px] font-semibold text-ink">Quick expense</span>
           <span className="t-caption text-ink-3">No bill: a taxi, snacks you paid for friends</span>
         </button>
         <a href="#/trips" className="card col-span-2 flex items-center gap-3 rounded-2xl p-4 hover:border-line-strong sm:col-span-1 sm:flex-col sm:items-start sm:gap-2">

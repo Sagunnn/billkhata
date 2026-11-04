@@ -19,6 +19,6 @@
   ],
   "shortcuts": [
     { "name": "Scan a bill", "url": "/#/scan", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "No-bill expense", "url": "/#/?quick", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Quick expense", "url": "/#/?quick", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

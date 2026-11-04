@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  BookOpen, ChartColumn, House, Map, PencilLine, ScanLine, SlidersHorizontal, Users, Wallet, Zap,
+  BookOpen, ChartColumn, House, Map, ScanLine, SlidersHorizontal, Users, Wallet, Zap,
 } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
@@ -9,7 +9,6 @@ import { Wordmark } from './components/Brand.jsx';
 import { useUpdateReady } from './lib/offline.js';
 import { needsWelcome } from './components/Welcome.jsx';
 import { Kbd, Skeleton } from './components/ui.jsx';
-import { blankExpense } from './lib/expense.js';
 import Dashboard from './views/Dashboard.jsx';
 import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
@@ -63,7 +62,7 @@ function useNavCounts() {
 }
 
 function Sidebar({ route }) {
-  const { openEditor, openSheet, profile } = useStore();
+  const { openSheet } = useStore();
   const counts = useNavCounts();
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-[248px] flex-col border-r border-line bg-surface px-4 py-5 md:flex">
@@ -72,11 +71,8 @@ function Sidebar({ route }) {
         <a href="#/scan" className="tap relative flex h-[52px] items-center justify-center gap-2 rounded-[14px] bg-brand text-[15px] font-semibold text-on-brand hover:bg-brand-dark">
           <ScanLine className="size-5" />Scan a bill<Kbd tone="brand" className="absolute right-3">S</Kbd>
         </a>
-        <button type="button" onClick={() => openEditor(blankExpense(profile.region))} className="tap relative flex h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[14px] font-medium text-ink hover:bg-sunken">
-          <PencilLine className="size-[18px]" />Add by hand<Kbd className="absolute right-3">N</Kbd>
-        </button>
         <button type="button" onClick={() => openSheet('quickOut')} className="tap relative flex h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[14px] font-medium text-ink hover:bg-sunken">
-          <Zap className="size-[18px]" />No-bill expense<Kbd className="absolute right-3">Q</Kbd>
+          <Zap className="size-[18px]" />Quick expense<Kbd className="absolute right-3">Q</Kbd>
         </button>
       </div>
       <nav className="mt-5 space-y-0.5" aria-label="Main">
@@ -222,7 +218,7 @@ function useShortcuts() {
       }
       if (modal) return;
       if (k === 's' || k === 'S') { e.preventDefault(); window.location.hash = '#/scan'; }
-      else if (k === 'n' || k === 'N') { e.preventDefault(); openEditor(blankExpense(profile.region)); }
+      else if (k === 'n' || k === 'N') { e.preventDefault(); openSheet('quickOut', { details: true }); }
       else if (k === 'q' || k === 'Q') { e.preventDefault(); openSheet('quickOut'); }
       else if (k === '/') {
         e.preventDefault();

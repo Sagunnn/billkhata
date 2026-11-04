@@ -84,8 +84,12 @@ needs a server. The app itself works offline too:
   instead; a scan before the reader is downloaded says so and leaves the form to fill in by hand.
   Only the IRD website and vision AI need the internet.
 - **Install:** `manifest.webmanifest` with PNG and maskable icons (`public/icons`) and shortcuts
-  (Scan a bill, Quick expense → `/#/?quick`); Settings offers **Install app** where the browser
-  allows it, or says how (Share → Add to Home Screen on iPhone).
+  (Scan a bill, Quick expense → `/#/?quick`). **Add to home screen** (a card on Home on phones,
+  Settings → Use offline, and the end of the welcome) uses the browser's own **Install app** where
+  it offers one, else shows the steps for that phone and browser (`src/lib/install.js`): Safari's
+  Share button on iPhone, Chrome's ⋮ menu on Android, Samsung Internet, and for Instagram,
+  Messenger, Facebook and other in-app browsers, which can't install, how to open it in Safari or
+  Chrome first.
 
 ## Mobile, trust and first load
 

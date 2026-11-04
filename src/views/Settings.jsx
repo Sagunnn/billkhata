@@ -56,7 +56,7 @@ function ProfileSection() {
 
 /** What works without a connection, the offline download, and installing the app. */
 function OfflineSection() {
-  const { settings } = useStore();
+  const { settings, openSheet } = useStore();
   const toast = useToast();
   const online = useOnline();
   const { installed, install } = useInstallPrompt();
@@ -78,7 +78,6 @@ function OfflineSection() {
       refresh();
     }
   }
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const row = (ok, title, sub) => (
     <li className="flex items-start gap-3 py-2.5">
       {ok ? <CircleCheck className="mt-0.5 size-5 shrink-0 text-leaf" /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-ink-3" />}
@@ -113,9 +112,12 @@ function OfflineSection() {
         </>
       )}
       <div className="mt-4 border-t border-line pt-3">
-        {installed ? <p className="t-label text-ink-2">Installed: open BillKhata from your home screen.</p>
-          : install ? <Button icon={Smartphone} onClick={install}>Install app</Button>
-            : <p className="t-label text-ink-2">{ios ? 'To open it like an app: Share → Add to Home Screen.' : 'To open it like an app: the browser menu → Install app (or Add to Home screen).'}</p>}
+        {installed ? <p className="t-label text-ink-2">Installed: open BillKhata from your home screen.</p> : (
+          <div className="flex flex-wrap gap-2">
+            {install && <Button variant="primary" icon={Smartphone} onClick={install}>Install app</Button>}
+            <Button icon={Smartphone} onClick={() => openSheet('install')}>{install ? 'Other ways' : 'Add to home screen'}</Button>
+          </div>
+        )}
       </div>
     </Card>
   );

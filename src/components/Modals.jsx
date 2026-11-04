@@ -18,6 +18,7 @@ import { AccountsSheet, MoneyHistorySheet, MoneyInSheet, MoveSheet, QuickOutShee
 import { ShortcutsSheet } from './Shortcuts.jsx';
 import { TripQuickSheet } from '../views/Trips.jsx';
 import { WelcomeSheet } from './Welcome.jsx';
+import { InstallSheet } from './InstallGuide.jsx';
 
 /** Reads, checks and compresses a picked photo. Returns a data URL or throws. */
 export async function photoFromFile(file) {
@@ -152,6 +153,7 @@ export function ModalHost() {
   if (modal.type === 'quickOut') return <QuickOutSheet onClose={closeModal} />;
   if (modal.type === 'moneyHistory') return <MoneyHistorySheet onClose={closeModal} />;
   if (modal.type === 'shortcuts') return <ShortcutsSheet onClose={closeModal} />;
+  if (modal.type === 'install') return <InstallSheet onClose={closeModal} />;
   if (modal.type === 'welcome') return <WelcomeSheet step={modal.step} onClose={closeModal} />;
   if (modal.type === 'tripQuick') return <TripQuickSheet tripId={modal.tripId} onClose={closeModal} />;
   return null;

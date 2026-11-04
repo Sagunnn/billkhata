@@ -133,16 +133,30 @@ export async function downloadForOffline({ nepali = false, onProgress } = {}) {
   onProgress?.({ status: 'Done', progress: 1 });
 }
 
+// Chrome-like browsers offer installing once, early on: kept here so any screen can use it later.
+let deferredPrompt = null;
+const promptListeners = new Set();
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; promptListeners.forEach((f) => f(e)); });
+  window.addEventListener('appinstalled', () => { deferredPrompt = null; promptListeners.forEach((f) => f(null)); });
+}
+export const isInstalled = () => typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true);
+
 /** "Install app" where the browser offers it (Android, desktop Chrome / Edge); null elsewhere. */
 export function useInstallPrompt() {
-  const [prompt, setPrompt] = useState(null);
-  const [installed, setInstalled] = useState(() => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true);
+  const [prompt, setPrompt] = useState(() => deferredPrompt);
+  const [installed, setInstalled] = useState(isInstalled);
   useEffect(() => {
-    const keep = (e) => { e.preventDefault(); setPrompt(e); };
-    const done = () => { setInstalled(true); setPrompt(null); };
-    window.addEventListener('beforeinstallprompt', keep);
-    window.addEventListener('appinstalled', done);
-    return () => { window.removeEventListener('beforeinstallprompt', keep); window.removeEventListener('appinstalled', done); };
+    const on = (e) => { setPrompt(e); if (!e) setInstalled(true); };
+    promptListeners.add(on);
+    return () => promptListeners.delete(on);
   }, []);
-  return { installed, install: prompt ? async () => { prompt.prompt(); await prompt.userChoice.catch(() => null); setPrompt(null); } : null };
+  return {
+    installed,
+    install: prompt ? async () => {
+      prompt.prompt();
+      const choice = await prompt.userChoice.catch(() => null);
+      if (choice?.outcome === 'accepted') { deferredPrompt = null; setPrompt(null); setInstalled(true); }
+    } : null,
+  };
 }

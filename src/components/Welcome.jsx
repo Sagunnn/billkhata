@@ -8,6 +8,7 @@ import {
 import { REGIONS } from '../lib/constants.js';
 import { ACCOUNT_SUGGESTIONS, kindForName, setAccounts } from '../lib/money.js';
 import { flag, validateProfile } from '../lib/profile.js';
+import { isInstalled } from '../lib/offline.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { LogoMark } from './Brand.jsx';
 import { useToast } from './Toast.jsx';
@@ -40,7 +41,7 @@ function Dots({ n, at }) {
 }
 
 export function WelcomeSheet({ onClose, step: first = 'hello' }) {
-  const { profile, setProfile, expenses, money, setMoney, removeSamples } = useStore();
+  const { profile, setProfile, expenses, money, setMoney, removeSamples, openSheet } = useStore();
   const toast = useToast();
   const [step, setStep] = useState(first);
   const [p, setP] = useState(() => (isDemoProfile(profile) ? { ...profile, fullName: '', phone: '', address: '' } : profile));
@@ -222,6 +223,7 @@ export function WelcomeSheet({ onClose, step: first = 'hello' }) {
     <div className="grid gap-2">
       <Button variant="primary" size="lg" icon={ScanLine} onClick={() => { finish('done'); window.location.hash = '#/scan'; }}>Scan my first bill</Button>
       <Button variant="ghost" onClick={() => finish('done')}>Go to Home</Button>
+      {!isInstalled() && <button type="button" onClick={() => { setWelcome('done'); openSheet('install'); }} className="t-label mt-1 font-medium text-brand">Add BillKhata to your home screen</button>}
     </div>,
   );
 }

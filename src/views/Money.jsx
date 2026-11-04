@@ -1,7 +1,7 @@
 // Money (Figma: Phone 06 · Money): what you have in each account now, and the bank rows. A statement
 // or payment screenshot is read on this device, each row matched with its bill, and the ones without
 // one wait under "Need a look". Credits are counted into their own account with one tap.
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowLeftRight, CircleCheck, Download, FileUp, History, ImageUp, Landmark, Link2, Link2Off, LoaderCircle, Lock, Pencil, Plus, Receipt, Search, ShieldCheck, Smartphone, Trash, TriangleAlert, Undo2, X } from 'lucide-react';
 import { PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
@@ -13,6 +13,7 @@ import { overlapWith, withoutOverlaps } from '../lib/bank/overlap.js';
 import { accountForName, accountsOf, addEntry, cashAccountId, creditSource, creditState, defaultAccountId, entryFromCredit, moneyNow, potOf, retitleCredit, sourceOptions } from '../lib/money.js';
 import { afterStatement, linkCandidates, mergedCsv, needsLook, unlinkPairs, visibleEntries } from '../lib/bank/reconcile.js';
 import { useStore } from '../store.jsx';
+import { takeStatement } from '../lib/statementHandoff.js';
 import { useToast } from '../components/Toast.jsx';
 import { Badge, Button, Card, Chip, EmptyState, Field, Modal, Segmented, useFileDrop } from '../components/ui.jsx';
 import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
@@ -45,6 +46,8 @@ function StatementUpload({ statements, onSaved, defaultName = '' }) {
   const input = useRef(null);
   const [state, setState] = useState({ step: 'idle' }); // idle | reading | password | preview
   const [password, setPassword] = useState('');
+  // A statement dropped on the Scan page comes here to be read.
+  useEffect(() => { const f = takeStatement(); if (f) read(f); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function read(file, pw) {
     setState({ step: 'reading', file, status: 'Opening the statement' });
@@ -612,7 +615,8 @@ export default function Money() {
   const { statements, payments, profile, reconOverrides, setReconOverrides, deleteStatement, saveStatement, clearBankData, openEditor, openSheet, bankRecon, money: m, setMoney } = useStore();
   const toast = useToast();
   const region = profile.region;
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(() => (window.location.hash.includes('?upload') ? { name: '' } : false));
+  useEffect(() => { if (window.location.hash.includes('?upload')) window.history.replaceState(null, '', '#/money'); }, []);
   const [renaming, setRenaming] = useState(null); // { id, name }
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
@@ -891,6 +895,15 @@ export default function Money() {
       {uploading && (
         <Modal open size="xl" title={uploading.name ? `Upload a ${uploading.name} statement` : 'Upload a statement or screenshots'} subtitle="PDF, Excel, CSV or a screenshot. Read on this device." onClose={() => setUploading(false)}>
           {uploads}
+          <details className="mt-4 rounded-[14px] border border-line px-4 py-3">
+            <summary className="cursor-pointer text-[15px] font-medium text-ink">Where do I get my statement?</summary>
+            <ul className="t-label mt-2 space-y-2 text-ink-2">
+              <li><b className="text-ink">eSewa, Khalti, IME Pay:</b> in the app open the statement or transaction history, pick the dates and download it (PDF or Excel). A screenshot of the list works too.</li>
+              <li><b className="text-ink">Banks:</b> in your mobile banking app open Accounts → Statement, pick the dates and download the PDF. Many banks also email a statement every month.</li>
+              <li><b className="text-ink">Locked PDF?</b> BillKhata asks for the password (often your date of birth or part of the account number). It’s used once and never saved.</li>
+              <li>Upload one each month: rows already saved from an earlier statement are skipped, so nothing is counted twice.</li>
+            </ul>
+          </details>
           {statements.length > 0 && (
             <section className="mt-5">
               <h3 className="t-overline text-ink-3">Your statements</h3>

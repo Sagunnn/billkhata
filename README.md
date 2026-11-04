@@ -415,7 +415,10 @@ undoes the guess, and any other row can be marked as one by hand.
 
 ## Bank: spending from statements, payment screenshots, one merged table
 
-On the Money page (**Statement** at the top; `#/bank` still works). Nothing is uploaded: the PDF
+On the Money page (**Upload statement**; `#/money?upload` opens it straight away, `#/bank` still works).
+Home points to it (a card while no statement is added, then a monthly nudge once the latest is
+three or more weeks old, and a **Bank statement** chip); the Scan page links to it and hands over a
+spreadsheet dropped there; the upload sheet says where to get a statement. Nothing is uploaded: the PDF
 and the screenshots are read in the browser and kept in IndexedDB (`statements`, `payments`, DB
 version 3), and they're in backups.
 

@@ -1,6 +1,6 @@
 // Capture -> OCR -> verify -> save.
 import { useEffect, useState } from 'react';
-import { Camera, Check, ChevronLeft, FileDown, FileText, LoaderCircle, Luggage, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
+import { Camera, Check, ChevronLeft, ChevronRight, FileDown, FileText, Landmark, LoaderCircle, Luggage, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { BLURRY_FOCUS, compressImage, fileToDataUrl, imageHash, photoFocus, prepareForOcr, validateImageFile } from '../lib/image.js';
@@ -9,6 +9,7 @@ import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, need
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { locateFields } from '../lib/ocr/locate.js';
 import { entryFromExpense, tripStatus } from '../lib/trips.js';
+import { handOffStatement, isStatementFile } from '../lib/statementHandoff.js';
 import { money } from '../lib/format.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
@@ -133,6 +134,13 @@ export default function Scan() {
 
   async function onFile(file) {
     if (!file) return;
+    // A spreadsheet is a bank or wallet statement: the Money page reads those.
+    if (isStatementFile(file)) {
+      handOffStatement(file);
+      toast('That’s a statement: reading it on the Money page.');
+      window.location.hash = '#/money?upload';
+      return;
+    }
     const { isPdf, readBillPdf } = await import('../lib/pdfBill.js');
     if (isPdf(file)) {
       setStep('reading');
@@ -423,6 +431,14 @@ export default function Scan() {
           <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" className="sr-only" onChange={pickFile} />
         </label>
       </div>
+      <a href="#/money?upload" className="mt-3 flex items-center gap-3 rounded-[14px] border border-line bg-surface px-4 py-3 hover:bg-sunken">
+        <Landmark className="size-5 shrink-0 text-navy" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-medium text-ink">Bank or wallet statement?</span>
+          <span className="t-caption block text-ink-3">Upload it on Money: every payment is matched with its bill</span>
+        </span>
+        <ChevronRight className="size-5 shrink-0 text-ink-3" />
+      </a>
       <div className="mt-3">
         <Button size="lg" variant="ghost" icon={Sparkles} className="w-full sm:w-auto" onClick={() => processImage(sampleReceiptForScan())}>Try with a sample receipt</Button>
       </div>

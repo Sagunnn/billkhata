@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, Luggage, PencilLine, Plus, ScanLine, Search,
-  SlidersHorizontal, Ticket, Trash, TriangleAlert, Trophy, UserRound, Users, Zap,
+  Landmark, SlidersHorizontal, Ticket, Trash, TriangleAlert, Trophy, Upload, UserRound, Users, X, Zap,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT, REGIONS } from '../lib/constants.js';
 import { blankExpense, byCategory, countsAsSpend, filterExpenses, reportTotals } from '../lib/expense.js';
@@ -156,6 +156,40 @@ function TripNow({ trip }) {
         <button type="button" onClick={() => openSheet('tripQuick', { tripId: trip.id })} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-line-strong bg-surface text-[14px] font-semibold text-ink hover:bg-sunken"><Zap className="size-[18px]" />Quick expense</button>
       </div>
     </section>
+  );
+}
+
+/* ---------- bank statements ---------- */
+
+const STMT_HINT = 'billkhata_stmt_hint';
+const readHint = () => { try { return localStorage.getItem(STMT_HINT) || ''; } catch { return 'hidden'; } };
+
+/**
+ * Statements are the least visible part of the app, so Home points to them: what they do while none
+ * is added, then a monthly nudge once the latest one is a few weeks old. Both can be hidden.
+ */
+function StatementCard() {
+  const { statements } = useStore();
+  const [hint, setHint] = useState(readHint);
+  const latest = statements.map((s) => s.to).filter(Boolean).sort().at(-1) || '';
+  const stale = latest && (Date.now() - Date.parse(latest)) / 864e5 > 25;
+  const key = statements.length ? `seen-${latest}` : 'hidden';
+  if ((statements.length && !stale) || hint === key || (!statements.length && hint === 'hidden')) return null;
+  const hide = () => { try { localStorage.setItem(STMT_HINT, key); } catch { /* ignore */ } setHint(key); };
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-navy-soft text-navy"><Landmark className="size-5" /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-semibold text-ink">{statements.length ? 'Add this month’s statement' : 'Match your bank and wallet with your bills'}</p>
+        <p className="t-caption mt-0.5 text-ink-3">
+          {statements.length
+            ? `Your last one ends ${shortBS(latest)}. Upload the newer one; rows already saved are skipped.`
+            : 'Upload a statement (PDF, Excel or a screenshot) from your bank, eSewa or Khalti: each payment is matched with its bill, and money in is counted. Read on this phone.'}
+        </p>
+        <a href="#/money?upload" className="tap mt-2 inline-flex h-9 items-center gap-1.5 rounded-lg bg-navy px-3 text-[14px] font-medium text-[#fff] hover:opacity-90"><Upload className="size-4" />Upload statement</a>
+      </div>
+      <button type="button" onClick={hide} aria-label="Hide" className="tap -mr-1 -mt-1 rounded-full p-1.5 text-ink-3 hover:bg-sunken"><X className="size-4" /></button>
+    </div>
   );
 }
 
@@ -400,6 +434,7 @@ export default function Dashboard() {
       <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden">
         <button type="button" className="chip tap" onClick={() => openSheet('quickOut')}><Zap className="size-4" />Quick expense</button>
         <button type="button" className="chip tap" onClick={() => openEditor(blankExpense(region))}><PencilLine className="size-4" />Add by hand</button>
+        <a href="#/money?upload" className="chip tap"><Landmark className="size-4" />Bank statement</a>
         <a href="#/split" className="chip tap"><Users className="size-4" />Split a bill</a>
         <button type="button" className="chip tap" onClick={() => setWinnerModal([])}><Trophy className="size-4" />Check IRD winners</button>
       </div>
@@ -437,6 +472,7 @@ export default function Dashboard() {
           <WalletHero />
           <LuckyStrip />
           <Stats month={month} />
+          <StatementCard />
           <div className="lg:hidden"><WhereItWent month={month} /></div>
           <div className="lg:hidden"><BankLookCard /></div>
 

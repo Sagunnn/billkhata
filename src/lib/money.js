@@ -2,7 +2,7 @@
 // (cash in hand, each bank, each wallet), add money when it's credited (salary, a friend paying you
 // back), and move money between accounts (an ATM withdrawal). Every bill saved after that comes off
 // the account it was paid from: a cash bill from cash in hand, a QR / wallet / card bill from the
-// account picked on the bill (your main account unless you choose another). Quick expenses are
+// account picked on the bill (your main account unless you choose another). No-bill expenses are
 // small Ledger expenses, so they come off the same way. Pure functions; tests in tests/money.test.js.
 // Stored in localStorage (small) and included in backups.
 import { PAYMENT } from './constants.js';

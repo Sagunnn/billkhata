@@ -737,7 +737,7 @@ export function TripView({ tripId: id }) {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="mr-auto font-bold">Expenses</h2>
               <a href={`#/scan?trip=${encodeURIComponent(trip.id)}`} className="tap inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-3.5 text-[14px] font-medium text-on-brand hover:bg-brand-dark"><ScanLine className="size-4" />Scan a bill</a>
-              <Button icon={Zap} onClick={() => openSheet('tripQuick', { tripId: trip.id })}>Quick expense</Button>
+              <Button icon={Zap} onClick={() => openSheet('tripQuick', { tripId: trip.id })}>No-bill expense</Button>
               <Button icon={Plus} onClick={() => setEditing('new')}>Add expense</Button>
               <Button icon={ScanText} onClick={() => setPicking(true)}>From ledger</Button>
             </div>

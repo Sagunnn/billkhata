@@ -118,7 +118,7 @@ export default function Ledger() {
       <div className="mb-4 flex items-center justify-between gap-3">
         <h1 className="t-h-l text-ink">Ledger</h1>
         <div className="flex items-center gap-2">
-          <Button variant="tonal" icon={Zap} onClick={() => openSheet('quickOut')} aria-label="Quick expense, no bill"><span className="sm:hidden">Expense</span><span className="hidden sm:inline">Quick expense</span></Button>
+          <Button variant="tonal" icon={Zap} onClick={() => openSheet('quickOut')} aria-label="No-bill expense"><span className="sm:hidden">No bill</span><span className="hidden sm:inline">No-bill expense</span></Button>
           <span className="hidden md:block"><Button icon={PencilLine} onClick={() => openEditor(blankExpense(profile.region))}>Add by hand</Button></span>
           <a href="#/reports" className={iconBtn} aria-label="Export: CSV and PDF reports" title="Export"><Download className="size-5" /></a>
           <button type="button" className={iconBtn} onClick={() => setFiltering(true)} aria-label={`Filters${extra ? ` (${extra} on)` : ''}`} title="Filters">

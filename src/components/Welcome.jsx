@@ -25,7 +25,7 @@ export function needsWelcome({ profile, expenses, ready }) {
 
 const TOUR = [
   [ScanLine, 'Scan a bill', 'Point the camera at the bill and tap the button. BillKhata reads the shop, PAN, date and total; check each part against the photo, then save.'],
-  [Zap, 'Quick expense', 'A fare, snacks, a tip: no bill needed. The amount, what it was for, done. On Home, the Ledger, or Q on a computer.'],
+  [Zap, 'No-bill expense', 'A fare, snacks, a tip: no bill needed. The amount, what it was for, done. On Home, the Ledger, or Q on a computer.'],
   [Wallet, 'Your money', 'Cash, bank and wallets, kept up to date as you save bills. Upload a statement and each payment is matched with its bill; moving money between your own accounts isn’t counted twice.'],
   [Luggage, 'Split and trips', 'Split a bill by who had what, or keep a whole trip with friends: scan or add as you go, then settle in the fewest payments.'],
   [Ticket, 'IRD lucky draw', 'Cash bills with a PAN can enter Nepal’s prize coupon draw. BillKhata fills the IRD form for you and keeps your coupon numbers.'],

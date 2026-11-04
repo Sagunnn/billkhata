@@ -200,7 +200,7 @@ export const transferKey = (t) => `${t.fromMemberId}>${t.toMemberId}`;
 /* ---------- ongoing trips ---------- */
 
 /**
- * A trip is 'active' (on now: Home offers Scan and Quick expense for it), 'ended' (no more
+ * A trip is 'active' (on now: Home offers Scan and No-bill expense for it), 'ended' (no more
  * expenses expected; settle up) or 'settled'. Older trips without a status are active.
  */
 export const tripStatus = (t) => (['active', 'ended', 'settled'].includes(t?.status) ? t.status : 'active');

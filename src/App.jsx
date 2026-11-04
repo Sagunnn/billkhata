@@ -76,7 +76,7 @@ function Sidebar({ route }) {
           <PencilLine className="size-[18px]" />Add by hand<Kbd className="absolute right-3">N</Kbd>
         </button>
         <button type="button" onClick={() => openSheet('quickOut')} className="tap relative flex h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-surface text-[14px] font-medium text-ink hover:bg-sunken">
-          <Zap className="size-[18px]" />Quick expense<Kbd className="absolute right-3">Q</Kbd>
+          <Zap className="size-[18px]" />No-bill expense<Kbd className="absolute right-3">Q</Kbd>
         </button>
       </div>
       <nav className="mt-5 space-y-0.5" aria-label="Main">

@@ -222,7 +222,7 @@ export function MoveSheet({ onClose }) {
   );
 }
 
-/* ---------- Quick expense (Phone 12: Quick cash out) ---------- */
+/* ---------- No-bill expense (Phone 12: Quick cash out) ---------- */
 
 // What it was for, and the Ledger category each files under.
 const QUICK = [
@@ -283,7 +283,7 @@ export function QuickOutSheet({ onClose, split = false }) {
   }
 
   return (
-    <Modal open keepFooter onClose={onClose} size="md" title={split ? 'Quick expense to split' : 'Quick expense'}
+    <Modal open keepFooter onClose={onClose} size="md" title={split ? 'No-bill expense to split' : 'No-bill expense'}
       subtitle={split ? 'No bill: you paid, friends pay you back their part' : count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
       footer={(
         <div className="w-full">
@@ -347,7 +347,7 @@ export function MoneyHistorySheet({ onClose }) {
     ...(money.entries || []).map((x) => ({ ...x, sort: `${x.date}|${x.createdAt}` })),
     ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: Number(e.totalAmount) || 0, date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
   ].sort((a, b) => b.sort.localeCompare(a.sort));
-  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
+  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'No-bill expense' };
   return (
     <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)}` : ''}>
       {bySource.length > 0 && (

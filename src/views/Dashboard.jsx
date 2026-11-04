@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, Luggage, PencilLine, Plus, ScanLine, Search,
-  Landmark, SlidersHorizontal, Ticket, Trash, TriangleAlert, Trophy, Upload, UserRound, Users, X, Zap,
+  Landmark, SlidersHorizontal, Ticket, Trash, TriangleAlert, Trophy, Upload, UserRound, X, Zap,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT, REGIONS } from '../lib/constants.js';
 import { blankExpense, byCategory, countsAsSpend, filterExpenses, reportTotals } from '../lib/expense.js';
@@ -118,13 +118,13 @@ function WalletHero() {
       <div className="mt-3 flex justify-between md:hidden">
         <HeroAction icon={ArrowDownLeft} label="Money in" onClick={() => go('moneyIn')} />
         <HeroAction icon={ArrowLeftRight} label="ATM / Move" onClick={() => go('move')} />
-        <HeroAction icon={ArrowUpRight} label="Quick expense" onClick={() => openSheet('quickOut')} />
+        <HeroAction icon={ArrowUpRight} label="No-bill expense" onClick={() => openSheet('quickOut')} />
         <HeroAction icon={Plus} label="More" onClick={more} />
       </div>
       <div className="mt-5 hidden flex-wrap gap-2 md:flex">
         <HeroPill icon={ArrowDownLeft} label="Money in" onClick={() => go('moneyIn')} />
         <HeroPill icon={ArrowLeftRight} label="ATM / Move" onClick={() => go('move')} />
-        <HeroPill icon={ArrowUpRight} label="Quick expense" shortcut="Q" onClick={() => openSheet('quickOut')} />
+        <HeroPill icon={ArrowUpRight} label="No-bill expense" shortcut="Q" onClick={() => openSheet('quickOut')} />
         <HeroPill icon={History} label="History" onClick={() => openSheet('moneyHistory')} />
       </div>
     </section>
@@ -133,7 +133,7 @@ function WalletHero() {
 
 /* ---------- a trip that's on ---------- */
 
-/** While a trip is on: what it's at, and Scan a bill / Quick expense straight into it. */
+/** While a trip is on: what it's at, and Scan a bill / No-bill expense straight into it. */
 function TripNow({ trip }) {
   const { openSheet, profile } = useStore();
   const s = useMemo(() => calculateTripSettlement(trip), [trip]);
@@ -153,7 +153,7 @@ function TripNow({ trip }) {
       </a>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <a href={`#/scan?trip=${encodeURIComponent(trip.id)}`} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-brand text-[14px] font-semibold text-on-brand hover:bg-brand-dark"><ScanLine className="size-[18px]" />Scan a bill</a>
-        <button type="button" onClick={() => openSheet('tripQuick', { tripId: trip.id })} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-line-strong bg-surface text-[14px] font-semibold text-ink hover:bg-sunken"><Zap className="size-[18px]" />Quick expense</button>
+        <button type="button" onClick={() => openSheet('tripQuick', { tripId: trip.id })} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-line-strong bg-surface text-[14px] font-semibold text-ink hover:bg-sunken"><Zap className="size-[18px]" />No-bill expense</button>
       </div>
     </section>
   );
@@ -399,7 +399,7 @@ export default function Dashboard() {
   const [winnerModal, setWinnerModal] = useState(null); // null | [] (check) | [bill] (claim)
   const wins = openWins(expenses);
   const first = profile.fullName && !isDemoProfile(profile) ? profile.fullName.split(' ')[0] : '';
-  // The home-screen shortcut "Quick expense" opens /#/?quick.
+  // The home-screen shortcut "No-bill expense" opens /#/?quick.
   useEffect(() => {
     if (!window.location.hash.includes('?quick')) return;
     window.history.replaceState(null, '', '#/');
@@ -432,10 +432,9 @@ export default function Dashboard() {
 
       {/* Phone quick actions, scrolling sideways. */}
       <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden">
-        <button type="button" className="chip tap" onClick={() => openSheet('quickOut')}><Zap className="size-4" />Quick expense</button>
+        <button type="button" className="chip tap" onClick={() => openSheet('quickOut')}><Zap className="size-4" />No-bill expense</button>
         <button type="button" className="chip tap" onClick={() => openEditor(blankExpense(region))}><PencilLine className="size-4" />Add by hand</button>
         <a href="#/money?upload" className="chip tap"><Landmark className="size-4" />Bank statement</a>
-        <a href="#/split" className="chip tap"><Users className="size-4" />Split a bill</a>
         <button type="button" className="chip tap" onClick={() => setWinnerModal([])}><Trophy className="size-4" />Check IRD winners</button>
       </div>
 

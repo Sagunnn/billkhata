@@ -718,19 +718,37 @@ export function SplitEditor({ billId }) {
     return () => clearTimeout(t);
   }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The bill's items come in by themselves: the ones the scan read, or (a new split of a bill whose
+  // scan found none) read from its photo now. Splitting equally stays one tap away.
+  const readPhotoRef = useRef(null);
+  useEffect(() => {
+    if (!expense || !split || split.items.length) return;
+    if (expense.lineItems?.length) {
+      dirty.current = true;
+      setSplit((sp) => ({ ...sp, mode: 'items', items: expense.lineItems.map((it) => makeItem(it)) }));
+    } else if (expense.receiptImage && !expense.split) {
+      readPhotoRef.current?.({ auto: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!expense) return <Card><EmptyState icon={ReceiptText} title="Bill not found" action={<a href="#/split" className="font-semibold text-navy underline">Back to Split Khata</a>} /></Card>;
 
   const update = (next) => { dirty.current = true; setSplit(next); };
   const setStep = (n) => { setStepState(Math.max(0, Math.min(2, n))); window.scrollTo({ top: 0 }); };
 
-  async function readPhoto() {
+  readPhotoRef.current = readPhoto;
+  async function readPhoto({ auto = false } = {}) {
     setReading(true);
     try {
       const [{ prepareForOcr }, { extractBill }] = await Promise.all([import('../lib/image.js'), import('../lib/ocr/index.js')]);
       const out = await extractBill(await prepareForOcr(expense.receiptImage), settings, { region: profile.region });
       const found = out.fields.lineItems || [];
-      if (!found.length) toast('No item rows found on the photo. Add them by hand or paste the text.', 'error');
-      else { update({ ...split, items: [...split.items, ...found], mode: 'items' }); toast(`Added ${found.length} items. Check them against the bill.`); }
+      if (!found.length) toast(auto ? 'No item rows found on the bill’s photo, so it’s split equally. Add items by hand to split by what each had.' : 'No item rows found on the photo. Add them by hand or paste the text.', auto ? 'success' : 'error');
+      else {
+        dirty.current = true;
+        setSplit((sp) => ({ ...sp, items: [...sp.items, ...found], mode: 'items' }));
+        toast(`Read ${found.length} items from the bill’s photo. Check them against the bill.`);
+      }
     } catch (e) {
       toast(`Couldn’t read the photo: ${e.message}`, 'error');
     } finally {

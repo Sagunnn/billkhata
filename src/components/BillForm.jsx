@@ -251,7 +251,13 @@ function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto, focus, marks })
 
 /** The item rows read from the bill. Used by Split Khata and Trip Khata; fix them here once. */
 function LineItems({ items = [], total, onChange }) {
-  const [open, setOpen] = useState(false);
+  // Open when items were read, so they're in view; it follows a re-read that finds some.
+  const [open, setOpen] = useState(items.length > 0);
+  const hadItems = useRef(items.length > 0);
+  useEffect(() => {
+    if (items.length && !hadItems.current) setOpen(true);
+    hadItems.current = items.length > 0;
+  }, [items.length]);
   const sum = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const billTotal = Number(total) || 0;
   // Items usually add up to the total, or a bit under it (VAT, service charge on top).
@@ -264,7 +270,7 @@ function LineItems({ items = [], total, onChange }) {
         <ReceiptText className="size-5 shrink-0 text-ink-2" />
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-semibold text-ink">{items.length ? `${items.length} item${items.length === 1 ? '' : 's'} read from the bill` : 'Items'}</span>
-          <span className={`t-caption block ${offBy ? 'text-warn' : 'text-ink-3'}`}>{items.length ? `Add up to ${money(sum)}${offBy ? (gap > 0 ? ` · ${money(gap)} missing` : ` · ${money(-gap)} too much`) : ''} · tap to fix or split by item` : 'Add them if you’ll split this bill by item'}</span>
+          <span className={`t-caption block ${offBy ? 'text-warn' : 'text-ink-3'}`}>{items.length ? `Add up to ${money(sum)}${offBy ? (gap > 0 ? ` · ${money(gap)} missing` : ` · ${money(-gap)} too much`) : ''}` : 'None read from the bill · add them to split it by item'}</span>
         </span>
         <ChevronDown className={`size-5 shrink-0 text-ink-3 transition ${open ? 'rotate-180' : ''}`} />
       </button>

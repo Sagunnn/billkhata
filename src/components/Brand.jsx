@@ -1,7 +1,7 @@
 // The ख (kha) monogram on a sindoor tile, and the wordmark: Bill in ink, Khata in red.
 export function LogoMark({ size = 36, className = '' }) {
   return (
-    <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center rounded-[10px] bg-[#b91c1c] font-nepali font-semibold text-white ${className}`}
+    <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center rounded-[10px] bg-[#b91c1c] font-nepali font-semibold text-[#fff] ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.61, lineHeight: 1, borderRadius: size * 0.28 }}>
       <span style={{ marginTop: size * 0.06 }}>ख</span>
     </span>

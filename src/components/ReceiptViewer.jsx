@@ -201,7 +201,7 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
             const width = view.s * m.box.w * nat.w * p.k + 8;
             const height = view.s * m.box.h * nat.h * p.k + 6;
             const tone = m.tone === 'unsure' ? 'border-[#b26a00] bg-[#f5c04a]/15' : 'border-navy bg-navy/10';
-            const chip = m.tone === 'unsure' ? 'bg-[#b26a00] text-white' : 'bg-navy text-white';
+            const chip = m.tone === 'unsure' ? 'bg-[#b26a00] text-[#fff]' : 'bg-navy text-white';
             return (
               <div key={m.label} className={`pointer-events-none absolute rounded-md border-2 border-dashed ${tone} ${gesturing ? '' : 'transition-all duration-150 ease-out'}`} style={{ left, top, width, height }}>
                 {m.label && <span className={`absolute ${i % 2 ? '-bottom-[22px] right-0' : '-top-[22px] left-0'} whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4 ${chip}`}>{m.label}</span>}

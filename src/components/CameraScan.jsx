@@ -145,28 +145,28 @@ export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onP
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#14110e] text-[#faf7f2]" role="dialog" aria-label={title}>
+    <div className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] flex-col bg-[#14110e] text-[#faf7f2]" role="dialog" aria-label={title}>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <video ref={video} playsInline muted className={`absolute inset-0 size-full object-cover ${noCamera ? 'hidden' : ''}`} />
         {!noCamera && (
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute transition-all duration-200" style={frame}>
               {['left-0 top-0 border-l-4 border-t-4 rounded-tl-md', 'right-0 top-0 border-r-4 border-t-4 rounded-tr-md', 'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-md', 'bottom-0 right-0 border-b-4 border-r-4 rounded-br-md'].map((c) => (
-                <span key={c} className={`absolute size-8 ${c} ${box ? 'border-[#f5c04a]' : 'border-white/70'}`} />
+                <span key={c} className={`absolute size-8 ${c} ${box ? 'border-[#f5c04a]' : 'border-[#fff]/70'}`} />
               ))}
             </div>
           </div>
         )}
         <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-3 pt-[calc(var(--safe-top)+0.75rem)]">
-          <button type="button" onClick={onClose} aria-label="Close the camera" className="tap flex size-10 items-center justify-center rounded-full bg-black/40"><X className="size-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Close the camera" className="tap flex size-10 items-center justify-center rounded-full bg-[#000]/40"><X className="size-5" /></button>
           <span className="min-w-0 truncate px-2 text-[16px] font-semibold">{title}</span>
           {torch !== null
-            ? <button type="button" onClick={flash} aria-pressed={torch} aria-label="Flash" className="tap flex size-10 items-center justify-center rounded-full bg-black/40">{torch ? <Zap className="size-5 text-[#f5c04a]" /> : <ZapOff className="size-5" />}</button>
+            ? <button type="button" onClick={flash} aria-pressed={torch} aria-label="Flash" className="tap flex size-10 items-center justify-center rounded-full bg-[#000]/40">{torch ? <Zap className="size-5 text-[#f5c04a]" /> : <ZapOff className="size-5" />}</button>
             : <span className="size-10" />}
         </div>
         {pill && !noCamera && (
-          <p className="absolute left-1/2 top-[calc(var(--safe-top)+4.25rem)] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-black/60 px-4 py-2 text-[14px] font-medium" role="status">
-            <span className={`size-2 rounded-full ${state === 'found' ? 'bg-[#f5c04a]' : 'bg-white/60'}`} />{pill}
+          <p className="absolute left-1/2 top-[calc(var(--safe-top)+4.25rem)] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full bg-[#000]/60 px-4 py-2 text-[14px] font-medium" role="status">
+            <span className={`size-2 rounded-full ${state === 'found' ? 'bg-[#f5c04a]' : 'bg-[#fff]/60'}`} />{pill}
           </p>
         )}
         {state === 'blurry' && shot && (
@@ -174,20 +174,20 @@ export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onP
             <img src={shot} alt="The photo you took" className="min-h-0 flex-1 object-contain p-4 pt-[calc(var(--safe-top)+4rem)] opacity-90" />
             <div className="m-4 rounded-[18px] bg-[#27231d] p-4">
               <p className="text-[16px] font-semibold">This photo looks blurry</p>
-              <p className="mt-1 text-[14px] text-white/70">Digits could be misread. Hold the phone steady, a little further from the bill, in good light, then tap the button.</p>
+              <p className="mt-1 text-[14px] text-[#fff]/70">Digits could be misread. Hold the phone steady, a little further from the bill, in good light, then tap the button.</p>
               <div className="mt-3 flex gap-2">
-                <button type="button" onClick={retake} className="tap h-11 flex-1 rounded-[12px] bg-[#b91c1c] text-[15px] font-semibold text-white">Take again</button>
-                <button type="button" onClick={() => use(shot)} className="tap h-11 rounded-[12px] bg-white/10 px-4 text-[15px] font-medium">Use anyway</button>
+                <button type="button" onClick={retake} className="tap h-11 flex-1 rounded-[12px] bg-[#b91c1c] text-[15px] font-semibold text-[#fff]">Take again</button>
+                <button type="button" onClick={() => use(shot)} className="tap h-11 rounded-[12px] bg-[#fff]/10 px-4 text-[15px] font-medium">Use anyway</button>
               </div>
             </div>
           </div>
         )}
         {noCamera && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
-            <Camera className="size-10 text-white/70" />
+            <Camera className="size-10 text-[#fff]/70" />
             <p className="text-[16px] font-semibold">{state === 'denied' ? 'Camera access is off' : 'No camera here'}</p>
-            <p className="text-[14px] text-white/70">{state === 'denied' ? 'Allow the camera for this site in your browser settings, or take the photo with your phone’s camera app.' : 'Take the photo with your phone’s camera app, or pick a photo or PDF.'}</p>
-            <button type="button" onClick={() => fallback.current?.click()} className="tap inline-flex h-12 items-center gap-2 rounded-[14px] bg-[#b91c1c] px-5 text-[15px] font-semibold text-white"><Camera className="size-5" />Use phone camera</button>
+            <p className="text-[14px] text-[#fff]/70">{state === 'denied' ? 'Allow the camera for this site in your browser settings, or take the photo with your phone’s camera app.' : 'Take the photo with your phone’s camera app, or pick a photo or PDF.'}</p>
+            <button type="button" onClick={() => fallback.current?.click()} className="tap inline-flex h-12 items-center gap-2 rounded-[14px] bg-[#b91c1c] px-5 text-[15px] font-semibold text-[#fff]"><Camera className="size-5" />Use phone camera</button>
           </div>
         )}
       </div>
@@ -195,22 +195,22 @@ export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onP
       <div className="shrink-0 bg-[#1c1915] px-4 pb-[calc(var(--safe-bottom)+1rem)] pt-4">
         <div className="flex justify-center gap-6 text-[14px] font-medium">
           <span className="text-[#f5c04a]">Photo</span>
-          <button type="button" onClick={onPdfOrFile} className="text-white/70 hover:text-white">PDF or photo file</button>
-          <button type="button" onClick={onTypeIt} className="text-white/70 hover:text-white">Type it</button>
+          <button type="button" onClick={onPdfOrFile} className="text-[#fff]/70 hover:text-[#fff]">PDF or photo file</button>
+          <button type="button" onClick={onTypeIt} className="text-[#fff]/70 hover:text-[#fff]">Type it</button>
         </div>
         <div className="mx-auto mt-4 flex max-w-sm items-center justify-between">
-          <button type="button" onClick={() => upload.current?.click()} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-white/80">
-            <span className="flex size-12 items-center justify-center rounded-[14px] bg-white/10"><ImageIcon className="size-5" /></span>Upload
+          <button type="button" onClick={() => upload.current?.click()} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-[#fff]/80">
+            <span className="flex size-12 items-center justify-center rounded-[14px] bg-[#fff]/10"><ImageIcon className="size-5" /></span>Upload
           </button>
           <button type="button" onClick={() => (noCamera ? fallback.current?.click() : take())} disabled={state === 'starting' || state === 'taking' || state === 'blurry'}
-            aria-label="Take the photo" className="tap flex size-[76px] items-center justify-center rounded-full border-4 border-white disabled:opacity-50">
-            <span className="size-[60px] rounded-full bg-white" />
+            aria-label="Take the photo" className="tap flex size-[76px] items-center justify-center rounded-full border-4 border-[#fff] disabled:opacity-50">
+            <span className="size-[60px] rounded-full bg-[#fff]" />
           </button>
-          <button type="button" onClick={onSample} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-white/80">
-            <span className="flex size-12 items-center justify-center rounded-[14px] bg-white/10"><ReceiptText className="size-5" /></span>Try a sample
+          <button type="button" onClick={onSample} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-[#fff]/80">
+            <span className="flex size-12 items-center justify-center rounded-[14px] bg-[#fff]/10"><ReceiptText className="size-5" /></span>Try a sample
           </button>
         </div>
-        <p className="mt-4 flex items-center justify-center gap-1.5 text-[12px] text-white/60">
+        <p className="mt-4 flex items-center justify-center gap-1.5 text-[12px] text-[#fff]/60">
           <ShieldCheck className="size-3.5" />Read on this phone. Nothing is uploaded.
           {!noCamera && <button type="button" onClick={() => fallback.current?.click()} className="ml-1 underline">Use phone camera</button>}
         </p>

@@ -3,7 +3,7 @@
 // and a settlement with as few transfers as possible. Everything stays on this device.
 import { useMemo, useState } from 'react';
 import {
-  ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, Flag, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
+  ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, FileUp, Flag, Send, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
   NotebookPen, Pencil, Plus, QrCode, Receipt, RotateCcw, ScanLine, ScanText, Trash, UserPlus, Users, UsersRound, Zap,
 } from 'lucide-react';
 import { PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
@@ -38,7 +38,7 @@ function CatChip({ cat }) {
 /* ---------------- list ---------------- */
 
 export function TripsHub() {
-  const { trips, profile, saveTrip } = useStore();
+  const { trips, profile, saveTrip, openSheet } = useStore();
   const [name, setName] = useState('');
   const sorted = [...trips].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
 
@@ -57,6 +57,13 @@ export function TripsHub() {
           <Button type="submit" variant="primary" icon={Plus}>Start a trip</Button>
         </form>
       </Card>
+      <button type="button" onClick={() => openSheet('receive')} className="card flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:border-line-strong">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-navy-soft text-navy"><FileUp className="size-5" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-ink">Open a trip a friend sent</span>
+          <span className="t-caption block text-ink-3">Their expenses join yours; nothing is counted twice</span>
+        </span>
+      </button>
       <Card>
         <h2 className="border-b border-slate-200 px-4 py-3 font-bold">Your trips</h2>
         {sorted.length ? (
@@ -718,6 +725,7 @@ export function TripView({ tripId: id }) {
           {status === 'active' && <Button icon={Flag} onClick={() => setEnding(true)}>End trip</Button>}
           {status === 'ended' && <Button variant="ghost" icon={RotateCcw} onClick={() => { update({ ...trip, status: 'active', endedAt: '' }); toast('Trip reopened: it’s on Home again.'); }}>Reopen</Button>}
           {status !== 'active' && <Button variant={status === 'settled' ? 'outline' : 'ghost'} icon={CircleCheck} onClick={() => update({ ...trip, status: status === 'settled' ? 'ended' : 'settled' })}>{status === 'settled' ? 'Settled ✓' : 'Mark settled'}</Button>}
+          <Button icon={Send} onClick={() => openSheet('sendTrip', { tripId: trip.id })}>Send to friends</Button>
           <Button icon={busy ? LoaderCircle : FileDown} disabled={busy || !trip.entries.length} onClick={pdf}>Trip PDF</Button>
           <Button variant="ghost" icon={Trash} onClick={removeTrip}>Delete</Button>
         </div>

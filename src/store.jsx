@@ -9,6 +9,7 @@ import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings 
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 import { reconcileAll } from './lib/bank/reconcile.js';
 import { cleanMoney } from './lib/money.js';
+import { stampTrip } from './lib/share.js';
 import { applyTheme } from './lib/theme.js';
 
 const StoreContext = createContext(null);
@@ -165,8 +166,10 @@ export function StoreProvider({ children }) {
   }, []);
 
   const saveTrip = useCallback(async (t) => {
-    const clean = { ...t, updatedAt: new Date().toISOString() };
-    const before = (await db.getAllTrips()).find((x) => x.id === clean.id);
+    const before = (await db.getAllTrips()).find((x) => x.id === t.id);
+    // Each expense and person keeps when it last changed (and deletes are remembered), so a copy
+    // from a friend's phone merges right (lib/share.js).
+    const clean = stampTrip(before, { ...t, updatedAt: new Date().toISOString() });
     await db.putTrip(clean);
     setTrips((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
     // Trip bills are coded by the trip's initials; renaming the trip re-codes them.

@@ -500,6 +500,23 @@ version 3), and they're in backups.
   Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
   in the store and shared with the Money page).
 
+## Sending trips and splits to friends
+
+No server, so trips and splits travel as files (`src/lib/share.js`, `src/components/ShareFiles.jsx`):
+
+- **Send to friends** on a trip (with or without bill photos) or on a split's shares makes a small
+  `billkhata-…json` file and hands it to the phone's share sheet (AirDrop, WhatsApp, Nearby Share…),
+  or downloads it.
+- **Open a file from a friend** (Split, and Trips): a trip already here is **merged**: for each
+  expense and person the newer copy wins (`updatedAt`, stamped on every save by `stampTrip`), an
+  expense deleted on either phone stays deleted (`trip.deleted`), payments marked done on either
+  count, and nothing is counted twice; the sheet shows *N new, N updated, N removed* first. A trip
+  that isn't here asks **Which one are you?** (`isMe` never travels in a file; each phone knows it).
+  A split goes under **Shared with you** with your share, where to pay, and **Add my share to my
+  ledger**.
+- Bills a friend paid come in without ledger links; your own bills keep theirs (their photo stays in
+  your ledger).
+
 ## Trip Khata (group trips, many payers)
 
 **On a trip:** a trip is *on now* until you press **End trip**. While it's on, Home shows it (day,

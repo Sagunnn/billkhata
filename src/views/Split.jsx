@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ScanLine, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
   LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
-  UsersRound, Wine, X, Zap,
+  UsersRound, Wine, X, Zap, FileUp, Send,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
 import { money, downloadBlob } from '../lib/format.js';
@@ -19,6 +19,8 @@ import { useStore } from '../store.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Badge, Button, Card, CopyButton, EmptyState, Modal, Notice, Segmented } from '../components/ui.jsx';
+import { ReceivedSplits, sendShareFile } from '../components/ShareFiles.jsx';
+import { shareFileName, splitShareFile } from '../lib/share.js';
 
 const TAG_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -78,6 +80,10 @@ export function SplitHub() {
           <ChevronRight className="size-5 shrink-0 text-ink-3 sm:hidden" />
         </a>
       </div>
+      <button type="button" onClick={() => openSheet('receive')} className="t-label flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong py-3 font-medium text-ink-2 hover:bg-sunken">
+        <FileUp className="size-4" />Open a file from a friend
+      </button>
+      <ReceivedSplits />
       {!qr && (
         <a href="#/settings" className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 hover:bg-amber-100">
           <QrCode className="size-5 shrink-0" /><span className="flex-1">Set up your <b>payment QR</b> in Settings so friends can scan and pay you back.</span>
@@ -680,7 +686,7 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople }) {
 }
 
 /** Pinned under the shares: the summary image (shared or downloaded) and a plain-text summary. */
-function ShareBar({ split, result, payerInfo }) {
+function ShareBar({ split, result, payerInfo, expense }) {
   const toast = useToast();
   const { profile } = useStore();
   const [busy, setBusy] = useState(false);
@@ -706,6 +712,12 @@ function ShareBar({ split, result, payerInfo }) {
     <div className="flex flex-col gap-2">
       <Button variant="primary" size="lg" icon={busy ? LoaderCircle : ImageUp} disabled={busy} onClick={sendImage}>Send summary image</Button>
       <CopyButton value={text} label="Copy text summary" copiedLabel="Copied" size="lg" icon={Copy} toastText={pay ? 'Summary copied. Paste it in the group chat.' : 'Summary copied. Add your eSewa number in Settings to include where to pay.'} />
+      <button type="button" className="t-label inline-flex items-center justify-center gap-1.5 py-1 font-medium text-brand" onClick={async () => {
+        const how = await sendShareFile(splitShareFile({ ...expense, split }, result, { payer, pay }), shareFileName('split', split.title), `${split.title} split`);
+        if (how === 'downloaded') toast('Split file downloaded. Friends with BillKhata open it under Split → Open a file from a friend.');
+      }}>
+        <Send className="size-4" />Send to friends who use BillKhata
+      </button>
     </div>
   );
 }
@@ -807,7 +819,7 @@ export function SplitEditor({ billId }) {
       {/* Pinned above the bottom bar on phones, inline on desktop. */}
       <div className="hide-typing fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
         <div className="mx-auto max-w-xl">
-          {step === 2 ? <ShareBar split={live} result={result} payerInfo={payerInfo} /> : (
+          {step === 2 ? <ShareBar split={live} result={result} payerInfo={payerInfo} expense={expense} /> : (
             <div className="flex gap-2">
               {step > 0 && <Button size="lg" onClick={() => setStep(step - 1)}>Back</Button>}
               <Button size="lg" variant="primary" className="flex-1" onClick={next.go}>{next.label}</Button>

@@ -1,6 +1,6 @@
 // Home (Figma: Phone 01 · Home, Desktop 1 · Home): what you have now, the lucky draw when it's
 // relevant, this month at a glance, where it went, and the latest bills.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, Luggage, PencilLine, Plus, ScanLine, Search,
   SlidersHorizontal, Ticket, TriangleAlert, Trophy, Users, Zap,
@@ -360,6 +360,12 @@ export default function Dashboard() {
   const [winnerModal, setWinnerModal] = useState(null); // null | [] (check) | [bill] (claim)
   const wins = openWins(expenses);
   const first = profile.fullName && !isDemoProfile(profile) ? profile.fullName.split(' ')[0] : '';
+  // The home-screen shortcut "Quick expense" opens /#/?quick.
+  useEffect(() => {
+    if (!window.location.hash.includes('?quick')) return;
+    window.history.replaceState(null, '', '#/');
+    openSheet('quickOut');
+  }, [openSheet]);
   const d = new Date();
   const dateLine = [WEEKDAYS[d.getDay()], tBs && formatBS(tBs), formatAD(todayAD())].filter(Boolean).join(' · ');
 

@@ -1,10 +1,24 @@
 {
+  "id": "/",
   "name": "BillKhata",
   "short_name": "BillKhata",
-  "description": "Scan bills, track expenses and enter the Nepal IRD prize coupon draw.",
+  "description": "Scan bills, track expenses and money, split with friends and enter the Nepal IRD prize coupon draw. Works offline; everything stays on your phone.",
+  "lang": "en",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#0f172a",
-  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "orientation": "portrait",
+  "background_color": "#f6f1e9",
+  "theme_color": "#f6f1e9",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Scan a bill", "url": "/#/scan", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Quick expense", "url": "/#/?quick", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
 }

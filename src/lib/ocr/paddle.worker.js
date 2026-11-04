@@ -20,7 +20,10 @@ async function fetchModel(url, onBytes) {
     onBytes(buf.byteLength, buf.byteLength);
     return buf;
   }
-  const res = await fetch(url);
+  const OFFLINE = 'You’re offline and the bill reader isn’t on this phone yet. Type the bill in for now; connect once (or use Settings → Use offline) and it’s kept for next time.';
+  if (self.navigator?.onLine === false) throw new Error(OFFLINE);
+  let res;
+  try { res = await fetch(url); } catch { throw new Error(OFFLINE); }
   if (!res.ok || !res.body) throw new Error(`Could not download the text reader (${res.status}).`);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();

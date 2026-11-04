@@ -6,6 +6,7 @@ import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import { StorageNote } from './components/LocalFirst.jsx';
 import { Wordmark } from './components/Brand.jsx';
+import { useUpdateReady } from './lib/offline.js';
 import { Kbd, Skeleton } from './components/ui.jsx';
 import { blankExpense } from './lib/expense.js';
 import Dashboard from './views/Dashboard.jsx';
@@ -126,6 +127,20 @@ function BottomNav({ route }) {
         })}
       </div>
     </nav>
+  );
+}
+
+/** A newer version was downloaded in the background: one tap switches to it. */
+function UpdateBanner() {
+  const reload = useUpdateReady();
+  if (!reload) return null;
+  return (
+    <div className="above-nav fixed inset-x-0 z-50 flex justify-center px-4 md:bottom-6" role="status">
+      <div className="flex w-full max-w-md items-center gap-3 rounded-[14px] bg-ink px-4 py-3 text-[14px] text-ink-inverse shadow-lg">
+        <span className="flex-1">A new version of BillKhata is ready.</span>
+        <button type="button" onClick={reload} className="font-semibold underline">Reload</button>
+      </div>
+    </div>
   );
 }
 
@@ -271,6 +286,7 @@ export default function App() {
         </div>
       </main>
       <BottomNav route={tabRoute} />
+      <UpdateBanner />
       <ModalHost />
     </div>
   );

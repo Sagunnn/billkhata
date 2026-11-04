@@ -18,6 +18,11 @@ import { duplicateHold, photoFieldsFromFile, PhotoViewer } from '../components/M
 import { useToast } from '../components/Toast.jsx';
 import { ActionChip, Button, Card, Notice, PageHeader, Tooltip, useFileDrop } from '../components/ui.jsx';
 
+/** Offline, a vision model can't be reached: read on this device instead. */
+function offlineSafe(settings) {
+  return settings.ocrEngine === OCR_ENGINES.VISION && navigator.onLine === false ? { ...settings, ocrEngine: OCR_ENGINES.LOCAL } : settings;
+}
+
 // The fields a scan tries to read, for "9 of 10 fields found".
 const READ_FIELDS = ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'totalAmount', 'vatAmount', 'category', 'lineItems'];
 
@@ -83,7 +88,7 @@ export default function Scan() {
       try {
         const out = text
           ? extractBillFromText(text, { region: profile.region })
-          : await extractBill(images, settings, { region: profile.region, onProgress: setProgress });
+          : await extractBill(images, offlineSafe(settings), { region: profile.region, onProgress: setProgress });
         fields = out.fields;
         engine = out.engine;
         setRawText(out.rawText);
@@ -288,9 +293,10 @@ export default function Scan() {
           )}
           {problems.length > 0 && (
             <Notice tone="warning" title={`Check ${problems.length} field${problems.length === 1 ? '' : 's'}`}
-              action={rescanProvider
+              action={rescanProvider && navigator.onLine !== false
                 ? <ActionChip icon={rescanning ? LoaderCircle : Sparkle} disabled={rescanning} onClick={rescanWithVision}>{rescanning ? 'Re-scanning…' : 'Re-scan with Vision AI'}</ActionChip>
-                : <a href="#/settings" className="text-[14px] font-medium text-brand underline">Add a vision key for faded bills</a>}>
+                : rescanProvider ? <span className="text-[13px] text-ink-3">Vision AI needs a connection</span>
+                  : <a href="#/settings" className="text-[14px] font-medium text-brand underline">Add a vision key for faded bills</a>}>
               {problems.join(' ')}
             </Notice>
           )}

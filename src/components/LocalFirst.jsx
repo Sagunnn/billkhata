@@ -1,5 +1,6 @@
 // "Saved on this device": where the bills live, how fresh the last backup is, and one-tap backup.
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, WifiOff } from 'lucide-react';
+import { useOnline } from '../lib/offline.js';
 import { backupFilename, backupStatus, buildBackup } from '../lib/backup.js';
 import { bytes, downloadBlob } from '../lib/format.js';
 import { useStore } from '../store.jsx';
@@ -28,6 +29,15 @@ const BACKUP_HREF = '#/settings?backup';
 /** "On this device" pill for the phone Home header. An amber dot means no backup in two weeks. */
 export function StorageIndicator() {
   const st = useBackupStatus();
+  const online = useOnline();
+  if (!online) {
+    return (
+      <a href="#/settings?offline" className="tap inline-flex items-center gap-1.5 rounded-full bg-sunken py-1.5 pl-2.5 pr-3 text-[13px] font-medium leading-4 text-ink-2"
+        aria-label="Offline. Your bills are on this device, so the app keeps working." title="Offline: everything you add is saved on this device">
+        <WifiOff className="size-3.5" aria-hidden="true" />Offline · all here
+      </a>
+    );
+  }
   return (
     <a
       href={BACKUP_HREF}

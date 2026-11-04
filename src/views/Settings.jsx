@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-  Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, Monitor, Moon, Palette, ScanText, ShieldCheck, Sparkles, Sun, Trash, UserRound,
+  CircleCheck, CircleDashed, Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, LoaderCircle, Monitor, Moon, Palette, ScanText, ShieldCheck, Smartphone, Sparkles, Sun, Trash, UserRound, Wifi, WifiOff,
 } from 'lucide-react';
 import { OCR_ENGINES, REGIONS, VISION_PROVIDERS } from '../lib/constants.js';
 import { backupFilename, backupStatus, buildBackup, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
 import { bytes, downloadBlob } from '../lib/format.js';
 import { validateProfile } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
+import { downloadForOffline, offlineStatus, READER_MB, useInstallPrompt, useOnline } from '../lib/offline.js';
 import { useToast } from '../components/Toast.jsx';
 import { Button, Card, Field, Modal, PageHeader, Segmented, Toggle } from '../components/ui.jsx';
 import { HelperSetup } from '../components/Ird.jsx';
@@ -49,6 +50,73 @@ function ProfileSection() {
         </Field>
       </div>
       <div className="mt-5 flex justify-end"><Button variant="dark" onClick={save}>Save profile</Button></div>
+    </Card>
+  );
+}
+
+/** What works without a connection, the offline download, and installing the app. */
+function OfflineSection() {
+  const { settings } = useStore();
+  const toast = useToast();
+  const online = useOnline();
+  const { installed, install } = useInstallPrompt();
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState(null); // { status, progress } while downloading
+  const nepali = Boolean(settings.nepaliScript);
+  const refresh = () => offlineStatus({ nepali }).then(setSt).catch(() => setSt(null));
+  useEffect(() => { refresh(); }, [nepali]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function download() {
+    setBusy({ status: 'Starting', progress: 0 });
+    try {
+      await downloadForOffline({ nepali, onProgress: setBusy });
+      toast('Everything is on this phone: BillKhata works offline, scans included.');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(null);
+      refresh();
+    }
+  }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const row = (ok, title, sub) => (
+    <li className="flex items-start gap-3 py-2.5">
+      {ok ? <CircleCheck className="mt-0.5 size-5 shrink-0 text-leaf" /> : <CircleDashed className="mt-0.5 size-5 shrink-0 text-ink-3" />}
+      <span className="min-w-0"><span className="t-body block font-medium text-ink">{title}</span><span className="t-caption block text-ink-3">{sub}</span></span>
+    </li>
+  );
+  const all = st && st.app && st.reader && st.missing === 0;
+  return (
+    <Card id="offline" className="scroll-mt-[calc(var(--header-h)+1rem)] p-4 md:scroll-mt-6 md:p-5">
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-bold">{online ? <Wifi className="size-5" /> : <WifiOff className="size-5" />}Use offline</h2>
+      <p className="mb-2 text-sm text-slate-600">Your bills, money and trips are always on this phone. Download the app too and it works with no connection: scanning, statements and reports included. Only the IRD website and vision AI need the internet.</p>
+      {st?.supported === false ? (
+        <p className="t-label text-warn">This browser can’t keep the app for offline use. Chrome, Edge, Safari or Firefox can.</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-line">
+            {row(st?.app, st?.app ? 'Opens without a connection' : 'Opens offline after this visit', st?.app ? 'The app itself is saved on this device.' : 'Reload once while online and it’s kept.')}
+            {row(st?.reader, st?.reader ? 'Reads bills offline' : 'Bill reader not downloaded yet', st?.reader ? `On-device OCR${nepali ? ', with the Nepali reader' : ''}.` : `About ${READER_MB.latin} MB${nepali ? ` + ${READER_MB.nepali} MB for Nepali bills` : ''}. Comes with the first scan, or below.`)}
+            {row(st && st.missing === 0, st && st.missing === 0 ? 'Statements, PDFs and reports offline' : 'Statements, PDFs and reports need a download', st && st.missing === 0 ? 'Every part of the app is saved.' : 'Reading statements, PDF bills and making reports.')}
+          </ul>
+          {busy ? (
+            <div className="mt-3">
+              <p className="t-label flex items-center gap-2 text-ink-2"><LoaderCircle className="size-4 animate-spin" />{busy.status}…</p>
+              <div className="mt-2 h-2 rounded-full bg-sunken"><div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(4, Math.round(busy.progress * 100))}%` }} /></div>
+            </div>
+          ) : !all && (
+            <Button variant="primary" className="mt-3 w-full sm:w-auto" icon={Download} disabled={!online} onClick={download}>
+              {online ? `Download for offline use${st?.mb ? ` (up to ${Math.ceil(st.mb)} MB)` : ''}` : 'Connect to download'}
+            </Button>
+          )}
+          {all && <p className="t-label mt-2 text-leaf">All set: BillKhata works offline on this device.</p>}
+        </>
+      )}
+      <div className="mt-4 border-t border-line pt-3">
+        {installed ? <p className="t-label text-ink-2">Installed: open BillKhata from your home screen.</p>
+          : install ? <Button icon={Smartphone} onClick={install}>Install app</Button>
+            : <p className="t-label text-ink-2">{ios ? 'To open it like an app: Share → Add to Home Screen.' : 'To open it like an app: the browser menu → Install app (or Add to Home screen).'}</p>}
+      </div>
     </Card>
   );
 }
@@ -263,7 +331,8 @@ function DataSection() {
 function useJumpToBackup() {
   useEffect(() => {
     const jump = () => {
-      if (window.location.hash.includes('?backup')) requestAnimationFrame(() => document.getElementById('backup')?.scrollIntoView({ behavior: 'smooth' }));
+      const to = ['backup', 'offline'].find((id) => window.location.hash.includes(`?${id}`));
+      if (to) requestAnimationFrame(() => document.getElementById(to)?.scrollIntoView({ behavior: 'smooth' }));
     };
     jump();
     window.addEventListener('hashchange', jump);
@@ -280,6 +349,7 @@ export default function Settings() {
       <div className="space-y-5">
         {/* Re-mount when a restore replaces the profile. */}
         <ProfileSection key={JSON.stringify(profile)} />
+        <OfflineSection />
         <AppearanceSection />
         <OcrSection />
         <PaymentQrSettings />

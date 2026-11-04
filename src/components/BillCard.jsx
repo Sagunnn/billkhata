@@ -157,9 +157,10 @@ export function BillTable({ list, pan = false }) {
           <th className="w-[130px] py-2.5 pl-2 pr-5 text-right font-semibold">Amount</th>
         </tr>
       </thead>
-      <tbody>
+      {/* The mouse shows its own light hover; reaching for it drops the J / K selection. */}
+      <tbody onMouseMove={() => sel >= 0 && setSel(-1)}>
         {list.map((e, i) => (
-          <tr key={e.id} data-bill-row={i} onClick={() => openEditor(e)} onMouseEnter={() => setSel(i)}
+          <tr key={e.id} data-bill-row={i} onClick={() => openEditor(e)}
             className={`cursor-pointer border-t border-line align-middle transition ${sel === i ? 'bg-navy-soft shadow-[inset_3px_0_0_var(--bk-navy)]' : 'hover:bg-sunken/60'}`}>
             <td className="py-3 pl-5 pr-2">{e.billCode ? <span className="t-mono-s text-ink-2">{e.billCode}</span> : <span className="text-ink-3">—</span>}</td>
             <td className="px-2 py-3">

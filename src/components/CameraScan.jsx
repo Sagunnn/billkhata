@@ -27,7 +27,7 @@ function cropFrom(video, box, pw, ph) {
   return c.toDataURL('image/jpeg', 0.92);
 }
 
-export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onPdfOrFile, onTypeIt, onSample, onClose }) {
+export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onPdfOrFile, onSample, onClose }) {
   const video = useRef(null);
   const upload = useRef(null);
   const fallback = useRef(null);
@@ -196,7 +196,6 @@ export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onP
         <div className="flex justify-center gap-6 text-[14px] font-medium">
           <span className="text-[#f5c04a]">Photo</span>
           <button type="button" onClick={onPdfOrFile} className="text-[#fff]/70 hover:text-[#fff]">PDF or photo file</button>
-          <button type="button" onClick={onTypeIt} className="text-[#fff]/70 hover:text-[#fff]">Type it</button>
         </div>
         <div className="mx-auto mt-4 flex max-w-sm items-center justify-between">
           <button type="button" onClick={() => upload.current?.click()} className="tap flex w-20 flex-col items-center gap-1.5 text-[12px] text-[#fff]/80">

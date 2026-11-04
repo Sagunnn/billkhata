@@ -218,7 +218,6 @@ function useShortcuts() {
       }
       if (modal) return;
       if (k === 's' || k === 'S') { e.preventDefault(); window.location.hash = '#/scan'; }
-      else if (k === 'n' || k === 'N') { e.preventDefault(); openSheet('quickOut', { details: true }); }
       else if (k === 'q' || k === 'Q') { e.preventDefault(); openSheet('quickOut'); }
       else if (k === '/') {
         e.preventDefault();

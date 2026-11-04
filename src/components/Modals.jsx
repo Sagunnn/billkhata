@@ -151,7 +151,7 @@ export function ModalHost() {
   if (modal.type === 'accounts') return <AccountsSheet onClose={closeModal} />;
   if (modal.type === 'moneyIn') return <MoneyInSheet account={modal.account} onClose={closeModal} />;
   if (modal.type === 'move') return <MoveSheet onClose={closeModal} />;
-  if (modal.type === 'quickOut') return <QuickOutSheet split={modal.split} details={modal.details} onClose={closeModal} />;
+  if (modal.type === 'quickOut') return <QuickOutSheet split={modal.split} onClose={closeModal} />;
   if (modal.type === 'moneyHistory') return <MoneyHistorySheet onClose={closeModal} />;
   if (modal.type === 'shortcuts') return <ShortcutsSheet onClose={closeModal} />;
   if (modal.type === 'install') return <InstallSheet onClose={closeModal} />;

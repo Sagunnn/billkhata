@@ -1,6 +1,6 @@
 // Capture -> OCR -> verify -> save.
 import { useEffect, useState } from 'react';
-import { Camera, Check, ChevronLeft, ChevronRight, FileDown, FileText, Landmark, LoaderCircle, Luggage, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
+import { Camera, Check, ChevronLeft, ChevronRight, FileDown, FileText, Landmark, LoaderCircle, Luggage, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { BLURRY_FOCUS, compressImage, fileToDataUrl, imageHash, photoFocus, prepareForOcr, validateImageFile } from '../lib/image.js';
@@ -365,7 +365,6 @@ export default function Scan() {
     );
   }
 
-  const byHand = () => { setDraft(blankExpense(profile.region)); setStep('review'); };
   const pickFile = (e) => { onFile(e.target.files?.[0]); e.target.value = ''; };
   if (camera) {
     const off = (then) => () => { setCamera(false); then?.(); };
@@ -375,7 +374,6 @@ export default function Scan() {
         onPhoto={(url) => { setCamera(false); processImage(url); }}
         onFile={(f) => { setCamera(false); onFile(f); }}
         onPdfOrFile={off()}
-        onTypeIt={off(byHand)}
         onSample={off(() => processImage(sampleReceiptForScan()))}
         onClose={off(() => { if (window.history.length > 1) window.history.back(); else window.location.hash = '#/'; })}
       />
@@ -402,7 +400,7 @@ export default function Scan() {
         </div>
       )}
       {/* Scan and type-it-in side by side: both are first-class ways to add a bill. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2">
         {hasCamera ? (
           <button type="button" onClick={() => setCamera(true)} className="card flex flex-col items-center gap-2 border-2 border-dashed border-brand/40 bg-brand-soft px-3 py-6 text-center transition hover:border-brand sm:gap-3 sm:px-6 sm:py-10">
             <span className="flex size-12 items-center justify-center rounded-full bg-brand text-on-brand shadow sm:size-14"><Camera className="size-6 sm:size-7" /></span>
@@ -417,12 +415,7 @@ export default function Scan() {
             <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={pickFile} />
           </label>
         )}
-        <button type="button" onClick={byHand} className="card flex flex-col items-center gap-2 border-2 border-dashed border-slate-300 px-3 py-6 text-center transition hover:border-slate-500 sm:gap-3 sm:px-6 sm:py-10">
-          <span className="flex size-12 items-center justify-center rounded-full bg-slate-900 text-white shadow sm:size-14"><PencilLine className="size-6 sm:size-7" /></span>
-          <span className="text-base font-bold text-slate-900 sm:text-lg">Type it in</span>
-          <span className="text-xs text-slate-600 sm:text-sm">No photo: type the shop, date and total. Your saved shops are suggested.</span>
-        </button>
-        <label className="card col-span-2 flex cursor-pointer items-center gap-3 border-2 border-dashed border-slate-300 px-4 py-4 text-left transition hover:border-slate-500 md:col-span-1 md:flex-col md:justify-center md:gap-3 md:px-6 md:py-10 md:text-center">
+        <label className="card flex cursor-pointer items-center gap-3 border-2 border-dashed border-slate-300 px-4 py-4 text-left transition hover:border-slate-500 md:flex-col md:justify-center md:gap-3 md:px-6 md:py-10 md:text-center">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 md:size-14 md:bg-slate-900 md:text-white md:shadow"><Upload className="size-5 md:size-7" /></span>
           <span>
             <span className="block font-bold text-slate-900 md:text-lg">Upload a photo or PDF</span>

@@ -53,7 +53,7 @@ Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with 
 - **Navigation:** phones have five tabs (Home, Ledger, Scan raised in the middle, Split, Money);
   Trips sit inside Split, Reports inside Ledger, Settings in the Home header. Desktop has a sidebar
   with Scan a bill / Quick expense, counts beside each item, and the backup card.
-- **Keyboard (desktop):** S scan, N add by hand, Q quick cash out, / search, J / K / ↵ through
+- **Keyboard (desktop):** S scan, Q quick expense, / search, J / K / ↵ through
   bills, ? the list of shortcuts.
 
 ## First visit
@@ -126,9 +126,9 @@ needs a server. The app itself works offline too:
 - **Quick expense** (Home, Ledger, Money, the sidebar, or Q): spending with no bill, an amount, what
   it was for, a note and the day. It's a Ledger expense marked **No bill**, in spending and
   categories, never in the IRD draw; with accounts set up it comes off the one picked.
-- **Adding a bill:** Scan a bill, or **Quick expense**; ticking **Add bill details** there goes on to
-  the full bill form (shop, PAN, bill no., items) for a paper bill typed in (N on desktop). The Scan page also has **Type it in**.
-  Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
+- **Adding a bill:** scan it and fix what the reader got wrong (if it reads nothing, the same form
+  is there to fill in), or **Quick expense** for spending with no bill. There is no separate "type a
+  bill in" any more: scanning and correcting is quicker. Upload takes a photo or a **PDF e-bill**: page 1 becomes the bill's photo and, when the
   PDF has a text layer, its exact text goes through the receipt parser instead of OCR
   (`extractBillFromText`). Drop a photo or PDF anywhere on the Scan page, a statement on the Bank
   page's statement box, or several screenshots on its screenshots box; a file dropped anywhere else

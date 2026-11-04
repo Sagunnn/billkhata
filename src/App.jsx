@@ -7,6 +7,7 @@ import { ModalHost } from './components/Modals.jsx';
 import { StorageNote } from './components/LocalFirst.jsx';
 import { Wordmark } from './components/Brand.jsx';
 import { useUpdateReady } from './lib/offline.js';
+import { needsWelcome } from './components/Welcome.jsx';
 import { Kbd, Skeleton } from './components/ui.jsx';
 import { blankExpense } from './lib/expense.js';
 import Dashboard from './views/Dashboard.jsx';
@@ -240,7 +241,11 @@ export default function App() {
   useDropGuard();
   useShortcuts();
   useTypingFlag();
-  const { ready, loadError } = useStore();
+  const { ready, loadError, profile, expenses, modal, openSheet } = useStore();
+  // A first visit opens the welcome (on Home only, so a shared link or shortcut isn't interrupted).
+  useEffect(() => {
+    if (route === '' && !modal && needsWelcome({ profile, expenses, ready })) openSheet('welcome');
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
   // #/coupon/<billId>/<code> comes back from the portal helper.
   const couponMatch = /^coupon\/([^/]+)\/(\d+)$/.exec(route);
   const shareMatch = /^split\/([A-Za-z0-9_-]+)$/.exec(route);

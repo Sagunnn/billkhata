@@ -16,9 +16,9 @@ npm run build     # writes dist/
 ```
 
 The first visit loads seven sample bills (one is an eligible cash bill ready for
-"Apply to IRD Lucky Draw") and a demo profile. Saving your own details in Settings removes the
-sample bills (and a real profile saved earlier triggers the same clean-up on the next load).
-Settings → Backup & restore can load them again on purpose; they're then kept.
+"Apply to IRD Lucky Draw") and a demo profile, and opens the welcome (see First visit). Saving your
+own details in Settings removes the sample bills unless you chose to keep them; Settings → Backup &
+restore can load them again on purpose.
 
 ## Layout
 
@@ -55,6 +55,37 @@ Anek Devanagari and JetBrains Mono (for codes and narrations), self-hosted with 
   with Scan a bill / Add by hand, counts beside each item, and the backup card.
 - **Keyboard (desktop):** S scan, N add by hand, Q quick cash out, / search, J / K / ↵ through
   bills, ? the list of shortcuts.
+
+## First visit
+
+A first visit (the demo profile and only the sample bills) opens a short welcome
+(`src/components/Welcome.jsx`): **your details** (name, mobile, address: they fill the IRD form),
+**your money** (optional: cash in hand and each bank or wallet), a six-card **how it works**, and
+the **sample bills**: start fresh or keep them for now. *Look around with sample bills first*
+skips it; Home then shows *You're looking at N sample bills* with **Set up my account** and
+**Remove samples**. It's shown once (`billkhata_welcome`), never to someone with their own bills.
+
+## Offline and installing
+
+Bills, money, trips and settings always live on the device (IndexedDB and localStorage), so nothing
+needs a server. The app itself works offline too:
+
+- **Service worker** (`src/sw-template.js`, written into `dist/sw.js` by `offlinePlugin` in
+  `vite.config.js` with this build's files): pages are network-first with the saved app as the
+  fallback, so updates arrive when online; `/assets/*` (hashed) are cache-first and kept once
+  fetched. The app's core (entry JS and CSS, fonts, icons) is saved on the first visit, so it opens
+  with no connection from then on. A new version waits in the background; the app shows **A new
+  version is ready · Reload**.
+- **Settings → Use offline** shows what works offline and **Download for offline use** saves the
+  rest: statement and PDF reading, reports, the OCR engine, and the bill reader's models (kept in
+  their own cache by the OCR worker; the Nepali models too when that's on). The reader also comes
+  with the first scan.
+- **Offline:** the Home pill says *Offline · all here*; a vision-model scan reads on the device
+  instead; a scan before the reader is downloaded says so and leaves the form to fill in by hand.
+  Only the IRD website and vision AI need the internet.
+- **Install:** `manifest.webmanifest` with PNG and maskable icons (`public/icons`) and shortcuts
+  (Scan a bill, Quick expense → `/#/?quick`); Settings offers **Install app** where the browser
+  allows it, or says how (Share → Add to Home Screen on iPhone).
 
 ## Mobile, trust and first load
 

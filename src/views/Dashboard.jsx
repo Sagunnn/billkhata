@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, Luggage, PencilLine, Plus, ScanLine, Search,
-  SlidersHorizontal, Ticket, TriangleAlert, Trophy, Users, Zap,
+  SlidersHorizontal, Ticket, Trash, TriangleAlert, Trophy, UserRound, Users, Zap,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT, REGIONS } from '../lib/constants.js';
 import { blankExpense, byCategory, countsAsSpend, filterExpenses, reportTotals } from '../lib/expense.js';
@@ -18,7 +18,8 @@ import { BillCards, BillTable } from '../components/BillCard.jsx';
 import { StorageIndicator } from '../components/LocalFirst.jsx';
 import { Wordmark } from '../components/Brand.jsx';
 import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
-import { Button, Card, Kbd, Notice } from '../components/ui.jsx';
+import { ActionChip, Button, Card, Kbd, Notice } from '../components/ui.jsx';
+import { useToast } from '../components/Toast.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
 import { moneyLookCount } from './Money.jsx';
 import { calculateTripSettlement, ongoingTrips, tripDay } from '../lib/trips.js';
@@ -352,7 +353,9 @@ function DeskSearch() {
 }
 
 export default function Dashboard() {
-  const { expenses, profile, openEditor, openSheet, trips } = useStore();
+  const { expenses, profile, openEditor, openSheet, trips, removeSamples } = useStore();
+  const toast = useToast();
+  const samples = expenses.filter((e) => e.isSample).length;
   const region = profile.region;
   const tBs = todayBS();
   const month = useMonth();
@@ -400,9 +403,20 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-4 space-y-3">
-        {isDemoProfile(profile) && (
-          <Notice tone="warning" title="These are sample bills">
-            Add your own details in <a href="#/settings" className="font-medium text-brand underline">Settings</a> before applying to the IRD draw.
+        {samples > 0 ? (
+          <Notice tone="warning" title={`You’re looking at ${samples} sample bills`}
+            action={(
+              <div className="flex flex-wrap gap-2">
+                {isDemoProfile(profile) && <ActionChip icon={UserRound} onClick={() => openSheet('welcome', { step: 'details' })}>Set up my account</ActionChip>}
+                <ActionChip icon={Trash} onClick={async () => { const n = await removeSamples(); toast(n ? 'Sample bills removed: your ledger starts empty.' : 'No sample bills left.'); }}>Remove samples</ActionChip>
+              </div>
+            )}>
+            They show how everything works. Try a scan, a split or the lucky draw with them, then start fresh.
+          </Notice>
+        ) : isDemoProfile(profile) && (
+          <Notice tone="info" icon={UserRound} title="Add your details"
+            action={<ActionChip onClick={() => openSheet('welcome', { step: 'details' })}>Add my details</ActionChip>}>
+            Your name, mobile and address fill the IRD lucky draw form for you.
           </Notice>
         )}
         {wins.map((b) => (

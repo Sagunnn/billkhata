@@ -108,3 +108,23 @@ test('buildDynamicNepalQR: tag 54 injected, 4-hex CRC-16/CCITT-FALSE', () => {
   assert.match(dyn.slice(-4), /^[0-9A-F]{4}$/);
   assert.equal(isValidEmv(dyn), true);
 });
+
+test('ongoing trips, trip day, and entries from a scan or a quick expense', async () => {
+  const { entryFromExpense, makeTrip, makeTripMember, ongoingTrips, quickTripEntry, tripDay, tripStatus, calculateTripSettlement } = await import('../src/lib/trips.js');
+  const trip = makeTrip({ name: 'Nagarkot', profile: { fullName: 'Sagun' } });
+  trip.members.push(makeTripMember({ id: 'a', name: 'Aarati' }), makeTripMember({ id: 'b', name: 'Bibek' }));
+  assert.equal(tripStatus({}), 'active');
+  assert.deepEqual(ongoingTrips([trip, { ...trip, id: 'x', status: 'ended' }, { ...trip, id: 'y', status: 'settled' }]).map((t) => t.id), [trip.id]);
+  assert.equal(tripDay({ createdAt: '2026-11-01T08:00:00Z', entries: [] }, '2026-11-03'), 3);
+
+  const bill = entryFromExpense({ id: 'e1', merchantName: 'Sekuwa Corner', totalAmount: 900, billDateAD: '2026-11-02', lineItems: [{ name: 'Chicken sekuwa', amount: 600 }, { name: 'Coke', amount: 300 }] }, trip);
+  assert.equal(bill.paidByMemberId, 'me');
+  assert.equal(bill.linkedExpenseId, 'e1');
+  assert.equal(bill.items.length, 2);
+
+  const taxi = quickTripEntry({ title: 'Taxi to Nagarkot', amount: 1500, paidByMemberId: 'a' }, trip.members);
+  assert.equal(taxi.hasBill, false);
+  assert.deepEqual(taxi.items[0].assignedMemberIds, ['me', 'a', 'b'], 'nobody picked: everyone');
+  const s = calculateTripSettlement({ ...trip, entries: [taxi] });
+  assert.equal(s.members.find((m) => m.memberId === 'a').netBalance, 1000, 'Aarati paid 1500, her share is 500');
+});

@@ -1,7 +1,7 @@
 // Money sheets (Figma: Phone 12 · Quick cash out, Home wallet card actions): set your accounts,
 // money in, move money between accounts (ATM), quick cash out, and the history.
 import { useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Plus, Trash, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Luggage, Plus, Trash, Wallet } from 'lucide-react';
 import { CATEGORIES, PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { money as fmt } from '../lib/format.js';
@@ -10,6 +10,7 @@ import {
   ACCOUNT_SUGGESTIONS, addEntry, cashAccountId, creditsBySource, defaultAccountId, kindForName, moneyNow, potOf,
   removeEntry, setAccounts, sourceOptions, spentBills,
 } from '../lib/money.js';
+import { ongoingTrips } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
 import { Button, Field, Modal } from './ui.jsx';
@@ -17,7 +18,7 @@ import { Button, Field, Modal } from './ui.jsx';
 export const ACCOUNT_ICON = { cash: Banknote, bank: Landmark, wallet: Wallet };
 
 /** The big centred amount with +20 / +50 / +100 / +500 nudges (Phone 12). */
-function AmountInput({ value, onChange, error }) {
+export function AmountInput({ value, onChange, error }) {
   return (
     <div className="flex flex-col items-center gap-3 pb-2">
       <label htmlFor="mn-amt" className="t-label text-ink-2">Amount</label>
@@ -231,7 +232,8 @@ const lastQuick = () => { try { return JSON.parse(localStorage.getItem(LAST_KEY)
  * comes off the one picked.
  */
 export function QuickOutSheet({ onClose }) {
-  const { money, profile, saveExpense } = useStore();
+  const { money, profile, saveExpense, trips, openSheet } = useStore();
+  const onTrip = ongoingTrips(trips)[0];
   const toast = useToast();
   const now = useAccountsNow();
   const last = lastQuick();
@@ -282,6 +284,13 @@ export function QuickOutSheet({ onClose }) {
         </div>
       )}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(false); }}>
+        {onTrip && (
+          <button type="button" onClick={() => openSheet('tripQuick', { tripId: onTrip.id })}
+            className="t-label flex w-full items-center gap-2 rounded-[12px] bg-marigold-soft px-3 py-2.5 text-left text-ink">
+            <Luggage className="size-4 shrink-0 text-marigold-ink" />
+            <span className="min-w-0 flex-1">On {onTrip.name}? <b className="font-medium text-brand">Add it to the trip</b> to split it.</span>
+          </button>
+        )}
         <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
         <fieldset>
           <legend className="label">For</legend>

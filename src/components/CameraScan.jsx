@@ -27,7 +27,7 @@ function cropFrom(video, box, pw, ph) {
   return c.toDataURL('image/jpeg', 0.92);
 }
 
-export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onSample, onClose }) {
+export default function CameraScan({ title = 'Scan a bill', onPhoto, onFile, onPdfOrFile, onTypeIt, onSample, onClose }) {
   const video = useRef(null);
   const upload = useRef(null);
   const fallback = useRef(null);
@@ -145,7 +145,7 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#14110e] text-[#faf7f2]" role="dialog" aria-label="Scan a bill">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#14110e] text-[#faf7f2]" role="dialog" aria-label={title}>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <video ref={video} playsInline muted className={`absolute inset-0 size-full object-cover ${noCamera ? 'hidden' : ''}`} />
         {!noCamera && (
@@ -159,7 +159,7 @@ export default function CameraScan({ onPhoto, onFile, onPdfOrFile, onTypeIt, onS
         )}
         <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-3 pt-[calc(var(--safe-top)+0.75rem)]">
           <button type="button" onClick={onClose} aria-label="Close the camera" className="tap flex size-10 items-center justify-center rounded-full bg-black/40"><X className="size-5" /></button>
-          <span className="text-[16px] font-semibold">Scan a bill</span>
+          <span className="min-w-0 truncate px-2 text-[16px] font-semibold">{title}</span>
           {torch !== null
             ? <button type="button" onClick={flash} aria-pressed={torch} aria-label="Flash" className="tap flex size-10 items-center justify-center rounded-full bg-black/40">{torch ? <Zap className="size-5 text-[#f5c04a]" /> : <ZapOff className="size-5" />}</button>
             : <span className="size-10" />}

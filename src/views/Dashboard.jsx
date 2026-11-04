@@ -2,7 +2,7 @@
 // relevant, this month at a glance, where it went, and the latest bills.
 import { useMemo, useState } from 'react';
 import {
-  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, PencilLine, Plus, Search,
+  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CalendarDays, ChevronRight, History, Luggage, PencilLine, Plus, ScanLine, Search,
   SlidersHorizontal, Ticket, TriangleAlert, Trophy, Users, Zap,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT, REGIONS } from '../lib/constants.js';
@@ -21,6 +21,7 @@ import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
 import { Button, Card, Kbd, Notice } from '../components/ui.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
 import { moneyLookCount } from './Money.jsx';
+import { calculateTripSettlement, ongoingTrips, tripDay } from '../lib/trips.js';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const HERO_BG = { backgroundImage: 'linear-gradient(180deg, rgba(245,189,82,0.13) 0%, rgba(245,189,82,0) 50%)' };
@@ -122,6 +123,34 @@ function WalletHero() {
         <HeroPill icon={ArrowLeftRight} label="ATM / Move" onClick={() => go('move')} />
         <HeroPill icon={ArrowUpRight} label="Quick expense" shortcut="Q" onClick={() => openSheet('quickOut')} />
         <HeroPill icon={History} label="History" onClick={() => openSheet('moneyHistory')} />
+      </div>
+    </section>
+  );
+}
+
+/* ---------- a trip that's on ---------- */
+
+/** While a trip is on: what it's at, and Scan a bill / Quick expense straight into it. */
+function TripNow({ trip }) {
+  const { openSheet, profile } = useStore();
+  const s = useMemo(() => calculateTripSettlement(trip), [trip]);
+  const mine = s.members.find((m) => m.isMe);
+  const href = `#/trip/${encodeURIComponent(trip.id)}`;
+  return (
+    <section className="rounded-2xl border border-marigold/40 bg-marigold-soft p-4">
+      <a href={href} className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-marigold text-[#2b1a00]"><Luggage className="size-5" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold text-ink">On a trip · {trip.name}</span>
+          <span className="t-caption num block truncate text-ink-2">
+            Day {tripDay(trip)} · {trip.members.length} {trip.members.length === 1 ? 'person' : 'people'} · {money(s.total, profile.region)} so far{mine && mine.totalConsumed ? ` · your part ${money(mine.totalConsumed, profile.region)}` : ''}
+          </span>
+        </span>
+        <ChevronRight className="size-5 shrink-0 text-ink-2" />
+      </a>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <a href={`#/scan?trip=${encodeURIComponent(trip.id)}`} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-brand text-[14px] font-semibold text-on-brand hover:bg-brand-dark"><ScanLine className="size-[18px]" />Scan a bill</a>
+        <button type="button" onClick={() => openSheet('tripQuick', { tripId: trip.id })} className="tap inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border border-line-strong bg-surface text-[14px] font-semibold text-ink hover:bg-sunken"><Zap className="size-[18px]" />Quick expense</button>
       </div>
     </section>
   );
@@ -323,7 +352,7 @@ function DeskSearch() {
 }
 
 export default function Dashboard() {
-  const { expenses, profile, openEditor, openSheet } = useStore();
+  const { expenses, profile, openEditor, openSheet, trips } = useStore();
   const region = profile.region;
   const tBs = todayBS();
   const month = useMonth();
@@ -380,6 +409,7 @@ export default function Dashboard() {
 
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="min-w-0 space-y-4">
+          {ongoingTrips(trips).slice(0, 2).map((t) => <TripNow key={t.id} trip={t} />)}
           <WalletHero />
           <LuckyStrip />
           <Stats month={month} />

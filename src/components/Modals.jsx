@@ -16,6 +16,7 @@ import { Button, Modal } from './ui.jsx';
 import { ReceiptViewer } from './ReceiptViewer.jsx';
 import { AccountsSheet, MoneyHistorySheet, MoneyInSheet, MoveSheet, QuickOutSheet } from './MoneySheets.jsx';
 import { ShortcutsSheet } from './Shortcuts.jsx';
+import { TripQuickSheet } from '../views/Trips.jsx';
 
 /** Reads, checks and compresses a picked photo. Returns a data URL or throws. */
 export async function photoFromFile(file) {
@@ -150,5 +151,6 @@ export function ModalHost() {
   if (modal.type === 'quickOut') return <QuickOutSheet onClose={closeModal} />;
   if (modal.type === 'moneyHistory') return <MoneyHistorySheet onClose={closeModal} />;
   if (modal.type === 'shortcuts') return <ShortcutsSheet onClose={closeModal} />;
+  if (modal.type === 'tripQuick') return <TripQuickSheet tripId={modal.tripId} onClose={closeModal} />;
   return null;
 }

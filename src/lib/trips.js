@@ -196,3 +196,44 @@ export function calculateTripSettlement(trip) {
 }
 
 export const transferKey = (t) => `${t.fromMemberId}>${t.toMemberId}`;
+
+/* ---------- ongoing trips ---------- */
+
+/**
+ * A trip is 'active' (on now: Home offers Scan and Quick expense for it), 'ended' (no more
+ * expenses expected; settle up) or 'settled'. Older trips without a status are active.
+ */
+export const tripStatus = (t) => (['active', 'ended', 'settled'].includes(t?.status) ? t.status : 'active');
+export const ongoingTrips = (trips = []) => trips.filter((t) => tripStatus(t) === 'active')
+  .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+
+/** "Day 3" of a trip: from its first expense (or its start) to today. */
+export function tripDay(trip, today = todayAD()) {
+  const first = [trip.createdAt?.slice(0, 10), ...(trip.entries || []).map((e) => e.dateAD)].filter(Boolean).sort()[0] || today;
+  return Math.max(1, Math.round((Date.parse(today) - Date.parse(first)) / 864e5) + 1);
+}
+
+/** A bill from the ledger (or just scanned) as a trip expense you paid, its items read from it. */
+export function entryFromExpense(exp, trip) {
+  const members = trip.members;
+  const me = members.find((m) => m.isMe) || members[0];
+  const items = (exp.lineItems || []).filter((it) => Number(it.amount) > 0).map((it) => makeTripItem({ name: it.name, amount: it.amount }, members));
+  return makeEntry({
+    title: exp.merchantName, paidByMemberId: me?.id, dateAD: exp.billDateAD || todayAD(), totalAmount: exp.totalAmount, hasBill: true, items,
+    sellerPan: exp.sellerPan, invoiceNumber: exp.invoiceNumber, vatAmount: exp.vatAmount, paymentMethod: exp.paymentMethod, linkedExpenseId: exp.id,
+  }, members);
+}
+
+/**
+ * Cash with no bill, added in a few taps: what, how much, who paid, and who it's for (everyone
+ * when nobody is picked). Veg / non-veg / drink is guessed from the name.
+ */
+export function quickTripEntry({ title, amount, paidByMemberId, forIds, dateAD = todayAD() }, members) {
+  const name = String(title || '').trim() || 'Expense';
+  const category = classifyTripItem(name);
+  const ids = forIds?.length ? forIds : members.map((m) => m.id);
+  return makeEntry({
+    title: name, paidByMemberId, dateAD, totalAmount: amount, hasBill: false,
+    items: [makeTripItem({ name, amount, category, assignedMemberIds: ids }, members)],
+  }, members);
+}

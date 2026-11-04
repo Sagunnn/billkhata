@@ -466,6 +466,14 @@ version 3), and they're in backups.
 
 ## Trip Khata (group trips, many payers)
 
+**On a trip:** a trip is *on now* until you press **End trip**. While it's on, Home shows it (day,
+people, the total so far and your part) with **Scan a bill**, which runs the normal camera and
+Check the details and then adds the bill to the trip as one you paid (in your ledger for the IRD
+draw, not counted as spending), and **Quick expense**, for cash with no bill: how much, what, who paid
+and who it's split between. The everyday Quick expense offers the trip too. **End trip** can log your
+share to your ledger in the same step; the trip then shows *Ended · settle up* until it's marked
+settled, and can be reopened.
+
 `#/trips` lists trips; `#/trip/<id>` is one trip. Logic is in `src/lib/trips.js` (pure, unit-tested).
 Trips live in their own IndexedDB store (`trips`, added in DB version 2). The upgrade only creates
 what's missing, so existing bills are kept.

@@ -1,6 +1,6 @@
 // Capture -> OCR -> verify -> save.
 import { useEffect, useState } from 'react';
-import { Camera, Check, ChevronLeft, FileDown, FileText, LoaderCircle, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
+import { Camera, Check, ChevronLeft, FileDown, FileText, LoaderCircle, Luggage, PencilLine, ScanText, ShieldCheck, Sparkle, Sparkles, Ticket, Upload, Users } from 'lucide-react';
 import { IRD_STATUS, OCR_ENGINES, VISION_PROVIDERS } from '../lib/constants.js';
 import { blankExpense, validateExpense } from '../lib/expense.js';
 import { BLURRY_FOCUS, compressImage, fileToDataUrl, imageHash, photoFocus, prepareForOcr, validateImageFile } from '../lib/image.js';
@@ -8,6 +8,7 @@ import { checkEligibility, findDuplicateBill, getIrdStatus } from '../lib/ird.js
 import { extractBill, extractBillFromText, itemsMatchTotal, LOW_CONFIDENCE, needsBetterRead, visionProviderWithKey } from '../lib/ocr/index.js';
 import { applyMerchantMemory } from '../lib/merchants.js';
 import { locateFields } from '../lib/ocr/locate.js';
+import { entryFromExpense, tripStatus } from '../lib/trips.js';
 import { money } from '../lib/format.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
@@ -39,7 +40,10 @@ const STATUS_TEXT = {
 };
 
 export default function Scan() {
-  const { settings, profile, saveExpense, openIrd, expenses } = useStore();
+  const { settings, profile, saveExpense, openIrd, expenses, trips, saveTrip } = useStore();
+  // Opened from a trip that's on (#/scan?trip=<id>): the bill goes into that trip when saved.
+  const [forTrip, setForTrip] = useState(() => new URLSearchParams(window.location.hash.split('?')[1] || '').get('trip') || '');
+  const trip = forTrip ? trips.find((t) => t.id === forTrip && tripStatus(t) !== 'settled') : null;
   const toast = useToast();
   const [step, setStep] = useState('pick'); // pick | reading | review
   const [draft, setDraft] = useState(null);
@@ -157,6 +161,17 @@ export default function Scan() {
     }
     setSaving(true);
     try {
+      if (trip) {
+        // You paid it: in your ledger for the IRD draw, not counted as spending (your trip share is),
+        // and in the trip as a bill you paid, its items read from the scan.
+        const saved = await saveExpense({ ...draft, excludeFromSpend: true, tripId: trip.id });
+        await saveTrip({ ...trip, entries: [...trip.entries, entryFromExpense(saved, trip)] });
+        toast(`Added to ${trip.name}. Check who had what.`);
+        reset();
+        window.location.hash = `#/trip/${encodeURIComponent(trip.id)}`;
+        if (then === 'apply') openIrd(saved);
+        return;
+      }
       const saved = await saveExpense(draft);
       toast('Bill saved to your ledger, on this device.');
       reset();
@@ -254,6 +269,12 @@ export default function Scan() {
           </div>
         </div>
         <div className="mb-4 grid gap-3 md:grid-cols-2">
+          {trip && (
+            <Notice tone="prize" icon={Luggage} title={`For ${trip.name}`}
+              action={<button type="button" className="text-[14px] font-medium text-ink-2 underline" onClick={() => setForTrip('')}>Not for the trip</button>}>
+              Saved into the trip as a bill you paid. Change who paid or who had what on the trip page.
+            </Notice>
+          )}
           {lastRead?.blurry && (
             <Notice tone="warning" title="The photo looks blurry"
               action={<ActionChip icon={Camera} onClick={() => { reset(); setCamera(phoneCamera()); }}>Take it again</ActionChip>}>
@@ -305,7 +326,7 @@ export default function Scan() {
         <div className="hide-typing above-nav sticky z-20 -mx-4 mt-5 flex items-center gap-2 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:justify-end md:rounded-[16px] md:border md:px-3">
           <span className="mr-auto hidden items-center gap-1.5 text-[12px] text-ink-3 md:inline-flex"><ShieldCheck className="size-3.5 text-leaf" />Saved only on this device</span>
           <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
-          <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>
+          {!trip && <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>}
           {draft.isNepalBill && (
             <Tooltip text={irdWhy}>
               <Button size="lg" icon={Ticket} disabled={saving} aria-disabled={irdWhy ? true : undefined}
@@ -328,6 +349,7 @@ export default function Scan() {
     const off = (then) => () => { setCamera(false); then?.(); };
     return (
       <CameraScan
+        title={trip ? `Scan for ${trip.name}` : 'Scan a bill'}
         onPhoto={(url) => { setCamera(false); processImage(url); }}
         onFile={(f) => { setCamera(false); onFile(f); }}
         onPdfOrFile={off()}
@@ -348,7 +370,15 @@ export default function Scan() {
           </div>
         </div>
       )}
-      <PageHeader title="Add a bill" subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
+      <PageHeader title={trip ? `Add a bill to ${trip.name}` : 'Add a bill'} subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
+      {trip && (
+        <div className="mb-4">
+          <Notice tone="prize" icon={Luggage} title={`For ${trip.name}`}
+            action={<button type="button" className="text-[14px] font-medium text-ink-2 underline" onClick={() => setForTrip('')}>Not for the trip</button>}>
+            Saved into the trip as a bill you paid. Change who paid or who had what on the trip page.
+          </Notice>
+        </div>
+      )}
       {/* Scan and type-it-in side by side: both are first-class ways to add a bill. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {hasCamera ? (

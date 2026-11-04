@@ -3,8 +3,8 @@
 // and a settlement with as few transfers as possible. Everything stays on this device.
 import { useMemo, useState } from 'react';
 import {
-  ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
-  NotebookPen, Pencil, Plus, QrCode, Receipt, ScanText, Trash, UserPlus, Users, UsersRound,
+  ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, Flag, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
+  NotebookPen, Pencil, Plus, QrCode, Receipt, RotateCcw, ScanText, Trash, UserPlus, Users, UsersRound,
 } from 'lucide-react';
 import { PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { newId } from '../lib/db.js';
@@ -13,15 +13,16 @@ import { getIrdStatus } from '../lib/ird.js';
 import { adToBs, formatAD, formatBS, todayAD } from '../lib/nepaliDate.js';
 import { decodeQrFromImage, qrKind } from '../lib/qr.js';
 import {
-  calculateTripSettlement, classifyTripItem, entryShares, getDefaultAssignedMembers, makeEntry, makeTrip, makeTripItem,
-  makeTripMember, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey,
+  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, makeEntry, makeTrip, makeTripItem,
+  makeTripMember, quickTripEntry, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey, tripStatus,
 } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
 import { crossReferenceBill } from '../lib/dedupe.js';
 import { CrossReferenceCard, unresolvedMatches } from '../components/CrossReference.jsx';
 import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { Button, Card, CopyButton, EmptyState, Field, Modal, PageHeader, Segmented, StatusBadge } from '../components/ui.jsx';
+import { Badge, Button, Card, CopyButton, EmptyState, Field, Modal, PageHeader, Segmented, StatusBadge, Toggle } from '../components/ui.jsx';
+import { AmountInput } from '../components/MoneySheets.jsx';
 
 const CAT_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -68,7 +69,7 @@ export function TripsHub() {
                   <a href={`#/trip/${encodeURIComponent(t.id)}`} className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-slate-50">
                     <Luggage className="size-5 text-slate-400" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-semibold">{t.name}{t.status === 'settled' && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800">Settled</span>}</div>
+                      <div className="truncate font-semibold">{t.name} <TripBadge status={tripStatus(t)} /></div>
                       <div className="text-xs text-slate-500">{t.members.length} people · {t.entries.length} expenses · {money(s.total, profile.region)}</div>
                     </div>
                     {me && (
@@ -488,6 +489,91 @@ function LedgerPicker({ trip, onPick, onClose }) {
 
 /* ---------------- trip page ---------------- */
 
+function TripBadge({ status }) {
+  if (status === 'active') return <Badge tone="success" icon={Luggage}>On now</Badge>;
+  if (status === 'ended') return <Badge tone="warning">Ended · settle up</Badge>;
+  return <Badge tone="neutral" icon={CircleCheck}>Settled</Badge>;
+}
+
+/** Ending a trip: Home stops offering it, and your share can go into your ledger in one go. */
+function EndTripSheet({ trip, share, region, onClose, onEnd }) {
+  const [logShare, setLogShare] = useState(share > 0);
+  return (
+    <Modal open size="md" title={`End ${trip.name}?`} subtitle="No more expenses expected: time to settle up" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Not yet</Button><Button variant="primary" icon={Flag} onClick={() => onEnd(logShare)}>End trip</Button></>}>
+      <div className="space-y-4">
+        <p className="t-body text-ink-2">Home stops showing this trip. You can still add or fix expenses here, and reopen it any time.</p>
+        {share > 0 && (
+          <Toggle id="end-share" checked={logShare} onChange={setLogShare} label={`Add my share (${money(share, region)}) to my ledger`}
+            description="Your real spending on the trip. Bills you paid stay in the ledger for the IRD draw but aren't counted twice." />
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+const QUICK_TRIP = ['Taxi', 'Petrol', 'Food', 'Snacks', 'Drinks', 'Hotel', 'Tickets'];
+
+/**
+ * A trip expense with no bill, from Home: how much, what, who paid and who it's for. Registered as
+ * the 'tripQuick' sheet ({ tripId }).
+ */
+export function TripQuickSheet({ tripId: id, onClose }) {
+  const { trips, saveTrip, profile } = useStore();
+  const toast = useToast();
+  const trip = trips.find((t) => t.id === id);
+  const members = trip?.members || [];
+  const me = members.find((m) => m.isMe) || members[0];
+  const [amount, setAmount] = useState('');
+  const [title, setTitle] = useState('');
+  const [paidBy, setPaidBy] = useState(me?.id || '');
+  const [forIds, setForIds] = useState(members.map((m) => m.id));
+  const [error, setError] = useState('');
+  const [count, setCount] = useState(0);
+  if (!trip) return null;
+  async function save(again) {
+    if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
+    const entry = quickTripEntry({ title, amount: Number(amount), paidByMemberId: paidBy, forIds }, members);
+    await saveTrip({ ...trip, entries: [...trip.entries, entry] });
+    const who = members.find((m) => m.id === paidBy);
+    toast(`${money(Number(amount), profile.region)} ${entry.title.toLowerCase()} added to ${trip.name}${who && !who.isMe ? `, paid by ${who.name}` : ''}.`);
+    if (again) { setAmount(''); setTitle(''); setError(''); setCount((n) => n + 1); return; }
+    onClose();
+  }
+  const pill = (on) => `tap rounded-full px-3 py-1.5 text-[14px] font-medium ring-1 ring-inset ${on ? 'bg-ink text-ink-inverse ring-ink' : 'bg-surface text-ink-2 ring-line-strong'}`;
+  return (
+    <Modal open keepFooter size="md" title={`Add to ${trip.name}`} subtitle={count ? `${count} added · no bill needed` : 'No bill: a taxi, petrol, snacks…'} onClose={onClose}
+      footer={(
+        <div className="w-full">
+          <Button variant="primary" size="lg" icon={Plus} className="w-full" onClick={() => save(false)}>Add {amount ? `${money(Number(amount), profile.region)} ` : ''}to the trip</Button>
+          <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Add &amp; add another</button>
+        </div>
+      )}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(false); }}>
+        <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
+        <Field label="What was it?" htmlFor="tq-title">
+          <input id="tq-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Taxi to Nagarkot, momo, petrol…" maxLength={80} />
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {QUICK_TRIP.map((q) => <button key={q} type="button" className={pill(title === q)} onClick={() => setTitle(q)}>{q}</button>)}
+          </div>
+        </Field>
+        <fieldset>
+          <legend className="label">Paid by</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m) => <button key={m.id} type="button" aria-pressed={paidBy === m.id} className={pill(paidBy === m.id)} onClick={() => setPaidBy(m.id)}>{m.isMe ? 'Me' : m.name || 'Person'}</button>)}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend className="label">Split between</legend>
+          <MemberPills members={members} ids={forIds} onChange={setForIds} />
+          <p className="t-caption mt-1.5 text-ink-3">{forIds.length && forIds.length < members.length ? `${forIds.length} of ${members.length} people` : 'Everyone on the trip'}. Fine-tune it on the trip page.</p>
+        </fieldset>
+        <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Add</button>
+      </form>
+    </Modal>
+  );
+}
+
 export function TripView({ tripId: id }) {
   const { trips, saveTrip, deleteTrip, expenses, saveExpense, removeExpense, profile } = useStore();
   const toast = useToast();
@@ -496,11 +582,13 @@ export function TripView({ tripId: id }) {
   const [editing, setEditing] = useState(null); // null | 'new' | entry
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [ending, setEnding] = useState(false);
   const settlement = useMemo(() => (trip ? calculateTripSettlement(trip) : null), [trip]);
   const region = profile.region || REGIONS.NEPAL;
 
   if (!trip) return <Card><EmptyState icon={Luggage} title="Trip not found" action={<a href="#/trips" className="font-semibold text-navy underline">All trips</a>} /></Card>;
   const me = trip.members.find((m) => m.isMe);
+  const status = tripStatus(trip);
   const update = (next) => saveTrip(next);
   const byId = Object.fromEntries(trip.members.map((m) => [m.id, m]));
 
@@ -558,9 +646,7 @@ export function TripView({ tripId: id }) {
   }
 
   async function addFromLedger(exp) {
-    const members = trip.members;
-    const items = (exp.lineItems || []).filter((it) => Number(it.amount) > 0).map((it) => makeTripItem({ name: it.name, amount: it.amount }, members));
-    const entry = makeEntry({ title: exp.merchantName, paidByMemberId: me?.id, dateAD: exp.billDateAD || todayAD(), totalAmount: exp.totalAmount, hasBill: true, items, sellerPan: exp.sellerPan, invoiceNumber: exp.invoiceNumber, vatAmount: exp.vatAmount, paymentMethod: exp.paymentMethod, linkedExpenseId: exp.id }, members);
+    const entry = entryFromExpense(exp, trip);
     await saveExpense({ ...exp, excludeFromSpend: true, tripId: trip.id });
     await update({ ...trip, entries: [...trip.entries, entry] });
     setPicking(false);
@@ -623,10 +709,15 @@ export function TripView({ tripId: id }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <input className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none focus:underline" value={trip.name} onChange={(e) => update({ ...trip, name: e.target.value })} aria-label="Trip name" />
-          <p className="text-sm text-slate-600">{trip.members.length} people · {trip.entries.length} expenses · total {money(settlement.total, region)}</p>
+          <p className="text-sm text-slate-600">
+            <TripBadge status={status} />{' '}
+            {trip.members.length} people · {trip.entries.length} expenses · total {money(settlement.total, region)}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant={trip.status === 'settled' ? 'outline' : 'ghost'} icon={CircleCheck} onClick={() => update({ ...trip, status: trip.status === 'settled' ? 'active' : 'settled' })}>{trip.status === 'settled' ? 'Settled ✓' : 'Mark settled'}</Button>
+          {status === 'active' && <Button icon={Flag} onClick={() => setEnding(true)}>End trip</Button>}
+          {status === 'ended' && <Button variant="ghost" icon={RotateCcw} onClick={() => { update({ ...trip, status: 'active', endedAt: '' }); toast('Trip reopened: it’s on Home again.'); }}>Reopen</Button>}
+          {status !== 'active' && <Button variant={status === 'settled' ? 'outline' : 'ghost'} icon={CircleCheck} onClick={() => update({ ...trip, status: status === 'settled' ? 'ended' : 'settled' })}>{status === 'settled' ? 'Settled ✓' : 'Mark settled'}</Button>}
           <Button icon={busy ? LoaderCircle : FileDown} disabled={busy || !trip.entries.length} onClick={pdf}>Trip PDF</Button>
           <Button variant="ghost" icon={Trash} onClick={removeTrip}>Delete</Button>
         </div>
@@ -680,6 +771,15 @@ export function TripView({ tripId: id }) {
         </div>
       </div>
 
+      {ending && (
+        <EndTripSheet trip={trip} share={myRow?.totalConsumed || 0} region={region} onClose={() => setEnding(false)}
+          onEnd={async (logShare) => {
+            await update({ ...trip, status: 'ended', endedAt: new Date().toISOString() });
+            if (logShare) await logMyShare();
+            setEnding(false);
+            toast(settlement.transfers.length ? 'Trip ended. Settle up below.' : 'Trip ended.');
+          }} />
+      )}
       {editing && <EntryModal trip={trip} entry={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSave={saveEntry} />}
       {picking && <LedgerPicker trip={trip} onPick={addFromLedger} onClose={() => setPicking(false)} />}
     </div>

@@ -237,7 +237,8 @@ const lastQuick = () => { try { return JSON.parse(localStorage.getItem(LAST_KEY)
  * a Ledger expense (in spending and categories, never in the IRD draw); with accounts set up, it
  * comes off the one picked.
  */
-export function QuickOutSheet({ onClose }) {
+/** `split`: opened from Split, so after saving it goes on to sharing it with friends. */
+export function QuickOutSheet({ onClose, split = false }) {
   const { money, profile, saveExpense, trips, openSheet } = useStore();
   const onTrip = ongoingTrips(trips)[0];
   const toast = useToast();
@@ -260,7 +261,7 @@ export function QuickOutSheet({ onClose }) {
     if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
     const category = QUICK.find(([l]) => l === label)?.[1] || CATEGORIES.at(-1);
     const paymentMethod = acc ? (acc.kind === 'cash' ? PAYMENT.CASH : PAYMENT.DIGITAL) : method;
-    await saveExpense({
+    const saved = await saveExpense({
       ...blankExpense(profile.region),
       merchantName: note.trim() || label,
       totalAmount: Number(amount),
@@ -278,19 +279,21 @@ export function QuickOutSheet({ onClose }) {
     toast(`${fmt(Number(amount))} for ${note.trim() || label.toLowerCase()} saved${acc ? `, off ${acc.name}` : ''}.`);
     if (again) { setAmount(''); setNote(''); setError(''); setCount((n) => n + 1); return; }
     onClose();
+    if (split) window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`;
   }
 
   return (
-    <Modal open keepFooter onClose={onClose} size="md" title="Quick expense" subtitle={count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
+    <Modal open keepFooter onClose={onClose} size="md" title={split ? 'Quick expense to split' : 'Quick expense'}
+      subtitle={split ? 'No bill: you paid, friends pay you back their part' : count ? `${count} saved · no bill needed` : 'No bill: a fare, snacks, a tip, a recharge'}
       footer={(
         <div className="w-full">
-          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={() => save(false)}>Save {amount ? `${fmt(Number(amount))} ` : ''}expense</Button>
-          <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Save &amp; add another</button>
+          <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={() => save(false)}>{split ? `Next: who shares ${amount ? fmt(Number(amount)) : 'it'}` : `Save ${amount ? `${fmt(Number(amount))} ` : ''}expense`}</Button>
+          {!split && <button type="button" onClick={() => save(true)} className="mt-2 w-full text-center text-[14px] font-medium text-brand">Save &amp; add another</button>}
           {acc && amount && <p className="t-caption mt-1 text-center text-ink-3">{acc.name} will show {fmt(after)}.</p>}
         </div>
       )}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(false); }}>
-        {onTrip && (
+        {onTrip && !split && (
           <button type="button" onClick={() => openSheet('tripQuick', { tripId: onTrip.id })}
             className="t-label flex w-full items-center gap-2 rounded-[12px] bg-marigold-soft px-3 py-2.5 text-left text-ink">
             <Luggage className="size-4 shrink-0 text-marigold-ink" />

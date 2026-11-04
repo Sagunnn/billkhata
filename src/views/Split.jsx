@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ScanLine, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
   LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
-  UsersRound, Wine, X,
+  UsersRound, Wine, X, Zap,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
 import { money, downloadBlob } from '../lib/format.js';
@@ -35,7 +35,7 @@ function TagChip({ tag }) {
 /* ---------------- hub ---------------- */
 
 export function SplitHub() {
-  const { expenses, profile } = useStore();
+  const { expenses, profile, openSheet } = useStore();
   const qr = usePaymentQr();
   const splits = expenses.filter((e) => e.split).sort((a, b) => (b.split.updatedAt || '').localeCompare(a.split.updatedAt || ''));
   const food = CATEGORIES[0];
@@ -58,16 +58,24 @@ export function SplitHub() {
         </span>
         <ChevronRight className="size-5 shrink-0" />
       </a>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <a href="#split-pick" onClick={(ev) => { ev.preventDefault(); document.getElementById('split-pick')?.scrollIntoView({ behavior: 'smooth' }); }} className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
           <span className="flex size-10 items-center justify-center rounded-[12px] bg-brand-soft text-brand"><Divide className="size-5" /></span>
           <span className="text-[15px] font-semibold text-ink">Split a saved bill</span>
           <span className="t-caption text-ink-3">One you’ve already scanned or added</span>
         </a>
-        <a href="#/trips" className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
-          <span className="flex size-10 items-center justify-center rounded-[12px] bg-marigold-soft text-marigold-ink"><Luggage className="size-5" /></span>
-          <span className="text-[15px] font-semibold text-ink">Start a trip</span>
-          <span className="t-caption text-ink-3">Many bills, many payers, fewest payments to settle</span>
+        <button type="button" onClick={() => openSheet('quickOut', { split: true })} className="card flex flex-col gap-2 rounded-2xl p-4 text-left hover:border-line-strong">
+          <span className="flex size-10 items-center justify-center rounded-[12px] bg-leaf-soft text-leaf"><Zap className="size-5" /></span>
+          <span className="text-[15px] font-semibold text-ink">Quick expense</span>
+          <span className="t-caption text-ink-3">No bill: a taxi, snacks you paid for friends</span>
+        </button>
+        <a href="#/trips" className="card col-span-2 flex items-center gap-3 rounded-2xl p-4 hover:border-line-strong sm:col-span-1 sm:flex-col sm:items-start sm:gap-2">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-marigold-soft text-marigold-ink"><Luggage className="size-5" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-ink">Start a trip</span>
+            <span className="t-caption block text-ink-3">Many bills, many payers, fewest payments to settle</span>
+          </span>
+          <ChevronRight className="size-5 shrink-0 text-ink-3 sm:hidden" />
         </a>
       </div>
       {!qr && (
@@ -709,7 +717,7 @@ export function SplitEditor({ billId }) {
   const expense = expenses.find((e) => e.id === billId);
   const [split, setSplit] = useState(() => (expense ? { ...newSplitForExpense(expense, profile), ...(expense.split || {}) } : null));
   // Coming back to a split that already has people opens on the shares; a new one starts at the bill.
-  const [step, setStepState] = useState(() => (expense?.split?.members?.length > 1 ? 2 : 0));
+  const [step, setStepState] = useState(() => (expense?.split?.members?.length > 1 ? 2 : expense && !expense.lineItems?.length && !expense.receiptImage ? 1 : 0));
   const [reading, setReading] = useState(false);
   const dirty = useRef(false);
   const total = Number(expense?.totalAmount) || 0;

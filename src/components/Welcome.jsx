@@ -3,7 +3,7 @@
 // given step) as the 'welcome' sheet. Shown once: billkhata_welcome = 'done' | 'exploring'.
 import { useState } from 'react';
 import {
-  ArrowRight, Banknote, Check, Landmark, Luggage, Plus, ReceiptText, ScanLine, ShieldCheck, Sparkles, Ticket, Trash, Wallet, WifiOff, Zap,
+  ArrowRight, Banknote, Check, Landmark, Lock, Luggage, Plus, ReceiptText, ScanLine, ShieldCheck, Sparkles, Ticket, Trash, Wallet, WifiOff, Zap,
 } from 'lucide-react';
 import { REGIONS } from '../lib/constants.js';
 import { ACCOUNT_SUGGESTIONS, kindForName, setAccounts } from '../lib/money.js';
@@ -165,7 +165,9 @@ export function WelcomeSheet({ onClose, step: first = 'hello' }) {
                 <span className="font-nepali text-[15px] text-ink-3">रु</span>
                 <input aria-label={`${r.name || 'Account'} amount`} inputMode="decimal" className="num w-24 rounded-[10px] border border-line-strong bg-raised px-2 py-1.5 text-right text-[15px] text-ink focus:border-navy focus:outline-none"
                   value={r.start} onChange={(e) => set(i, { start: e.target.value.replace(/[^\d.]/g, '') })} placeholder="0" />
-                {r.kind !== 'cash' && <button type="button" aria-label={`Remove ${r.name}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))} className="tap rounded-full p-1.5 text-ink-3 hover:text-danger"><Trash className="size-4" /></button>}
+                {r.kind !== 'cash'
+                  ? <button type="button" aria-label={`Remove ${r.name}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))} className="tap flex size-8 shrink-0 items-center justify-center rounded-full text-ink-3 hover:text-danger"><Trash className="size-4" /></button>
+                  : <span className="tap flex size-8 shrink-0 items-center justify-center text-ink-3" title="Cash in hand is always here"><Lock className="size-3.5" /></span>}
               </li>
             );
           })}

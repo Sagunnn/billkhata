@@ -1,7 +1,7 @@
 // Money sheets (Figma: Phone 12 · Quick cash out, Home wallet card actions): set your accounts,
 // money in, move money between accounts (ATM), quick cash out, and the history.
 import { useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Luggage, Plus, Trash, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Lock, Luggage, Plus, Trash, Wallet } from 'lucide-react';
 import { CATEGORIES, PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { money as fmt } from '../lib/format.js';
@@ -113,18 +113,24 @@ export function AccountsSheet({ onClose }) {
             return (
               <li key={i} className="flex items-center gap-2 rounded-[14px] border border-line bg-surface p-2">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-sunken"><Icon className="size-[18px] text-ink-2" /></span>
-                <input aria-label="Account name" className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-ink focus:outline-none" value={r.name} disabled={r.kind === 'cash'}
-                  onChange={(e) => set(i, { name: e.target.value, kind: r.kind === 'cash' ? 'cash' : kindForName(e.target.value) })} placeholder="Bank or wallet" />
-                <span className="font-nepali text-[15px] text-ink-3">रु</span>
-                <input aria-label={`${r.name || 'Account'} amount`} inputMode="decimal" className="num w-24 rounded-[10px] border border-line-strong bg-raised px-2 py-1.5 text-right text-[15px] text-ink focus:border-navy focus:outline-none" value={r.start}
-                  onChange={(e) => set(i, { start: e.target.value.replace(/[^\d.]/g, '') })} placeholder="0" />
-                {r.kind !== 'cash' && (
-                  <>
-                    <button type="button" onClick={() => makeMain(i)} title="Main account: QR and card bills come off it unless you pick another"
-                      className={`tap rounded-full px-2 text-[12px] font-medium ${r.main ? 'bg-navy-soft text-navy' : 'text-ink-3 hover:text-ink'}`}>{r.main ? 'Main' : 'Set main'}</button>
-                    <button type="button" aria-label={`Remove ${r.name}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))} className="tap rounded-full p-1.5 text-ink-3 hover:text-danger"><Trash className="size-4" /></button>
-                  </>
-                )}
+                {/* Name, and under it Main / Make main (cash: always here), so every row has the same columns. */}
+                <span className="min-w-0 flex-1">
+                  <input aria-label="Account name" className="block w-full bg-transparent text-[15px] font-medium leading-5 text-ink focus:outline-none" value={r.name} disabled={r.kind === 'cash'}
+                    onChange={(e) => set(i, { name: e.target.value, kind: r.kind === 'cash' ? 'cash' : kindForName(e.target.value) })} placeholder="Bank or wallet" />
+                  {r.kind === 'cash'
+                    ? <span className="t-caption block text-ink-3">Counted by you</span>
+                    : r.main
+                      ? <span className="mt-0.5 inline-block rounded-full bg-navy-soft px-1.5 text-[12px] font-medium leading-4 text-navy">Main account</span>
+                      : <button type="button" onClick={() => makeMain(i)} className="t-caption block text-ink-3 underline-offset-2 hover:text-ink hover:underline" title="Main account: QR and card bills come off it unless you pick another">Make main</button>}
+                </span>
+                <label className="flex w-[104px] shrink-0 items-center gap-1 rounded-[10px] border border-line-strong bg-raised px-2 focus-within:border-navy">
+                  <span className="font-nepali text-[14px] text-ink-3">रु</span>
+                  <input aria-label={`${r.name || 'Account'} amount`} inputMode="decimal" className="num min-w-0 flex-1 bg-transparent py-1.5 text-right text-[15px] text-ink focus:outline-none" value={r.start}
+                    onChange={(e) => set(i, { start: e.target.value.replace(/[^\d.]/g, '') })} placeholder="0" />
+                </label>
+                {r.kind !== 'cash'
+                  ? <button type="button" aria-label={`Remove ${r.name}`} onClick={() => setRows((x) => x.filter((_, j) => j !== i))} className="tap flex size-8 shrink-0 items-center justify-center rounded-full text-ink-3 hover:text-danger"><Trash className="size-4" /></button>
+                  : <span className="tap flex size-8 shrink-0 items-center justify-center text-ink-3" title="Cash in hand is always here"><Lock className="size-3.5" /></span>}
               </li>
             );
           })}

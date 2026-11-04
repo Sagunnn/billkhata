@@ -1,7 +1,7 @@
 // Split Khata: hub (#/split), editor (#/split-bill/<billId>) and read-only shared view (#/split/<token>).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
+  ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
   LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
   UsersRound, Wine, X,
 } from 'lucide-react';
@@ -489,7 +489,9 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
                   </button>
                 </>
               )}
-              {!m.isPayer && (
+              {m.isPayer ? (
+                <span className="shrink-0 rounded-full p-1 text-marigold" title="Paid the bill: always in the split" aria-label="Paid the bill, can't be removed"><Crown className="size-4" /></span>
+              ) : (
                 <button type="button" onClick={() => remove(m.id)} className="shrink-0 rounded-full p-1 text-slate-300 hover:text-brand" aria-label={`Remove ${m.name}`}><Trash className="size-4" /></button>
               )}
             </li>

@@ -16,7 +16,7 @@ const SITE = 'https://expense.sagunpradhan.com.np';
 export function InstallSheet({ onClose }) {
   const toast = useToast();
   const { installed, install } = useInstallPrompt();
-  const help = installHelp(navigator.userAgent);
+  const help = installHelp(navigator.userAgent, { brave: Boolean(navigator.brave) });
   return (
     <Modal open size="md" title={installed ? 'Installed' : help.title} subtitle={installed ? '' : 'Opens like an app, full screen, and works offline'} onClose={onClose}>
       {installed ? (

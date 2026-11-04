@@ -21,6 +21,7 @@ import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
 import { ActionChip, Button, Card, Kbd, Notice } from '../components/ui.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { InstallCard } from '../components/InstallGuide.jsx';
+import { welcomeState } from '../components/Welcome.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
 import { moneyLookCount } from './Money.jsx';
 import { calculateTripSettlement, ongoingTrips, tripDay } from '../lib/trips.js';
@@ -428,7 +429,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {!isDemoProfile(profile) && <div className="mt-3"><InstallCard /></div>}
+      {(welcomeState() || !isDemoProfile(profile)) && <div className="mt-3"><InstallCard /></div>}
 
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="min-w-0 space-y-4">

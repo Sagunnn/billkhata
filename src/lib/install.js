@@ -13,9 +13,37 @@ const IN_APP = [
  *   id: 'ios-safari' | 'ios-other' | 'in-app' | 'android-chrome' | 'samsung' | 'android-firefox' |
  *       'desktop-chrome' | 'mac-safari' | 'other'
  */
-export function installHelp(ua = '') {
+export function installHelp(ua = '', { brave = false } = {}) {
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && /Mobile\//.test(ua));
   const android = /Android/.test(ua);
+  // Brave says it's Chrome (or Safari on iPhone); the page learns it's Brave from navigator.brave.
+  if (brave) {
+    if (android) {
+      return {
+        id: 'brave-android', title: 'Add to your home screen in Brave',
+        steps: [
+          'Tap Brave’s menu (⋮). It’s at the bottom right, or the top right if you moved the address bar up.',
+          'Tap “Add to Home screen” (on some versions “Install app”). You may need to scroll the menu.',
+          'Tap “Install” or “Add”.',
+        ],
+        note: 'Not in the menu? Open Brave’s Settings → Appearance and check the bottom toolbar; the menu is the ⋮ at its right end.',
+      };
+    }
+    if (ios) {
+      return {
+        id: 'brave-ios', title: 'Add to your iPhone’s home screen',
+        steps: [
+          'Tap the Share button: in Brave it’s the square with an arrow up in the address bar, or in the ⋯ menu at the bottom → Share.',
+          'Scroll down and tap “Add to Home Screen”, then “Add”.',
+        ],
+        note: 'If Brave doesn’t show it, open expense.sagunpradhan.com.np in Safari and add it from Safari’s Share button.',
+      };
+    }
+    return {
+      id: 'brave-desktop', title: 'Install on this computer',
+      steps: ['Click the install icon at the right end of Brave’s address bar (a screen with an arrow).', 'Or open the menu (≡) → “Save and share” → “Install BillKhata…”.'],
+    };
+  }
   const app = IN_APP.find(([, re]) => re.test(ua))?.[0] || (android && /; wv\)/.test(ua) ? 'this app' : '');
   if (app) {
     return {

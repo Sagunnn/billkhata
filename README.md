@@ -87,7 +87,8 @@ needs a server. The app itself works offline too:
   (Scan a bill, Quick expense → `/#/?quick`). **Add to home screen** (a card on Home on phones,
   Settings → Use offline, and the end of the welcome) uses the browser's own **Install app** where
   it offers one, else shows the steps for that phone and browser (`src/lib/install.js`): Safari's
-  Share button on iPhone, Chrome's ⋮ menu on Android, Samsung Internet, and for Instagram,
+  Share button on iPhone, Chrome's ⋮ menu on Android, Brave (found by `navigator.brave`, as it
+  says it's Chrome; its menu is at the bottom), Samsung Internet, and for Instagram,
   Messenger, Facebook and other in-app browsers, which can't install, how to open it in Safari or
   Chrome first.
 

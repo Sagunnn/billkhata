@@ -32,3 +32,11 @@ test('in-app browsers (Instagram, Messenger, a WebView) say to open Safari or Ch
   assert.match(installHelp(UA.androidMessenger).title, /Chrome/);
   assert.equal(installHelp(UA.androidWebView).inApp, 'this app');
 });
+
+test('Brave (which says it is Chrome or Safari) gets Brave steps', () => {
+  assert.equal(installHelp(UA.androidChrome, { brave: true }).id, 'brave-android');
+  assert.match(installHelp(UA.androidChrome, { brave: true }).steps[0], /bottom right/);
+  assert.equal(installHelp(UA.iosSafari, { brave: true }).id, 'brave-ios');
+  assert.equal(installHelp(UA.macChrome, { brave: true }).id, 'brave-desktop');
+  assert.equal(installHelp(UA.androidMessenger, { brave: false }).id, 'in-app');
+});

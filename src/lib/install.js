@@ -9,7 +9,9 @@ const IN_APP = [
 ];
 
 /**
- * @returns {{ id: string, title: string, steps: string[], note?: string, inApp?: string }}
+ * @returns {{ id: string, title: string, steps: string[], note?: string, inApp?: string, moveData?: boolean }}
+ *   moveData: an iPhone home-screen app keeps its own storage, apart from the browser, so bills
+ *   already saved here move over with a backup
  *   id: 'ios-safari' | 'ios-other' | 'in-app' | 'android-chrome' | 'samsung' | 'android-firefox' |
  *       'desktop-chrome' | 'mac-safari' | 'other'
  */
@@ -23,20 +25,20 @@ export function installHelp(ua = '', { brave = false } = {}) {
         id: 'brave-android', title: 'Add to your home screen in Brave',
         steps: [
           'Tap Brave’s menu (⋮). It’s at the bottom right, or the top right if you moved the address bar up.',
-          'Tap “Add to Home screen” (on some versions “Install app”). You may need to scroll the menu.',
-          'Tap “Install” or “Add”.',
+          'Tap “Install app”. Brave says “Install app” for sites that work as an app, like this one, instead of “Add to Home screen”. You may need to scroll the menu.',
+          'Tap “Install”.',
         ],
-        note: 'Not in the menu? Open Brave’s Settings → Appearance and check the bottom toolbar; the menu is the ⋮ at its right end.',
+        note: 'The app opens in Brave behind the scenes, so your bills are already in it.',
       };
     }
     if (ios) {
       return {
-        id: 'brave-ios', title: 'Add to your iPhone’s home screen',
+        id: 'brave-ios', title: 'Use Safari to add it', moveData: true,
         steps: [
-          'Tap the Share button: in Brave it’s the square with an arrow up in the address bar, or in the ⋯ menu at the bottom → Share.',
-          'Scroll down and tap “Add to Home Screen”, then “Add”.',
+          'Brave on iPhone can’t add apps to the home screen; Safari can.',
+          'Copy the link below, open Safari and paste it.',
+          'In Safari tap Share (a square with an arrow up) → “Add to Home Screen” → “Add”.',
         ],
-        note: 'If Brave doesn’t show it, open expense.sagunpradhan.com.np in Safari and add it from Safari’s Share button.',
       };
     }
     return {
@@ -60,7 +62,7 @@ export function installHelp(ua = '', { brave = false } = {}) {
     const safari = /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(ua);
     if (safari) {
       return {
-        id: 'ios-safari', title: 'Add to your iPhone’s home screen',
+        id: 'ios-safari', title: 'Add to your iPhone’s home screen', moveData: true,
         steps: [
           'Tap the Share button (a square with an arrow up) in the bar at the bottom of Safari. On iPad it’s at the top.',
           'Scroll down the list and tap “Add to Home Screen”.',
@@ -70,7 +72,7 @@ export function installHelp(ua = '', { brave = false } = {}) {
       };
     }
     return {
-      id: 'ios-other', title: 'Add to your iPhone’s home screen',
+      id: 'ios-other', title: 'Add to your iPhone’s home screen', moveData: true,
       steps: [
         'Tap the Share button (a square with an arrow up) next to the address bar.',
         'Tap “Add to Home Screen”, then “Add”.',

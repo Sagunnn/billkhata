@@ -108,6 +108,9 @@ export function WelcomeSheet({ onClose, step: first = 'hello' }) {
       <div className="grid gap-2">
         <Button variant="primary" size="lg" icon={ArrowRight} onClick={() => setStep('details')}>Set up my account</Button>
         <Button variant="ghost" icon={Sparkles} onClick={() => { finish('exploring'); toast('Look around with the sample bills. Set up your account from the banner on Home when you’re ready.'); }}>Look around with sample bills first</Button>
+        <button type="button" onClick={() => { finish('done'); window.location.hash = '#/settings?backup'; }} className="t-label py-1 font-medium text-ink-2 underline">
+          Used BillKhata before? Restore a backup
+        </button>
       </div>,
     );
   }

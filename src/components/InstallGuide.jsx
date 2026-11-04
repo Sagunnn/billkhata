@@ -1,7 +1,7 @@
 // "Add to home screen": the browser's own Install button where it offers one, else the steps for
 // this phone and browser (lib/install.js). The 'install' sheet, plus a dismissible card for Home.
 import { useState } from 'react';
-import { CircleCheck, Copy, Smartphone, X } from 'lucide-react';
+import { CircleCheck, Copy, Download, Smartphone, X } from 'lucide-react';
 import { installHelp } from '../lib/install.js';
 import { useInstallPrompt } from '../lib/offline.js';
 import { copyText } from '../lib/format.js';
@@ -9,6 +9,7 @@ import { useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
 import { Button, Modal } from './ui.jsx';
 import { LogoMark } from './Brand.jsx';
+import { useDownloadBackup } from './LocalFirst.jsx';
 
 const HINT_KEY = 'billkhata_install_hint';
 const SITE = 'https://expense.sagunpradhan.com.np';
@@ -17,6 +18,9 @@ export function InstallSheet({ onClose }) {
   const toast = useToast();
   const { installed, install } = useInstallPrompt();
   const help = installHelp(navigator.userAgent, { brave: Boolean(navigator.brave) });
+  const { expenses } = useStore();
+  const download = useDownloadBackup();
+  const ownBills = expenses.filter((e) => !e.isSample).length;
   return (
     <Modal open size="md" title={installed ? 'Installed' : help.title} subtitle={installed ? '' : 'Opens like an app, full screen, and works offline'} onClose={onClose}>
       {installed ? (
@@ -42,7 +46,14 @@ export function InstallSheet({ onClose }) {
             ))}
           </ol>
           {help.note && <p className="t-caption text-ink-3">{help.note}</p>}
-          {help.id === 'in-app' && (
+          {help.moveData && ownBills > 0 && (
+            <div className="rounded-[14px] bg-marigold-soft p-3.5">
+              <p className="t-body font-semibold text-ink">Bring your {ownBills === 1 ? 'bill' : `${ownBills} bills`} with you</p>
+              <p className="t-label mt-1 text-ink-2">On iPhone the home-screen app keeps its own copy, apart from this browser. Download a backup first; then in the app, choose “Restore a backup” on the welcome (or Settings → Backup &amp; restore).</p>
+              <Button className="mt-2" icon={Download} onClick={download}>Download backup</Button>
+            </div>
+          )}
+          {(help.id === 'in-app' || help.id === 'brave-ios') && (
             <Button className="w-full" icon={Copy} onClick={async () => { await copyText(SITE); toast('Link copied. Paste it in your browser.'); }}>Copy the link</Button>
           )}
         </div>

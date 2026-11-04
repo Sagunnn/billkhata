@@ -36,6 +36,11 @@ test('in-app browsers (Instagram, Messenger, a WebView) say to open Safari or Ch
 test('Brave (which says it is Chrome or Safari) gets Brave steps', () => {
   assert.equal(installHelp(UA.androidChrome, { brave: true }).id, 'brave-android');
   assert.match(installHelp(UA.androidChrome, { brave: true }).steps[0], /bottom right/);
+  assert.match(installHelp(UA.androidChrome, { brave: true }).steps[1], /Install app/);
+  assert.match(installHelp(UA.iosSafari, { brave: true }).title, /Safari/);
+  assert.equal(installHelp(UA.iosSafari, { brave: true }).moveData, true);
+  assert.equal(installHelp(UA.iosSafari).moveData, true, 'iPhone home-screen apps have their own storage');
+  assert.equal(installHelp(UA.androidChrome).moveData, undefined);
   assert.equal(installHelp(UA.iosSafari, { brave: true }).id, 'brave-ios');
   assert.equal(installHelp(UA.macChrome, { brave: true }).id, 'brave-desktop');
   assert.equal(installHelp(UA.androidMessenger, { brave: false }).id, 'in-app');

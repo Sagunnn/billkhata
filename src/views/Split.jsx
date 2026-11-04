@@ -1,7 +1,7 @@
 // Split Khata: hub (#/split), editor (#/split-bill/<billId>) and read-only shared view (#/split/<token>).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
+  ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ScanLine, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
   LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
   UsersRound, Wine, X,
 } from 'lucide-react';
@@ -50,11 +50,19 @@ export function SplitHub() {
         <h1 className="t-h-l text-ink">Split</h1>
         <p className="t-label mt-1 text-ink-2">Share a bill between friends, or keep a whole trip’s bills and settle up.</p>
       </div>
+      <a href="#/scan?split" className="tap flex items-center gap-3 rounded-2xl bg-brand p-4 text-on-brand shadow-sm hover:bg-brand-dark">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-[rgba(255,255,255,0.18)]"><ScanLine className="size-6" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[16px] font-semibold">Scan a bill to split</span>
+          <span className="block text-[13px] opacity-85">Read the items, then pick who had what</span>
+        </span>
+        <ChevronRight className="size-5 shrink-0" />
+      </a>
       <div className="grid grid-cols-2 gap-3">
         <a href="#split-pick" onClick={(ev) => { ev.preventDefault(); document.getElementById('split-pick')?.scrollIntoView({ behavior: 'smooth' }); }} className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
           <span className="flex size-10 items-center justify-center rounded-[12px] bg-brand-soft text-brand"><Divide className="size-5" /></span>
-          <span className="text-[15px] font-semibold text-ink">Split a bill</span>
-          <span className="t-caption text-ink-3">Veg, non-veg and drinks ticked for each person</span>
+          <span className="text-[15px] font-semibold text-ink">Split a saved bill</span>
+          <span className="t-caption text-ink-3">One you’ve already scanned or added</span>
         </a>
         <a href="#/trips" className="card flex flex-col gap-2 rounded-2xl p-4 hover:border-line-strong">
           <span className="flex size-10 items-center justify-center rounded-[12px] bg-marigold-soft text-marigold-ink"><Luggage className="size-5" /></span>

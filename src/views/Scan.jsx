@@ -49,6 +49,8 @@ export default function Scan() {
   // Opened from a trip that's on (#/scan?trip=<id>): the bill goes into that trip when saved.
   const [forTrip, setForTrip] = useState(() => new URLSearchParams(window.location.hash.split('?')[1] || '').get('trip') || '');
   const trip = forTrip ? trips.find((t) => t.id === forTrip && tripStatus(t) !== 'settled') : null;
+  // Opened from Split (#/scan?split): saving goes straight on to splitting the bill.
+  const [forSplit, setForSplit] = useState(() => /[?&]split\b/.test(window.location.hash));
   const toast = useToast();
   const [step, setStep] = useState('pick'); // pick | reading | review
   const [draft, setDraft] = useState(null);
@@ -280,6 +282,12 @@ export default function Scan() {
               Saved into the trip as a bill you paid. Change who paid or who had what on the trip page.
             </Notice>
           )}
+          {forSplit && !trip && (
+            <Notice tone="info" icon={Users} title="Then split it"
+              action={<button type="button" className="text-[14px] font-medium text-ink-2 underline" onClick={() => setForSplit(false)}>Just save it</button>}>
+              Check the details and tap Save &amp; split: you go straight on to who had what.
+            </Notice>
+          )}
           {lastRead?.blurry && (
             <Notice tone="warning" title="The photo looks blurry"
               action={<ActionChip icon={Camera} onClick={() => { reset(); setCamera(phoneCamera()); }}>Take it again</ActionChip>}>
@@ -332,7 +340,7 @@ export default function Scan() {
         <div className="hide-typing above-nav sticky z-20 -mx-4 mt-5 flex items-center gap-2 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mx-0 md:justify-end md:rounded-[16px] md:border md:px-3">
           <span className="mr-auto hidden items-center gap-1.5 text-[12px] text-ink-3 md:inline-flex"><ShieldCheck className="size-3.5 text-leaf" />Saved only on this device</span>
           <span className="hidden md:contents"><Button variant="ghost" onClick={reset}>Discard</Button></span>
-          {!trip && <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>}
+          {!trip && !forSplit && <Button size="lg" icon={Users} disabled={saving} onClick={() => save('split')} aria-label="Save and split">Split</Button>}
           {draft.isNepalBill && (
             <Tooltip text={irdWhy}>
               <Button size="lg" icon={Ticket} disabled={saving} aria-disabled={irdWhy ? true : undefined}
@@ -342,7 +350,7 @@ export default function Scan() {
               </Button>
             </Tooltip>
           )}
-          <Button variant="primary" size="lg" icon={Check} disabled={saving} onClick={() => save(false)} className="flex-1 md:flex-none">Save bill</Button>
+          <Button variant="primary" size="lg" icon={forSplit && !trip ? Users : Check} disabled={saving} onClick={() => save(forSplit && !trip ? 'split' : false)} className="flex-1 md:flex-none">{forSplit && !trip ? 'Save & split' : 'Save bill'}</Button>
         </div>
         {viewPhoto && <PhotoViewer expense={draft} onClose={() => setViewPhoto(false)} />}
       </div>
@@ -355,7 +363,7 @@ export default function Scan() {
     const off = (then) => () => { setCamera(false); then?.(); };
     return (
       <CameraScan
-        title={trip ? `Scan for ${trip.name}` : 'Scan a bill'}
+        title={trip ? `Scan for ${trip.name}` : forSplit ? 'Scan a bill to split' : 'Scan a bill'}
         onPhoto={(url) => { setCamera(false); processImage(url); }}
         onFile={(f) => { setCamera(false); onFile(f); }}
         onPdfOrFile={off()}

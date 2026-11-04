@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, Flag, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
-  NotebookPen, Pencil, Plus, QrCode, Receipt, RotateCcw, ScanText, Trash, UserPlus, Users, UsersRound,
+  NotebookPen, Pencil, Plus, QrCode, Receipt, RotateCcw, ScanLine, ScanText, Trash, UserPlus, Users, UsersRound, Zap,
 } from 'lucide-react';
 import { PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
 import { newId } from '../lib/db.js';
@@ -575,7 +575,7 @@ export function TripQuickSheet({ tripId: id, onClose }) {
 }
 
 export function TripView({ tripId: id }) {
-  const { trips, saveTrip, deleteTrip, expenses, saveExpense, removeExpense, profile } = useStore();
+  const { trips, saveTrip, deleteTrip, expenses, saveExpense, removeExpense, profile, openSheet } = useStore();
   const toast = useToast();
   const myQr = usePaymentQr();
   const trip = trips.find((t) => t.id === id);
@@ -711,7 +711,7 @@ export function TripView({ tripId: id }) {
           <input className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none focus:underline" value={trip.name} onChange={(e) => update({ ...trip, name: e.target.value })} aria-label="Trip name" />
           <p className="text-sm text-slate-600">
             <TripBadge status={status} />{' '}
-            {trip.members.length} people · {trip.entries.length} expenses · total {money(settlement.total, region)}
+            {trip.members.length} {trip.members.length === 1 ? 'person' : 'people'} · {trip.entries.length} expense{trip.entries.length === 1 ? '' : 's'} · total {money(settlement.total, region)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -728,7 +728,9 @@ export function TripView({ tripId: id }) {
           <Card className="p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="mr-auto font-bold">Expenses</h2>
-              <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add expense</Button>
+              <a href={`#/scan?trip=${encodeURIComponent(trip.id)}`} className="tap inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-3.5 text-[14px] font-medium text-on-brand hover:bg-brand-dark"><ScanLine className="size-4" />Scan a bill</a>
+              <Button icon={Zap} onClick={() => openSheet('tripQuick', { tripId: trip.id })}>Quick expense</Button>
+              <Button icon={Plus} onClick={() => setEditing('new')}>Add expense</Button>
               <Button icon={ScanText} onClick={() => setPicking(true)}>From ledger</Button>
             </div>
             {trip.entries.length ? (

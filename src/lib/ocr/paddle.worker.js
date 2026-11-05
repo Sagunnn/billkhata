@@ -1,7 +1,8 @@
 // On-device OCR in a Web Worker, so reading a bill never freezes the page. PaddleOCR (PP-OCRv6
-// tiny: ~6.4 MB of models) through ONNX Runtime Web; the Devanagari model (~12.7 MB) only when
+// tiny: ~6.4 MB of models) through ONNX Runtime Web (its CPU build); the Devanagari model (~12.7 MB) only when
 // "Read Nepali bills" is on. Models are fetched once and kept in Cache Storage, so later scans
 // don't download them again. Messages: { id, type: 'recognize', bitmap, nepali } → { id, result }.
+import * as ort from 'onnxruntime-web';
 import { PaddleOcrService, V5_DEVANAGARI_MOBILE_MODEL, V6_TINY_MODEL } from 'ppu-paddle-ocr/web';
 import { splitByInk } from './rows.js';
 
@@ -20,7 +21,7 @@ async function fetchModel(url, onBytes) {
     onBytes(buf.byteLength, buf.byteLength);
     return buf;
   }
-  const OFFLINE = 'You’re offline and the bill reader isn’t on this phone yet. Type the bill in for now; connect once (or use Settings → Use offline) and it’s kept for next time.';
+  const OFFLINE = 'You’re offline and the bill reader isn’t on this phone yet. Save it as a Quick expense for now, or keep the photo and scan it later; connect once (or use Settings → Use offline) and it’s kept for next time.';
   if (self.navigator?.onLine === false) throw new Error(OFFLINE);
   let res;
   try { res = await fetch(url); } catch { throw new Error(OFFLINE); }
@@ -56,10 +57,15 @@ function getService(nepali, id) {
     const ready = (async () => {
       const [detection, recognition, charactersDictionary] = await Promise.all(files.map((f) => fetchModel(model[f], (l, t) => { seen[f] = [l, t]; report(); })));
       progress(id, 'Starting the text reader', 0.97);
+      // ppu-paddle-ocr points ONNX Runtime at its .wasm on cdn.jsdelivr.net. Cleared, the runtime
+      // uses the copy built into this app: no third-party request, and scanning works offline.
+      ort.env.wasm.wasmPaths = undefined;
       const service = new PaddleOcrService({
         model: { detection, recognition, charactersDictionary },
         // We filter by confidence ourselves: a faint amount next to a table line scores low but is real.
         recognition: { minimumConfidence: 0.3 },
+        // The CPU build only (see vite.config.js): don't try WebGPU first.
+        session: { executionProviders: ['wasm'] },
       });
       await service.initialize();
       return service;

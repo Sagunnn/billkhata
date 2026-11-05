@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen, ChartColumn, House, Map, ScanLine, SlidersHorizontal, Users, Wallet, Zap,
 } from 'lucide-react';
@@ -12,12 +12,20 @@ import { Kbd, Skeleton } from './components/ui.jsx';
 import Dashboard from './views/Dashboard.jsx';
 import Ledger from './views/Ledger.jsx';
 import Scan from './views/Scan.jsx';
-import Reports from './views/Reports.jsx';
 import Money, { moneyLookCount } from './views/Money.jsx';
-import Settings from './views/Settings.jsx';
-import CouponImport from './views/CouponImport.jsx';
-import { SplitEditor, SplitHub, SplitShare } from './views/Split.jsx';
-import { TripsHub, TripView } from './views/Trips.jsx';
+
+// Pages opened less often load when first opened (the service worker still keeps them offline).
+const named = (load, name) => lazy(() => load().then((m) => ({ default: m[name] })));
+const Reports = lazy(() => import('./views/Reports.jsx'));
+const Settings = lazy(() => import('./views/Settings.jsx'));
+const CouponImport = lazy(() => import('./views/CouponImport.jsx'));
+const loadSplit = () => import('./views/Split.jsx');
+const SplitHub = named(loadSplit, 'SplitHub');
+const SplitEditor = named(loadSplit, 'SplitEditor');
+const SplitShare = named(loadSplit, 'SplitShare');
+const loadTrips = () => import('./views/Trips.jsx');
+const TripsHub = named(loadTrips, 'TripsHub');
+const TripView = named(loadTrips, 'TripView');
 
 // Phone: five tabs, Scan raised in the middle; Trips live inside Split, Reports inside Ledger,
 // Settings in the Home header. Desktop: the same five plus Trips and Reports in the sidebar.
@@ -199,7 +207,7 @@ function useDropGuard() {
 }
 
 /**
- * Keyboard first on desktop: S scan · N add by hand · Q quick cash out · / search · ? shortcut list.
+ * Keyboard first on desktop: S scan · Q quick expense · / search · ? shortcut list.
  * J / K / ↵ move through and open bills (handled by the lists). Off while typing in a field, or with
  * Cmd / Ctrl / Alt held; Esc closes sheets (handled by each sheet).
  */
@@ -282,7 +290,7 @@ export default function App() {
               Could not open local storage: {loadError} Bills will not be saved in this window.
             </div>
           )}
-          {ready ? <View key={route} {...viewProps} /> : <LoadingView />}
+          {ready ? <Suspense fallback={<LoadingView />}><View key={route} {...viewProps} /></Suspense> : <LoadingView />}
         </div>
       </main>
       <BottomNav route={tabRoute} />

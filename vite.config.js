@@ -74,7 +74,8 @@ export const USERSCRIPT_PATH = ${JSON.stringify(`/${USERSCRIPT_FILE}`)};`;
 /**
  * Offline: writes sw.js (from src/sw-template.js) with this build's files, and offline-assets.json
  * for Settings → Download for offline use. CORE is what the app needs to open: index.html, the entry
- * chunk and its static imports, their CSS, the fonts and the public icons. ALL is every built file.
+ * chunk, every page (pages load on demand) and their static imports, their CSS, the fonts and the
+ * public icons. ALL is every built file.
  */
 function offlinePlugin() {
   const PUBLIC = ['favicon.svg', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
@@ -96,6 +97,8 @@ function offlinePlugin() {
         c.viteMetadata?.importedAssets?.forEach((f) => core.add(f));
       };
       Object.values(bundle).filter((c) => c.type === 'chunk' && c.isEntry).forEach((c) => visit(c.fileName));
+      // Pages load on demand (React.lazy) but are part of the app: kept for offline from the start.
+      Object.values(bundle).filter((c) => c.type === 'chunk' && /\/src\/views\//.test(c.facadeModuleId || '')).forEach((c) => visit(c.fileName));
       // Fonts for English and Nepali (the Vietnamese, Greek and Cyrillic subsets load only if needed).
       files.filter((f) => f.endsWith('.woff2') && !/(vietnamese|greek|cyrillic)/.test(f)).forEach((f) => core.add(f));
       const coreList = [...core, ...PUBLIC, 'offline-assets.json'];
@@ -117,5 +120,8 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 1200 },
   // ONNX Runtime fetches its own .wasm at run time; pre-bundling it breaks that.
   optimizeDeps: { exclude: ['onnxruntime-web', 'ppu-paddle-ocr'] },
+  // The plain (CPU) build of ONNX Runtime: a 3.8 MB download instead of 7.1 MB for the WebGPU one,
+  // which read bills no faster (1.5 s a read either way on a Mac; phone GPUs are slower to start).
+  resolve: { alias: [{ find: /^onnxruntime-web$/, replacement: 'onnxruntime-web/wasm' }] },
   worker: { format: 'es' },
 });

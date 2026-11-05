@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Check, Divide, Ticket, Trash } from 'lucide-react';
 import { validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, validateImageFile } from '../lib/image.js';
@@ -16,7 +16,7 @@ import { Button, Modal } from './ui.jsx';
 import { ReceiptViewer } from './ReceiptViewer.jsx';
 import { AccountsSheet, MoneyHistorySheet, MoneyInSheet, MoveSheet, QuickOutSheet } from './MoneySheets.jsx';
 import { ShortcutsSheet } from './Shortcuts.jsx';
-import { TripQuickSheet } from '../views/Trips.jsx';
+const TripQuickSheet = lazy(() => import('../views/Trips.jsx').then((m) => ({ default: m.TripQuickSheet })));
 import { WelcomeSheet } from './Welcome.jsx';
 import { InstallSheet } from './InstallGuide.jsx';
 import { ReceiveSheet, SendTripSheet } from './ShareFiles.jsx';
@@ -158,6 +158,6 @@ export function ModalHost() {
   if (modal.type === 'sendTrip') return <SendTripSheet tripId={modal.tripId} onClose={closeModal} />;
   if (modal.type === 'receive') return <ReceiveSheet onClose={closeModal} />;
   if (modal.type === 'welcome') return <WelcomeSheet step={modal.step} onClose={closeModal} />;
-  if (modal.type === 'tripQuick') return <TripQuickSheet tripId={modal.tripId} onClose={closeModal} />;
+  if (modal.type === 'tripQuick') return <Suspense fallback={null}><TripQuickSheet tripId={modal.tripId} onClose={closeModal} /></Suspense>;
   return null;
 }

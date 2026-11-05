@@ -269,15 +269,30 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
   boxes under 45% confidence, except plain numbers above 30%. `buildRows` groups boxes whose
   vertical centres are within 0.7 × the text height (a curled bill's amount sits lower than its
   label) and reads each row left to right.
+- **Curled bills** (`straightenStrips` in the worker): straightening the whole photo can't fix a
+  header that curls at its own angle. Long lines read under 90% confidence whose ink slopes (the
+  ink's height in the left third against the right third) are grouped into strips; each strip is
+  read again rotated by its own tilt and kept when it reads better. The re-read boxes sit straight
+  where the strip is, so a label and its value stay one row.
 - **Reading a bill:** one read of the colour copy is accepted when it has a printed total and its
   items add up to it (directly, or with 10% service charge and/or 13% VAT). Otherwise the
   contrast-stretched copy is read too, both are also rebuilt from word positions
   (`src/lib/ocr/layout.js`: names and numbers grouped into rows separately, then paired in order),
   and the reads are combined.
 - **13% VAT check** (`vatTriplet`): among the amounts in the bottom 60% of the bill, a subtotal, VAT
-  and total with subtotal × 13% ≈ VAT and subtotal + VAT ≈ total (within रु 1.5). When it matches
+  and total with subtotal × 13% ≈ VAT and subtotal + VAT ≈ total (within 0.2% of the subtotal, at
+  least 10 paisa and at most रु 1.5; a subtotal under रु 20 is a stray footer number, not a VAT bill). When it matches
   the bill's total the Scan screen says "Total checked: … + 13% VAT … = …"; a missing or guessed
   total takes the checked one. Totals skip Cash, Tender, Change, Return and Rounding lines.
+- **Discounts:** "Gross 540 · Discount 5 · Net Amount 535" keeps the 540 item; items match a total
+  less the printed discount (`sumMatches(sum, total, discount)`), and the form says "Add up to
+  रु 540 · रु 5 discount". With no total line or words read, Tender − Change is the total, then
+  items − discount (as a guess).
+- **Amount in words** (`amountInWords`) reads numbers the way they're spoken, so "Three hundred
+  sixty-one and thirty-five paisa" is 361.35: a tens word after "sixty-one" starts a new number,
+  and one followed by paisa is paisa. A PAN never starts with 0 (the "01-5921365" landline under
+  the PAN line isn't one), and a name with Pvt. Ltd., Mart, Store… above the PAN line is the shop,
+  even under the footer of the receipt printed before it.
 - **Thermal-print slips** (`fixOcrDigits`): O, Q, D → 0; I, l, | → 1; S → 5; B → 8; Z → 2, only inside a
   number with at least three digits ("6O1234567", "S00.00"), never in a word ("SOUP", "B12").
   Devanagari digits become ASCII first.
@@ -566,6 +581,16 @@ what's missing, so existing bills are kept.
   installed from Settings or the Quick-Apply modal. Updates itself from the same URL; bump
   `version` in `package.json` when the helper changes.
 - **A bookmarklet** (minified, via the `virtual:ird-helper` module) and a per-bill console script.
+- **On a phone** (`src/lib/phoneFill.js`, tests in `tests/phoneFill.test.js`): phone browsers
+  mostly can't run Tampermonkey, but they run a bookmark whose address is the bookmarklet. The
+  Quick-Apply sheet and Settings show **Set up auto-fill on this phone**: Copy, add a bookmark
+  named "BillKhata fill", paste the copy as its address. Then, on the IRD form: Safari, Brave and
+  Samsung Internet run it from the bookmarks menu; Chrome on Android runs it when you type
+  "billkhata" in the address bar and tap the starred suggestion. Firefox for Android gets
+  Tampermonkey (it runs add-ons); Chrome/Firefox/Edge on iPhone and in-app browsers are told to use
+  Safari or Chrome, or copy the fields. From the home-screen app it says to open the portal in the
+  browser first (the app's own window has no bookmarks). Done is remembered per helper version
+  (`billkhata_phone_fill`), so a changed helper asks for the bookmark to be updated.
 
 Flow: **Open portal & auto-fill** opens `https://prize.ird.gov.np/#billkhata=<base64url bill>`.
 The fragment never reaches the server, and the helper removes it from the address bar at once.

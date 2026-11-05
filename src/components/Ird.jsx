@@ -2,8 +2,8 @@
 // the coupon-only modal for Fonepay/QR/card bills, and the one-time helper setup.
 import { useEffect, useRef, useState } from 'react';
 import {
-  BadgeCheck, Bookmark, ChevronDown, CircleAlert, ClipboardList, ClipboardPaste, Download, ExternalLink, Info, MousePointerClick, QrCode,
-  Terminal, Ticket, TriangleAlert, UserRound,
+  BadgeCheck, Bookmark, Check, ChevronDown, CircleAlert, ClipboardList, ClipboardPaste, Copy, Download, ExternalLink, Info, MousePointerClick, QrCode,
+  Smartphone, Terminal, Ticket, TriangleAlert, UserRound,
 } from 'lucide-react';
 import { IRD_STATUS, PAYMENT } from '../lib/constants.js';
 import { checkEligibility, COUPON_RE, findDuplicateBill, getIrdStatus, isAutoEnrolled, portalFields, portalLink } from '../lib/ird.js';
@@ -14,6 +14,8 @@ import { isDemoProfile, useStore } from '../store.jsx';
 import { useToast } from './Toast.jsx';
 import { ActionChip, Button, CopyButton, Field, Modal, PayloadBlock, StatusBadge } from './ui.jsx';
 import { copyText } from '../lib/format.js';
+import { FILL_BOOKMARK, phoneFillHelp } from '../lib/phoneFill.js';
+import { isInstalled } from '../lib/offline.js';
 import { DuplicateBanner } from './DuplicateBanner.jsx';
 
 export function EligibilityPanel({ expense }) {
@@ -91,9 +93,80 @@ function BookmarkletLink({ href, children }) {
   );
 }
 
+const PHONE_FILL_KEY = 'billkhata_phone_fill'; // the helper version whose bookmark was added
+
+/** This phone's way to run the fill bookmark, or null on a computer. */
+export const phoneFill = () => (typeof navigator === 'undefined' ? null
+  : phoneFillHelp(navigator.userAgent, { brave: Boolean(navigator.brave), standalone: isInstalled() }));
+
+function readPhoneFill() {
+  try { return localStorage.getItem(PHONE_FILL_KEY) || ''; } catch { return ''; }
+}
+
+/**
+ * Auto-fill on a phone: copy the helper, save it as a bookmark, tap the bookmark on the IRD form.
+ * Remembers it's done; when the helper changes, asks for the bookmark to be updated.
+ */
+export function PhoneFillSetup({ help = phoneFill() }) {
+  const toast = useToast();
+  const [added, setAdded] = useState(readPhoneFill);
+  const [again, setAgain] = useState(false);
+  if (!help) return null;
+  const mark = (v) => {
+    try { if (v) localStorage.setItem(PHONE_FILL_KEY, v); else localStorage.removeItem(PHONE_FILL_KEY); } catch { /* private mode */ }
+    setAdded(v);
+    setAgain(false);
+  };
+  const copy = async () => {
+    await copyText(bookmarklet());
+    toast(`Copied. Paste it as the address of the “${FILL_BOOKMARK}” bookmark.`);
+  };
+  const ready = added === HELPER_VERSION && !again;
+  const stale = added && added !== HELPER_VERSION && !again;
+
+  if (!help.works) {
+    return (
+      <div className="flex gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-inset ring-slate-200">
+        <Smartphone className="mt-0.5 size-4 shrink-0 text-slate-500" />{help.note}
+      </div>
+    );
+  }
+  if (ready) {
+    return (
+      <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950 ring-1 ring-inset ring-emerald-200">
+        <p className="flex items-center gap-1.5 font-semibold"><Check className="size-4" />Auto-fill is set up on this phone</p>
+        <p className="mt-1">{help.use}</p>
+        {help.note && <p className="mt-1">{help.note}</p>}
+        <button type="button" onClick={() => setAgain(true)} className="mt-1.5 text-[13px] font-medium text-emerald-900 underline">It doesn’t work · set it up again</button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+      <p className="flex items-center gap-1.5 font-bold text-slate-900"><Smartphone className="size-4 text-navy" />{stale ? 'Update your fill bookmark' : 'Set up auto-fill on this phone'}<span className="font-normal text-slate-500">(once)</span></p>
+      <p className="mt-1">{stale
+        ? `BillKhata’s form filler changed. Copy it again and paste it into your “${FILL_BOOKMARK}” bookmark, the same way as before.`
+        : 'Phones can’t add the portal helper like a computer can, but they run it from a bookmark you add once.'}</p>
+      <ol className="mt-2 list-decimal space-y-1 pl-5">
+        {help.setup.map((step) => <li key={step}>{step}</li>)}
+        <li>{help.use}</li>
+      </ol>
+      {help.note && <p className="mt-2 text-[13px] text-slate-600">{help.note}</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {help.tampermonkey
+          ? <a href={userscriptUrl()} target="_blank" rel="noopener noreferrer" className="tap inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white"><Download className="size-4" />Install userscript</a>
+          : <Button size="sm" icon={Copy} onClick={copy}>Copy</Button>}
+        <Button size="sm" variant="ghost" icon={Check} onClick={() => mark(HELPER_VERSION)}>{help.tampermonkey ? 'Done, it’s installed' : 'Done, it’s added'}</Button>
+      </div>
+    </div>
+  );
+}
+
 /** One-time setup for the one-click portal fill. Used in the Quick-Apply modal and Settings. */
 export function HelperSetup({ defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
+  const phone = phoneFill();
+  if (phone) return <PhoneFillSetup help={phone} />;
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-3 text-left">
@@ -121,7 +194,7 @@ export function HelperSetup({ defaultOpen = false }) {
               <BookmarkletLink href={bookmarklet()}>BillKhata → IRD</BookmarkletLink>
               <CopyButton value={bookmarklet()} label="Copy bookmarklet" toastText="Bookmarklet copied." />
             </div>
-            <p className="mt-1 text-xs text-slate-500">On a phone: copy it, add any bookmark, then edit the bookmark’s URL and paste.</p>
+            <p className="mt-1 text-xs text-slate-500">On a phone, open BillKhata there: it shows the steps for that phone.</p>
           </div>
           <p className="flex gap-1.5 text-xs text-slate-500">
             <Info className="mt-px size-3.5 shrink-0" />
@@ -253,7 +326,6 @@ function DigitalCouponModal({ expense, onClose }) {
 
 function CashApplyModal({ expense: current, onClose }) {
   const { profile, expenses, openEditor } = useStore();
-  const toast = useToast();
   const duplicate = findDuplicateBill(current, expenses);
   const fields = portalFields(current, profile);
   const profileReady = Object.keys(validateProfile(profile)).length === 0 && !isDemoProfile(profile);
@@ -272,6 +344,7 @@ function CashApplyModal({ expense: current, onClose }) {
     ['Address', fields.address],
   ];
   const allText = payload.map(([k, v]) => `${k}: ${v}`).join('\n');
+  const phone = phoneFill();
 
   return (
     <Modal open onClose={onClose} title="IRD Quick-Apply" size="xl" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
@@ -280,7 +353,9 @@ function CashApplyModal({ expense: current, onClose }) {
           <ol className="space-y-2 text-sm text-slate-700">
             {[
               <>Press <b>Open portal &amp; auto-fill</b>. The bill travels with the link.</>,
-              <>On the portal, click <b>Fill the form</b> in the BillKhata box (or click your bookmarklet). All 8 fields fill in.</>,
+              phone?.works
+                ? <>On the portal, tap your <b>{FILL_BOOKMARK}</b> bookmark, then <b>Fill the form</b>. All 8 fields fill in.</>
+                : <>On the portal, click <b>Fill the form</b> in the BillKhata box (or click your bookmarklet). All 8 fields fill in.</>,
               <>Complete the security check and press <b>Generate prize coupon</b>.</>,
               <>Press <b>Save to BillKhata</b> in the box, or paste the 12-digit coupon into the vault here.</>,
             ].map((s, i) => (
@@ -307,14 +382,7 @@ function CashApplyModal({ expense: current, onClose }) {
               <ExternalLink className="size-[18px]" />Open portal &amp; auto-fill
             </a>
           )}
-          {!duplicate && (
-            <div className="md:hidden">
-              <ActionChip icon={Bookmark} onClick={async () => { await copyText(bookmarklet()); toast('Auto-fill bookmark copied. Bookmark any page, edit the bookmark’s address and paste this in; then tap it on the IRD form.'); }}>
-                Copy auto-fill bookmark
-              </ActionChip>
-            </div>
-          )}
-          <HelperSetup />
+          {!duplicate && <HelperSetup />}
         </div>
 
         <div className="space-y-4 lg:col-start-2 lg:row-span-2 lg:row-start-1">

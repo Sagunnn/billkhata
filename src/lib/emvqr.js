@@ -1,5 +1,6 @@
 // EMVCo merchant-presented QR (the format NepalQR / Fonepay / mobile-banking "receive money" QRs use):
-// parse, add an amount, and re-sign with the CRC. Pure functions, unit-tested.
+// parse it and check its CRC, so a misread QR is flagged. Pure functions, unit-tested. Amounts are
+// never written into a QR: banking apps ignore them on personal QRs, so the QR is shown as uploaded.
 //
 // Payload = TLV fields: 2-digit tag, 2-digit length (in characters), value.
 // 00 = format "01" (first), 01 = "11" static / "12" dynamic, 53 = currency ("524" NPR),
@@ -16,8 +17,6 @@ export function crc16(str) {
   return c.toString(16).toUpperCase().padStart(4, '0');
 }
 
-export const computeEMVCoCRC16 = crc16;
-
 /** Splits a payload into [{ tag, value }]. Throws on anything that isn't clean TLV. */
 export function parseTLV(s) {
   const out = [];
@@ -33,14 +32,6 @@ export function parseTLV(s) {
   return out;
 }
 
-export function serializeTLV(fields) {
-  return fields.map(({ tag, value }) => {
-    const n = [...value].length;
-    if (n > 99) throw new Error(`EMVCo field ${tag} is too long`);
-    return `${tag}${String(n).padStart(2, '0')}${value}`;
-  }).join('');
-}
-
 /** True for a well-formed EMVCo payload whose CRC is correct. */
 export function isValidEmv(s) {
   try {
@@ -53,64 +44,10 @@ export function isValidEmv(s) {
   }
 }
 
-/** 412.5 -> "412.50". EMVCo allows up to 13 characters with "." as the decimal mark. */
-export function emvAmount(amount) {
-  const n = Number(amount);
-  if (!Number.isFinite(n) || n <= 0) throw new Error('Amount must be more than zero');
-  const s = n.toFixed(2);
-  if (s.length > 13) throw new Error('Amount is too large for a QR');
-  return s;
-}
-
-/**
- * The same QR with the amount filled in: tag 01 -> "12" (dynamic), tag 54 -> amount (placed in
- * tag order, right after 53 currency), then a fresh tag 63 CRC. Refuses a payload whose own CRC
- * is wrong, so a misread QR never turns into a payable one.
- */
-export function buildDynamicNepalQR(baseEmvString, amountNPR) {
-  if (!isValidEmv(baseEmvString)) throw new Error('This QR isn’t a valid EMVCo / NepalQR code (bad checksum)');
-  const fields = parseTLV(baseEmvString).filter((f) => f.tag !== '63' && f.tag !== '54');
-  const poi = fields.find((f) => f.tag === '01');
-  if (poi) poi.value = '12';
-  else fields.splice(1, 0, { tag: '01', value: '12' });
-  const at = fields.findIndex((f) => f.tag > '54');
-  fields.splice(at < 0 ? fields.length : at, 0, { tag: '54', value: emvAmount(amountNPR) });
-  const body = `${serializeTLV(fields)}6304`;
-  return body + crc16(body);
-}
-
-/** Reads tag values for display/tests, e.g. emvField(payload, '54'). */
-export function emvField(payload, tag) {
-  try { return parseTLV(payload).find((f) => f.tag === tag)?.value ?? ''; } catch { return ''; }
-}
-
-/** eSewa personal QR JSON with the amount added, or null if the text isn't that JSON. */
-export function buildEsewaAmountQR(text, amountNPR) {
-  try {
-    const obj = JSON.parse(text);
-    if (!obj || typeof obj !== 'object' || !('eSewa_id' in obj)) return null;
-    return JSON.stringify({ ...obj, amount: emvAmount(amountNPR) });
-  } catch {
-    return null;
-  }
-}
-
 /** What kind of payment QR a decoded text is. */
 export function qrKind(text = '') {
   if (isValidEmv(text)) return 'emv';
   if (/^000201/.test(text)) return 'emv-invalid';
   try { if ('eSewa_id' in JSON.parse(text)) return 'esewa'; } catch { /* not JSON */ }
   return text ? 'other' : '';
-}
-
-/**
- * QR text for one person's share: EMVCo/NepalQR gets tag 54, eSewa JSON gets "amount".
- * Anything else (or a bad checksum) gets null, and the plain QR is used with the amount shown.
- */
-export function amountQrText(text, amountNPR) {
-  if (!(Number(amountNPR) > 0)) return null;
-  const kind = qrKind(text);
-  if (kind === 'emv') return buildDynamicNepalQR(text, amountNPR);
-  if (kind === 'esewa') return buildEsewaAmountQR(text, amountNPR);
-  return null;
 }

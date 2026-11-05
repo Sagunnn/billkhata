@@ -70,7 +70,6 @@ export function getIrdStatus(e, opts) {
 export const needsManualEntry = (e, opts) => getIrdStatus(e, opts) === IRD_STATUS.NOT_APPLIED;
 
 /** QR/card bills already in the draw whose coupon number is not saved yet. */
-export const needsCouponOnly = (e, opts) => getIrdStatus(e, opts) === IRD_STATUS.AUTO;
 
 const toAscii = (v) => String(v ?? '').replace(/[\u0966-\u096F]/g, (c) => String(c.charCodeAt(0) - 0x0966));
 

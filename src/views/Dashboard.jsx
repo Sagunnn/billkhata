@@ -13,7 +13,7 @@ import { moneyNow } from '../lib/money.js';
 import { BS_MONTHS, drawWindowFor, formatAD, formatBS, parseYmd, shortBS, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { CATEGORY_ICONS, CATEGORY_SHORT } from '../lib/categoryIcons.js';
 import { isDemoProfile, useStore } from '../store.jsx';
-import { NoBillsYet } from '../components/ExpenseList.jsx';
+import { NoBillsYet } from '../components/NoBillsYet.jsx';
 import { BillCards, BillTable } from '../components/BillCard.jsx';
 import { StorageIndicator } from '../components/LocalFirst.jsx';
 import { Wordmark } from '../components/Brand.jsx';

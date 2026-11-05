@@ -192,7 +192,7 @@ export function PaymentQrSettings() {
                   {config.image && <Button variant="danger" icon={Trash} onClick={() => save({ mode: 'image' })}>Remove</Button>}
                 </div>
                 <p className="text-xs text-slate-500">A screenshot of the “My QR” / “Receive money” screen in your bank, Fonepay, eSewa or Khalti app. You can crop it next; it’s kept under 100 KB.</p>
-                <Field label="Label under the QR" htmlFor="qr-label" hint="e.g. “NIC Asia · Sagun Pradhan” or “Khalti 98…”">
+                <Field label="Label under the QR" htmlFor="qr-label" hint="e.g. “NIC Asia · Ram Bahadur” or “Khalti 98…”">
                   <input id="qr-label" className="input" value={config.label || ''} onChange={(e) => save({ ...config, label: e.target.value.slice(0, 60) })} />
                 </Field>
                 {config.image && <QrKindNote text={config.text} />}

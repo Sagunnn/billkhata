@@ -1,4 +1,3 @@
-export const APP_NAME = 'BillKhata';
 
 export const CATEGORIES = [
   'Food & Dining',

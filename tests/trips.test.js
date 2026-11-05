@@ -4,7 +4,6 @@ import {
   calculateTripSettlement, classifyTripItem, entryShares, getDefaultAssignedMembers, makeEntry, makeTripItem,
   makeTripMember, simplifyDebts,
 } from '../src/lib/trips.js';
-import { buildDynamicNepalQR, computeEMVCoCRC16, emvField, isValidEmv, serializeTLV } from '../src/lib/emvqr.js';
 
 const sagun = makeTripMember({ id: 's', name: 'Sagun', isMe: true });
 const asha = makeTripMember({ id: 'a', name: 'Asha', isVeg: true, drinks: false });
@@ -97,16 +96,6 @@ test('simplifyDebts: greedy largest-first, ignores ±0.50 dust', () => {
   const t = simplifyDebts([{ memberId: 'a', netBalance: 300 }, { memberId: 'b', netBalance: -200 }, { memberId: 'c', netBalance: -100 }, { memberId: 'd', netBalance: 0.4 }]);
   assert.deepEqual(t, [{ fromMemberId: 'b', toMemberId: 'a', amount: 200 }, { fromMemberId: 'c', toMemberId: 'a', amount: 100 }]);
   assert.deepEqual(simplifyDebts([{ memberId: 'a', netBalance: 0.3 }, { memberId: 'b', netBalance: -0.3 }]), []);
-});
-
-test('buildDynamicNepalQR: tag 54 injected, 4-hex CRC-16/CCITT-FALSE', () => {
-  assert.equal(computeEMVCoCRC16('123456789'), '29B1');
-  const body = serializeTLV([{ tag: '00', value: '01' }, { tag: '01', value: '11' }, { tag: '53', value: '524' }, { tag: '58', value: 'NP' }, { tag: '59', value: 'ASHA' }]) + '6304';
-  const dyn = buildDynamicNepalQR(body + computeEMVCoCRC16(body), 1240.5);
-  assert.equal(emvField(dyn, '54'), '1240.50');
-  assert.equal(emvField(dyn, '01'), '12');
-  assert.match(dyn.slice(-4), /^[0-9A-F]{4}$/);
-  assert.equal(isValidEmv(dyn), true);
 });
 
 test('ongoing trips, trip day, and entries from a scan or a quick expense', async () => {

@@ -76,13 +76,6 @@ export function findPaper(gray, w, h) {
 /** A box that looks like a bill: big enough, not the whole frame, clearly brighter than around it. */
 export const isBill = (box) => Boolean(box) && box.area > 0.12 && box.area < 0.94 && box.contrast > 28 && box.h > box.w * 0.6;
 
-/** Two boxes about the same (the hand is steady): every edge within `tol` of the frame size. */
-export function sameBox(a, b, w, h, tol = 0.04) {
-  if (!a || !b) return false;
-  return Math.abs(a.x - b.x) < w * tol && Math.abs(a.y - b.y) < h * tol
-    && Math.abs(a.x + a.w - b.x - b.w) < w * tol && Math.abs(a.y + a.h - b.y - b.h) < h * tol;
-}
-
 /** RGBA pixels → grey levels. */
 export function toGray(rgba) {
   const out = new Uint8Array(rgba.length / 4);

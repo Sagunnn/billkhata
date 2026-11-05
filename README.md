@@ -106,8 +106,8 @@ needs a server. The app itself works offline too:
   paper. The photo is then checked for blur (`focusScore`: edge strength over contrast, measured
   inside the paper); a blurry one asks to be taken again, or used anyway. Photos from the phone's
   camera app or an upload get the same check, as a warning on Check the details. Flash where the phone allows it. Without camera
-  access, **Use phone camera** opens the phone's own camera app. Photo, PDF or photo file, Type it,
-  Upload and Try a sample sit under the shutter.
+  access, **Use phone camera** opens the phone's own camera app. Photo, PDF or photo file, Upload
+  and Try a sample sit under the shutter.
 - **Checking a scan ("Check the details"):** each field says where its value came from: **Read
   from bill** (dashed navy box), **Edited**, **Checked** (the total and VAT when subtotal + 13% =
   total) or **Not sure** (a PAN with fewer than 9 digits). Notices above the form say what was
@@ -143,7 +143,11 @@ needs a server. The app itself works offline too:
   each field on its own.
 - **Saved on this device:** a pill in the Home header on phones and a card in the sidebar show where bills
   live and when the last backup was downloaded; an amber dot after 14 days without one. Settings has
-  JSON backup / restore and a CSV export for spreadsheets (no photos, not restorable).
+  JSON backup / restore and a CSV export for spreadsheets (no photos, not restorable). A backup
+  holds bills, photos, trips, bank data and money, plus `extras` (`backupExtras` in
+  `src/lib/profile.js`): settings (never API keys), your payment QR, saved friends and groups,
+  splits friends sent, and deleted trips. Merge adds friends and groups and keeps this device's
+  settings and QR; overwrite replaces them (keeping this device's API keys).
 - **First load:** `index.html` carries a CSS-only skeleton of the app inside `#root`, so there is
   no blank page while the JavaScript loads; React replaces it. With no bills, the Dashboard and
   Ledger offer Scan, Quick expense and Load sample bills.
@@ -254,8 +258,11 @@ BillKhata tells the user to trust over its own estimate (announcement date + 15 
   so reading never freezes the page. Nothing loads with the app: opening the Scan page starts the
   one-time download in the background (skipped with Data Saver on), with a progress bar on the
   first scan. The models (~6.4 MB; the Devanagari model, ~12.7 MB, only with "Read Nepali bills")
-  are kept in Cache Storage; ONNX Runtime's `.wasm` is served from this site and uses WebGPU where
-  the browser has it. Reads are queued: one ONNX session can't run two at once. Tesseract.js is gone.
+  are kept in Cache Storage. ONNX Runtime is its CPU build (`onnxruntime-web/wasm`, aliased in
+  `vite.config.js`): a 3.8 MB download instead of 7.1 MB for the WebGPU build, which read bills no
+  faster (about 1.5 s a read either way on a Mac). Its `.wasm` is served from this site, and the
+  service worker keeps it: ppu-paddle-ocr points ONNX Runtime at cdn.jsdelivr.net, so the worker
+  clears `ort.env.wasm.wasmPaths`. Reads are queued: one ONNX session can't run two at once.
 - **Preparing the photo** (`prepareForOcr`): tilt measured and straightened (`estimateSkew`: the angle
   at which rows of dark pixels line up most sharply; ppu-ocv's deskew needs OpenCV.js, ~10 MB), no
   side over 2000 px (a 12 MP photo would exhaust a phone's memory; small photos enlarged up to 2×).
@@ -383,14 +390,12 @@ starts on Shares.
   person's **QR** button and the summary image show the payer's QR **exactly as uploaded**, with the
   amount large and a copy button. `src/lib/emvqr.js` parses and checks NepalQR / EMVCo codes
   (CRC-16/CCITT-FALSE, verified against the EMVCo specification's worked example) to flag a misread
-  QR, and keeps a tested `buildDynamicNepalQR` (tag 01 → `12`, tag 54 amount, new tag 63 CRC) that
-  the UI doesn't use.
+  QR.
 - **Sharing is local only.** The summary PNG (canvas) is made on the device and goes wherever the user
   sends it. **Split links are switched off**: a page on this domain would show whatever payment QR a
   `#/split/<token>` link carried, and a link can't prove who made it, so a forged one could show
   someone else's QR. Old or crafted links land on a "links are turned off" notice that shows nothing
-  from the link. The tested encode/decode helpers (`encodeSplit`, `decodeSplit`, `sharePayload`)
-  stay for a future signed-link version.
+  from the link, and points to **Send to friends who use BillKhata** (a file) instead.
 
 ## Money: your accounts (what you have left)
 
@@ -571,6 +576,10 @@ what's missing, so existing bills are kept.
   else paid stays only in the trip; they hold the paper bill.
 - **Trip PDF** (who pays whom, each person's breakdown, every expense with its items) and trips in the
   JSON **backup / restore** (merge by id, or overwrite).
+- **Deleted stays deleted:** a deleted trip's id is remembered (`billkhata_deleted_trips`, also in
+  backups). An older copy can't bring it back by itself: another tab or the home-screen app still
+  showing it, or a backup merged in. Opening a friend's trip file brings it back on purpose
+  (`saveTrip(trip, { revive: true })`), and restoring over everything brings back the backup's trips.
 - No trip share links, for the same reason as Split Khata.
 
 ## IRD portal helper (Tampermonkey userscript + bookmarklet)

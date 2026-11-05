@@ -263,7 +263,6 @@ export function makeMember({ name = '', diet = 'non-veg', alcohol = false, id, i
 }
 
 /** People taking part. A member with `out: true` stays listed but pays nothing (e.g. the payer treating friends). */
-export const activeMembers = (split) => (split.members || []).filter((m) => !m.out);
 
 /** The tick a member gets for an item before any manual change. */
 export function autoWeight(tag, member) {
@@ -402,73 +401,6 @@ export function newSplitForExpense(expense, profile) {
     mode: (expense.lineItems || []).length ? 'items' : 'equal',
     paid: {},
   };
-}
-
-/* ---------- 4. share link: #/split/<base64url> ---------- */
-
-function bytesToB64url(bytes) {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function b64urlToBytes(s) {
-  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-async function pipe(bytes, stream) {
-  const res = new Response(new Blob([bytes]).stream().pipeThrough(stream));
-  return new Uint8Array(await res.arrayBuffer());
-}
-
-/** Only what a friend needs to see: no photo, no PAN, no IDs of other bills. */
-export function sharePayload(split, { payerName = '', qrText = '', qrLabel = '' } = {}) {
-  return {
-    v: 1,
-    t: split.title,
-    d: split.dateAD,
-    b: split.dateBS,
-    T: Number(split.total) || 0,
-    x: split.taxMode === 'equal' ? 'e' : 'p',
-    M: split.mode === 'equal' ? 'e' : 'i',
-    i: (split.items || []).map((it) => [it.id, it.name, it.qty, it.price, it.amount, it.tag, it.units ? 1 : 0]),
-    m: (split.members || []).map((mb) => [mb.id, mb.name, mb.diet === 'veg' ? 1 : 0, mb.alcohol ? 1 : 0, mb.isPayer ? 1 : 0, mb.out ? 1 : 0]),
-    o: split.overrides || {},
-    p: { n: payerName, q: qrText, l: qrLabel },
-  };
-}
-
-/** Rebuilds a split from a share payload (inverse of sharePayload). */
-export function splitFromPayload(p) {
-  if (!p || p.v !== 1 || !Array.isArray(p.i) || !Array.isArray(p.m)) throw new Error('This split link is damaged or from a newer BillKhata.');
-  return {
-    split: {
-      v: 1,
-      title: String(p.t || 'Bill'),
-      dateAD: p.d || '',
-      dateBS: p.b || '',
-      total: Number(p.T) || 0,
-      taxMode: p.x === 'e' ? 'equal' : 'proportional',
-      mode: p.M === 'e' ? 'equal' : 'items',
-      items: p.i.map(([id, name, qty, price, amount, tag, units]) => ({ ...makeItem({ id, name, qty, price, amount, tag }), units: Boolean(units) })),
-      members: p.m.map(([id, name, veg, alc, isPayer, out]) => makeMember({ id, name, diet: veg ? 'veg' : 'non-veg', alcohol: alc, isPayer: Boolean(isPayer), out: Boolean(out) })),
-      overrides: p.o && typeof p.o === 'object' ? p.o : {},
-      paid: {},
-    },
-    payer: { name: String(p.p?.n || ''), qrText: String(p.p?.q || ''), qrLabel: String(p.p?.l || '') },
-  };
-}
-
-/** Deflate + base64url, so a 15-item bill fits comfortably in a chat message. */
-export async function encodeSplit(payload) {
-  const json = new TextEncoder().encode(JSON.stringify(payload));
-  return bytesToB64url(await pipe(json, new CompressionStream('deflate-raw')));
-}
-
-export async function decodeSplit(token) {
-  const bytes = await pipe(b64urlToBytes(token), new DecompressionStream('deflate-raw'));
-  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 /* ---------- payment QR text ---------- */

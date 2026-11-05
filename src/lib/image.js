@@ -56,39 +56,6 @@ export async function compressImage(src, maxBytes = MAX_IMAGE_BYTES) {
 }
 
 /**
- * Grayscale (Rec. 601 luminance), then auto-levels: the darkest 1% maps to black and the brightest
- * 2% to white, with a slight darkening curve (gamma 1.3) for faint print. Because it adapts to each
- * photo's own lighting, faded thermal bills and grey, unevenly lit photos come out crisp; a fixed
- * contrast stretch lost the PAN line and garbled digits on the same test photo.
- * Works on any RGBA byte array, so it's testable without a canvas.
- */
-export function enhancePixelsForOCR(data) {
-  const n = data.length / 4;
-  if (!n) return data;
-  const lum = new Uint8ClampedArray(n);
-  const hist = new Uint32Array(256);
-  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    lum[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    hist[lum[j]]++;
-  }
-  let lo = 0;
-  let hi = 255;
-  for (let v = 0, acc = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.01) { lo = v; break; } }
-  for (let v = 255, acc = 0; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.02) { hi = v; break; } }
-  const span = Math.max(1, hi - lo);
-  const table = new Uint8ClampedArray(256);
-  for (let v = 0; v < 256; v++) table[v] = Math.round(Math.pow(Math.min(1, Math.max(0, (v - lo) / span)), 1.3) * 255);
-  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    const v = table[lum[j]];
-    data[i] = v;
-    data[i + 1] = v;
-    data[i + 2] = v;
-  }
-  return data;
-}
-
-
-/**
  * The angle (degrees) a photographed bill is tilted by. Text rows are sharpest, with the most
  * contrast between busy and empty rows, when the bill is straight, so each candidate angle is
  * scored by how peaked the row profile of dark pixels is. `gray` is a small grayscale copy.
@@ -172,15 +139,6 @@ export function contrastStretchPixels(data, { dark = 0.05, bright = 0.15 } = {})
     data[i * 4 + 2] = v;
   }
   return { lo, hi };
-}
-
-/** Applies the OCR enhancement to a canvas and returns it. */
-export function preprocessCanvasForOCR(canvas) {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  enhancePixelsForOCR(img.data);
-  ctx.putImageData(img, 0, 0);
-  return canvas;
 }
 
 /** The tilt of a photo, measured on a 600 px copy. */

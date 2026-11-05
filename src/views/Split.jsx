@@ -843,7 +843,7 @@ export function SplitShare() {
     <Card>
       <EmptyState icon={ShieldAlert} title="Split links are turned off">
         BillKhata no longer opens shared split links, because a link can’t prove who made it and could carry someone else’s payment QR.
-        Ask the person who paid to send you the split summary image instead, and only pay a QR you trust.
+        Ask the person who paid to send it with <b>Send to friends who use BillKhata</b> (a file you open in Split), or the summary image, and only pay a QR you trust.
       </EmptyState>
     </Card>
   );

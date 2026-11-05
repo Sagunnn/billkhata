@@ -8,7 +8,7 @@ import { money } from '../lib/format.js';
 import { BS_MONTHS, addDaysAD, parseYmd, shortBS, todayAD, todayBS } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
 import { BillCards, BillTable } from '../components/BillCard.jsx';
-import { NoBillsYet } from '../components/ExpenseList.jsx';
+import { NoBillsYet } from '../components/NoBillsYet.jsx';
 import { Button, Card, Chip, EmptyState, Field, Modal } from '../components/ui.jsx';
 
 const EMPTY = { range: 'all', from: '', to: '', category: '', payment: '', status: '', search: '' };

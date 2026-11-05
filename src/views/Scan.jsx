@@ -201,7 +201,7 @@ export default function Scan() {
   }
 
   /**
-   * The bank row this scan belongs to already has a photo-less bill (added from the Bank page).
+   * The bank row this scan belongs to already has a photo-less bill (added from Money).
    * The scan's details go onto that bill, which keeps its code, split, trip and IRD state.
    */
   async function useScanFor(other) {

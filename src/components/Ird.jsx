@@ -422,10 +422,15 @@ function CashApplyModal({ expense: current, onClose }) {
               <CopyRow label="Name" value={fields.name} />
               <CopyRow label="Mobile number" value={fields.mobile_number} />
               <CopyRow label="Address" value={fields.address} />
-              <div className="flex flex-wrap gap-2 py-3">
-                <CopyButton value={consoleScript(current, profile)} label="Copy console script" icon={Terminal} toastText="Console script copied." />
-              </div>
-              <p className="pb-3 text-xs text-slate-500">The console script fills the form when pasted into the browser’s developer console on prize.ird.gov.np, if you opened the portal some other way.</p>
+              {/* Phones have no developer console. */}
+              {!phone && (
+                <>
+                  <div className="flex flex-wrap gap-2 py-3">
+                    <CopyButton value={consoleScript(current, profile)} label="Copy console script" icon={Terminal} toastText="Console script copied." />
+                  </div>
+                  <p className="pb-3 text-xs text-slate-500">The console script fills the form when pasted into the browser’s developer console on prize.ird.gov.np, if you opened the portal some other way.</p>
+                </>
+              )}
             </div>
           </details>
           )}

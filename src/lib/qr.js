@@ -5,8 +5,8 @@ import { MAX_QR_IMAGE_BYTES } from './profile.js';
 import { dataUrlBytes } from './image.js';
 import { esewaQrText } from './splitter.js';
 
-// EMVCo / NepalQR amount pre-fill (pure code lives in emvqr.js so it can be unit-tested).
-export { amountQrText, buildDynamicNepalQR, buildEsewaAmountQR, crc16, isValidEmv, qrKind } from './emvqr.js';
+// EMVCo / NepalQR checks (pure code lives in emvqr.js so it can be unit-tested).
+export { isValidEmv, qrKind } from './emvqr.js';
 
 export const qrSvg = (text) => QRCode.toString(text, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0f172a', light: '#ffffff' } });
 export const qrDataUrl = (text, width = 480) => QRCode.toDataURL(text, { margin: 1, width, errorCorrectionLevel: 'M', color: { dark: '#0f172a', light: '#ffffff' } });

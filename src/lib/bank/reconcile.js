@@ -269,7 +269,7 @@ export function mergedCsv(entries, range) {
 const shiftDay = (d, n) => new Date(Date.parse(d) + n * DAY).toISOString().slice(0, 10);
 
 /**
- * The whole picture, as the Bank page and the bill form see it: every statement row, every
+ * The whole picture, as Money and the bill form see it: every statement row, every
  * screenshot, and the saved bills near their dates (not samples or trip shares).
  * @returns {{ result, range, byExpense: Map<string, entry> }}
  */
@@ -297,7 +297,7 @@ export function reconcileAll({ statements: saved = [], payments = [], expenses =
  * @returns {null | { entry, taken, missing, range }}
  *   entry: the bank row / screenshot this bill matches (null if none);
  *   taken: when it matches nothing, a bank row / screenshot that fits it but already has another
- *          bill, e.g. one added from the Bank page before the paper bill was scanned;
+ *          bill, e.g. one added from Money before the paper bill was scanned;
  *   missing: a digital bill inside a statement's dates that isn't on it.
  */
 export function bankMatchFor(bill, data) {

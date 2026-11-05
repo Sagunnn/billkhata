@@ -1,7 +1,7 @@
-// The expense record: creation, cleanup, summaries and filters.
-import { CATEGORIES, IRD_STATUS, PAYMENT, PAYMENT_METHODS, REGIONS } from './constants.js';
+// The expense record: creation, cleanup, totals and filters.
+import { CATEGORIES, PAYMENT, PAYMENT_METHODS, REGIONS } from './constants.js';
 import { COUPON_RE, getIrdStatus } from './ird.js';
-import { addDaysAD, adToBs, bsDaysInMonth, bsToAd, parseYmd, toAsciiDigits, todayAD, todayBS } from './nepaliDate.js';
+import { addDaysAD, adToBs, bsDaysInMonth, bsToAd, parseYmd, toAsciiDigits, todayAD } from './nepaliDate.js';
 import { newId } from './db.js';
 
 export function blankExpense(region = REGIONS.NEPAL) {
@@ -68,21 +68,6 @@ const sum = (list, f) => list.reduce((s, e) => s + (Number(f(e)) || 0), 0);
  * your logged trip share does instead, so nothing is counted twice.
  */
 export const countsAsSpend = (e) => !e.excludeFromSpend;
-
-export function summarize(expenses, { today = todayAD(), region = REGIONS.NEPAL } = {}) {
-  const tBs = todayBS() || '';
-  const inMonth = region === REGIONS.NEPAL
-    ? (e) => (e.billDateBS || '').slice(0, 7) === tBs.slice(0, 7)
-    : (e) => (e.billDateAD || '').slice(0, 7) === today.slice(0, 7);
-  const statuses = expenses.map((e) => getIrdStatus(e));
-  return {
-    today: sum(expenses.filter((e) => countsAsSpend(e) && e.billDateAD === today), (e) => e.totalAmount),
-    month: sum(expenses.filter((e) => countsAsSpend(e) && inMonth(e)), (e) => e.totalAmount),
-    eligible: statuses.filter((s) => s !== IRD_STATUS.INELIGIBLE).length,
-    pending: statuses.filter((s) => s === IRD_STATUS.NOT_APPLIED).length,
-    applied: statuses.filter((s) => s === IRD_STATUS.APPLIED).length,
-  };
-}
 
 export function reportTotals(all) {
   const cashLike = (e) => e.paymentMethod !== PAYMENT.DIGITAL;

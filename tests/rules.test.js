@@ -5,7 +5,6 @@ import {
   matchWinningCoupons, normalizeCouponCode, normalizeInvoiceNumber,
 } from '../src/lib/ird.js';
 import { applyMerchantMemory, lookupMerchant, normalizeMerchantName } from '../src/lib/merchants.js';
-import { enhancePixelsForOCR } from '../src/lib/image.js';
 import { needsBetterRead, visionProviderWithKey } from '../src/lib/ocr/index.js';
 
 const opts = { today: '2026-10-29', todayBs: '2083-07-12' };
@@ -78,19 +77,6 @@ test('lastAnnouncementBS: 1st or 16th of the Nepali month', () => {
   assert.equal(lastAnnouncementBS('2083-07-12'), '2083-07-01');
   assert.equal(lastAnnouncementBS('2083-07-16'), '2083-07-16');
   assert.equal(lastAnnouncementBS('2083-07-30'), '2083-07-16');
-});
-
-test('OCR preprocessing: grayscale, auto-levels to full black/white, alpha kept', () => {
-  // A faded photo: paper ~200 grey, ink ~120 grey, nothing near black or white.
-  const px = [];
-  for (let k = 0; k < 90; k++) px.push(200, 198, 196, 255);
-  for (let k = 0; k < 10; k++) px.push(120, 118, 116, 128);
-  const data = enhancePixelsForOCR(new Uint8ClampedArray(px));
-  assert.equal(data[0], 255); // paper becomes white
-  assert.equal(data[90 * 4], 0); // ink becomes black
-  assert.equal(data[90 * 4 + 3], 128); // alpha untouched
-  assert.equal(data[0], data[1]); // grayscale
-  assert.equal(enhancePixelsForOCR(new Uint8ClampedArray(0)).length, 0);
 });
 
 test('merchant memory: by PAN first, then by name; never matches itself', () => {

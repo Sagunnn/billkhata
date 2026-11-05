@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findPaper, isBill, otsu, sameBox, toGray } from '../src/lib/paperEdge.js';
+import { findPaper, isBill, otsu, toGray } from '../src/lib/paperEdge.js';
 
 // A dark frame with a light rectangle (the bill), plus some noise and dark "text" lines on it.
 function frame(w, h, r, { bg = 50, paper = 225 } = {}) {
@@ -34,9 +34,7 @@ test('findPaper: a tiny scrap far away is not a bill', () => {
   assert.equal(isBill(findPaper(frame(160, 220, { x: 70, y: 90, w: 12, h: 18 }), 160, 220)), false);
 });
 
-test('sameBox and otsu', () => {
-  assert.ok(sameBox({ x: 10, y: 10, w: 50, h: 80 }, { x: 12, y: 11, w: 49, h: 81 }, 160, 220));
-  assert.equal(sameBox({ x: 10, y: 10, w: 50, h: 80 }, { x: 40, y: 11, w: 49, h: 81 }, 160, 220), false);
+test('otsu and toGray', () => {
   const t = otsu(Uint8Array.from([...Array(50).fill(40), ...Array(50).fill(220)]));
   assert.ok(t >= 40 && t < 220);
   assert.deepEqual([...toGray(Uint8ClampedArray.from([255, 255, 255, 255, 0, 0, 0, 255]))], [255, 0]);

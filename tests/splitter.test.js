@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  autoWeight, classifyFoodItem, clearMemberOverrides, computeSplit, decodeSplit, encodeSplit, esewaQrText,
-  makeItem, makeMember, outstanding, parseLineItemsFromText, sharePayload, splitFromPayload,
+  autoWeight, classifyFoodItem, clearMemberOverrides, computeSplit,
+  makeItem, makeMember, outstanding, parseLineItemsFromText,
 } from '../src/lib/splitter.js';
 
 test('classifyFoodItem: Nepali menu words', () => {
@@ -127,18 +127,6 @@ test('outstanding counts unpaid friends only', () => {
   assert.equal(outstanding(s, r), r.members.find((m) => m.id === 'n').share);
 });
 
-test('#/split/<base64url> round trip, URL-safe, same shares', async () => {
-  const s = { ...base(), title: 'काठमाडौं Bhancha Ghar', dateAD: '2026-10-29', dateBS: '2083-07-12', overrides: { tea: { n: 2 } } };
-  const token = await encodeSplit(sharePayload(s, { payerName: 'Sagun', qrText: esewaQrText('9800000000', 'Sagun Pradhan'), qrLabel: 'eSewa 9800000000' }));
-  assert.match(token, /^[A-Za-z0-9_-]+$/);
-  const { split, payer } = splitFromPayload(await decodeSplit(token));
-  assert.equal(split.title, 'काठमाडौं Bhancha Ghar');
-  assert.equal(payer.qrText, '{"eSewa_id":"9800000000","name":"Sagun Pradhan"}');
-  assert.deepEqual(computeSplit(split).members.map((m) => m.share), computeSplit(s).members.map((m) => m.share));
-  await assert.rejects(decodeSplit('not-a-real-token'));
-  assert.throws(() => splitFromPayload({ v: 9 }));
-});
-
 test('split equally: total ÷ people in the split, items ignored', () => {
   const r = computeSplit({ ...base(), mode: 'equal' });
   assert.deepEqual(r.members.map((m) => m.share), [716.83, 716.83, 716.83]);
@@ -161,14 +149,6 @@ test('a person left out pays nothing and is not counted', () => {
   assert.equal(treat.myShare, 0);
   assert.equal(treat.recoverable, 900);
   assert.equal(outstanding({ paid: {} }, eq), 450);
-});
-
-test('equal mode and left-out people survive the share link', async () => {
-  const s = { ...base(), mode: 'equal', members: [me, { ...veg, out: true }, nv] };
-  const { split } = splitFromPayload(await decodeSplit(await encodeSplit(sharePayload(s))));
-  assert.equal(split.mode, 'equal');
-  assert.equal(split.members[1].out, true);
-  assert.deepEqual(computeSplit(split).members.map((m) => m.share), computeSplit(s).members.map((m) => m.share));
 });
 
 test('parseLineItemsFromText strips OCR junk before item names', () => {

@@ -31,7 +31,7 @@ function Where({ x, statements, region }) {
 /**
  * @param bill the bill being checked (may not be saved yet)
  * @param onChange patch the bill
- * @param onUseFor optional: replace a photo-less bill (added from the Bank page) with this scan
+ * @param onUseFor optional: replace a photo-less bill (added from Money) with this scan
  */
 export function useBankMatch(bill) {
   const { statements, payments, expenses, reconOverrides } = useStore();
@@ -62,10 +62,10 @@ export function BankMatchCard({ bill, match: m, region, onChange, onUseFor }) {
           {m.entry.bank && m.entry.payment ? 'Found in your bank statement and a payment screenshot' : m.entry.bank ? 'Found in your bank statement' : 'Found in a payment screenshot'}
         </p>
         <Where x={m.entry} statements={statements} region={region} />
-        {m.entry.unsure && <p className="mt-1.5 text-xs text-amber-900">Another payment of the same amount fits too: check it on the Bank page.</p>}
+        {m.entry.unsure && <p className="mt-1.5 text-xs text-amber-900">Another payment of the same amount fits too: check it in Money.</p>}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {setDigital}
-          <a href="#/bank" className="text-xs font-semibold text-emerald-900 underline">Open Bank</a>
+          <a href="#/money" className="text-xs font-semibold text-emerald-900 underline">Open Money</a>
         </div>
       </div>
     );
@@ -104,19 +104,4 @@ export function BankMatchCard({ bill, match: m, region, onChange, onUseFor }) {
     );
   }
   return null;
-}
-
-/** "In bank" / "Screenshot" tag under a bill in the ledger. */
-export function BankTag({ e }) {
-  const { bankRecon, statements } = useStore();
-  const x = bankRecon.byExpense.get(e.id);
-  if (!x) return null;
-  const source = x.bank && statements.find((st) => st.id === x.bank.statementId)?.bank;
-  const where = source ? `In ${source}` : 'In bank';
-  const label = x.bank && x.payment ? `${where} · screenshot` : x.bank ? (source ? where : 'In bank statement') : 'Payment screenshot';
-  return (
-    <a href="#/bank" className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 hover:underline" title={x.bank?.description || x.payment?.merchant || ''}>
-      <CircleCheck className="size-3.5" />{label}{x.bank ? ` · ${formatAD(x.bank.date)}` : ''}
-    </a>
-  );
 }

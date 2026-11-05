@@ -334,9 +334,14 @@ function billkhataIrdHelper(MODE) {
         + 'omplete the security check and press <b>Generate prize coupon</b> (<b>पुरस्कार कुपन सिर्जना गर्नुहोस्</b>). This box will catch the coupon number.</div>'
         + '<div class="btns"><button class="b s" data-a="fill">Fill again</button><button class="b s" data-a="close">Hide</button></div>';
     } else if (state === 'coupon') {
+      /* From an iPhone home-screen app: its bills aren't reachable from Safari, so the coupon goes
+         back by copy and paste. */
+      var back = p.inApp
+        ? '<div class="btns"><button class="b p" data-a="copy">Copy ' + esc(formatCode(extra.code)) + '</button></div>'
+          + '<div class="note">Then go back to the BillKhata app and tap <b>Paste 12-digit coupon</b>.</div>'
+        : '<div class="btns">' + (p.app && p.id ? '<button class="b p" data-a="save">Save ' + esc(formatCode(extra.code)) + ' to BillKhata</button>' : '') + '<button class="b s" data-a="copy">Copy</button></div>';
       body = '<div class="muted">Prize coupon for ' + esc(p.merchant || 'your bill') + '</div><div class="code">' + esc(formatCode(extra.code)) + '</div>'
-        + '<div class="btns">' + (p.app && p.id ? '<button class="b p" data-a="save">Save ' + esc(formatCode(extra.code)) + ' to BillKhata</button>' : '') + '<button class="b s" data-a="copy">Copy</button></div>'
-        + '<div class="muted" style="margin-top:8px">Keep the paper bill. You need it to claim a prize.</div>';
+        + back + '<div class="muted" style="margin-top:8px">Keep the paper bill. You need it to claim a prize.</div>';
     }
 
     root.innerHTML = '<style>' + CSS + '</style><div class="box" role="dialog" aria-label="BillKhata"><div class="hd"><span>Bill<b>Khata</b> · IRD auto-fill</span><button class="x" data-a="close" aria-label="Close">×</button></div><div class="bd">' + body + '</div></div>';

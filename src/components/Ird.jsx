@@ -354,10 +354,12 @@ function CashApplyModal({ expense: current, onClose }) {
             {[
               <>Press <b>Open portal &amp; auto-fill</b>. The bill travels with the link.</>,
               phone?.works
-                ? <>On the portal, tap your <b>{FILL_BOOKMARK}</b> bookmark, then <b>Fill the form</b>. All 8 fields fill in.</>
+                ? <>On the portal, tap your <b>{FILL_BOOKMARK}</b> bookmark. All 8 fields fill in.</>
                 : <>On the portal, click <b>Fill the form</b> in the BillKhata box (or click your bookmarklet). All 8 fields fill in.</>,
               <>Complete the security check and press <b>Generate prize coupon</b>.</>,
-              <>Press <b>Save to BillKhata</b> in the box, or paste the 12-digit coupon into the vault here.</>,
+              phone?.pasteBack
+                ? <>Tap <b>Copy</b> in the box, come back to this app and tap <b>Paste 12-digit coupon</b>.</>
+                : <>Press <b>Save to BillKhata</b> in the box, or paste the 12-digit coupon into the vault here.</>,
             ].map((s, i) => (
               <li key={i} className="flex gap-2.5">
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">{i + 1}</span>
@@ -374,7 +376,7 @@ function CashApplyModal({ expense: current, onClose }) {
             </>
           ) : (
             <a
-              href={portalLink(current, profile, appOrigin())}
+              href={portalLink(current, profile, appOrigin(), { inApp: Boolean(phone?.pasteBack) })}
               target="_blank"
               rel="noopener noreferrer"
               className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-center font-semibold text-white shadow-sm hover:bg-blue-900"

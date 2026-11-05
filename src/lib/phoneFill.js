@@ -6,7 +6,9 @@
 export const FILL_BOOKMARK = 'BillKhata fill';
 
 /**
- * @returns {{ id: string, setup: string[], use: string, note?: string, tampermonkey?: boolean, works: boolean } | null}
+ * @returns {{ id: string, setup: string[], use: string, note?: string, tampermonkey?: boolean, works: boolean, pasteBack?: boolean } | null}
+ *   pasteBack: an iPhone home-screen app, whose bills Safari can't reach: the coupon comes back by
+ *   copy and paste, not by the helper's Save button
  *   null on a computer (drag the bookmarklet or install the userscript instead)
  *   works: false when this browser can't run fill bookmarks (then: another browser, or copy fields)
  */
@@ -22,19 +24,25 @@ export function phoneFillHelp(ua = '', { brave = false, standalone = false } = {
     };
   }
   const paste = `Clear the address and paste what you copied (it starts with “javascript:”).`;
-  const fromBookmarks = (where) => `On the IRD form, tap ${where} → “${FILL_BOOKMARK}”. The BillKhata box appears; tap Fill the form.`;
-  // A home-screen app opens the portal in a plain window without bookmarks.
+  const fromBookmarks = (where) => `On the IRD form, tap ${where} → “${FILL_BOOKMARK}”. It fills the form straight away.`;
+  // A home-screen app has no browser buttons: the bookmark is added in the browser, and the portal
+  // is opened there (the app's own window for other sites has no bookmarks).
+  const browser = ios ? (brave ? 'Brave' : 'Safari') : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /Firefox\//.test(ua) ? 'Firefox' : brave ? 'Brave' : 'Chrome';
+  const inBrowser = standalone ? `Open ${browser} (this app can’t add bookmarks) on any page. ` : '';
   const opened = standalone
-    ? (ios ? 'From the home-screen app the portal opens in a window without bookmarks: tap the compass (Open in Safari) first.'
-      : 'From the home-screen app the portal may open in a plain window: tap ⋮ → “Open in Chrome” first.')
+    ? (ios ? `After Open portal & auto-fill, if the portal opens in a window inside BillKhata, tap the compass to move it to ${browser}. The bookmark works there.`
+      : `After Open portal & auto-fill, if the portal opens in a window inside BillKhata, tap ⋮ → “Open in ${browser}”. The bookmark works there.`)
     : undefined;
+  // iPhone: the home-screen app keeps its bills apart from Safari, so the coupon comes back by paste.
+  const coupon = standalone && ios ? 'When the coupon appears, tap Copy in the BillKhata box, come back here and tap Paste 12-digit coupon.' : undefined;
+  const notes = (...xs) => xs.filter(Boolean).join(' ') || undefined;
 
   if (ios && brave) {
     return {
-      id: 'brave-ios', works: true, note: opened,
+      id: 'brave-ios', works: true, pasteBack: standalone, note: notes(opened, coupon),
       setup: [
         'Tap Copy below.',
-        `Tap ⋯ → “Add Bookmark”, name it “${FILL_BOOKMARK}” and save.`,
+        `${inBrowser}Tap ⋯ → “Add Bookmark”, name it “${FILL_BOOKMARK}” and save.`,
         `Open Bookmarks (the book icon), hold “${FILL_BOOKMARK}” → Edit. ${paste} Save.`,
       ],
       use: fromBookmarks('the book icon (Bookmarks)'),
@@ -48,11 +56,11 @@ export function phoneFillHelp(ua = '', { brave = false, standalone = false } = {
   }
   if (ios) {
     return {
-      id: 'ios-safari', works: true, note: opened,
+      id: 'ios-safari', works: true, pasteBack: standalone, note: notes(opened, coupon),
       setup: [
         'Tap Copy below.',
-        `Tap Share (the square with an arrow) → “Add Bookmark”. Name it “${FILL_BOOKMARK}” and tap Save.`,
-        `Tap the book icon → Bookmarks → Edit, then tap “${FILL_BOOKMARK}”. ${paste} Tap Done.`,
+        `${inBrowser}Tap Share (the square with an arrow) → “Add Bookmark”. Name it “${FILL_BOOKMARK}” and tap Save.`,
+        `${standalone ? 'Still in Safari, tap' : 'Tap'} the book icon → Bookmarks → Edit, then tap “${FILL_BOOKMARK}”. ${paste} Tap Done.`,
       ],
       use: fromBookmarks('the book icon'),
     };
@@ -62,7 +70,7 @@ export function phoneFillHelp(ua = '', { brave = false, standalone = false } = {
       id: 'samsung', works: true, note: opened,
       setup: [
         'Tap Copy below.',
-        `Tap the star (Add to bookmarks), then open Bookmarks, hold the new bookmark → Edit. Name it “${FILL_BOOKMARK}”. ${paste} Save.`,
+        `${inBrowser}Tap the star (Add to bookmarks), then open Bookmarks, hold the new bookmark → Edit. Name it “${FILL_BOOKMARK}”. ${paste} Save.`,
       ],
       use: fromBookmarks('Bookmarks'),
     };
@@ -71,7 +79,7 @@ export function phoneFillHelp(ua = '', { brave = false, standalone = false } = {
     return {
       id: 'android-firefox', works: true, tampermonkey: true, note: opened,
       setup: [
-        'Firefox for Android runs add-ons: tap ⋮ → Add-ons, find “Tampermonkey” and add it.',
+        `${inBrowser}Firefox for Android runs add-ons: tap ⋮ → Add-ons, find “Tampermonkey” and add it.`,
         'Then tap Install userscript below and press Install.',
       ],
       use: 'On the IRD form, the BillKhata box appears by itself; tap Fill the form.',
@@ -82,8 +90,8 @@ export function phoneFillHelp(ua = '', { brave = false, standalone = false } = {
     id: brave ? 'brave-android' : 'android-chrome', works: true, note: opened,
     setup: [
       'Tap Copy below.',
-      `Tap ⋮ → the star to bookmark this page, then tap Edit at the bottom (or ⋮ → Bookmarks, ⋮ next to the new one → Edit). Name it “${FILL_BOOKMARK}”. ${paste} Go back to save.`,
+      `${inBrowser}Tap ⋮ → the star to bookmark ${standalone ? 'it' : 'this page'}, then tap Edit at the bottom (or ⋮ → Bookmarks, ⋮ next to the new one → Edit). Name it “${FILL_BOOKMARK}”. ${paste} Go back to save.`,
     ],
-    use: `On the IRD form, tap the address bar, type “billkhata” and tap the “${FILL_BOOKMARK}” suggestion with the star. The BillKhata box appears; tap Fill the form.`,
+    use: `On the IRD form, tap the address bar, type “billkhata” and tap the “${FILL_BOOKMARK}” suggestion with the star. It fills the form straight away.`,
   };
 }

@@ -28,8 +28,18 @@ test('each phone browser gets its own way to run the fill bookmark', () => {
   assert.equal(phoneFillHelp(UA.messenger).id, 'in-app');
 });
 
-test('from the home-screen app, open the portal in the browser first', () => {
-  assert.match(phoneFillHelp(UA.iphone, { standalone: true }).note, /Open in Safari/);
-  assert.match(phoneFillHelp(UA.android, { standalone: true }).note, /Open in Chrome/);
-  assert.equal(phoneFillHelp(UA.iphone).note, undefined);
+test('from the home-screen app: bookmark in the browser, portal in the browser, coupon by paste on iPhone', () => {
+  const ios = phoneFillHelp(UA.iphone, { standalone: true });
+  assert.match(ios.setup[1], /^Open Safari \(this app can’t add bookmarks\)/);
+  assert.match(ios.note, /tap the compass/);
+  assert.match(ios.note, /Paste 12-digit coupon/);
+  assert.equal(ios.pasteBack, true);
+  const android = phoneFillHelp(UA.android, { standalone: true });
+  assert.match(android.setup[1], /^Open Chrome/);
+  assert.match(android.note, /Open in Chrome/);
+  assert.ok(!android.pasteBack, 'Android’s installed app shares Chrome’s storage');
+  const tab = phoneFillHelp(UA.iphone);
+  assert.equal(tab.note, undefined);
+  assert.equal(tab.pasteBack, false);
+  assert.match(tab.use, /fills the form straight away/);
 });

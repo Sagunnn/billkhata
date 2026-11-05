@@ -588,8 +588,11 @@ what's missing, so existing bills are kept.
   Samsung Internet run it from the bookmarks menu; Chrome on Android runs it when you type
   "billkhata" in the address bar and tap the starred suggestion. Firefox for Android gets
   Tampermonkey (it runs add-ons); Chrome/Firefox/Edge on iPhone and in-app browsers are told to use
-  Safari or Chrome, or copy the fields. From the home-screen app it says to open the portal in the
-  browser first (the app's own window has no bookmarks). Done is remembered per helper version
+  Safari or Chrome, or copy the fields. From the home-screen app the bookmark is added in the
+  browser (the app has no browser buttons) and the portal is moved there (the app's own window has
+  no bookmarks). An iPhone home-screen app keeps its bills apart from Safari, so its portal link
+  carries `inApp` and the helper offers **Copy** and "paste it in the app" instead of
+  **Save to BillKhata** (which would save into Safari's copy). Done is remembered per helper version
   (`billkhata_phone_fill`), so a changed helper asks for the bookmark to be updated.
 
 Flow: **Open portal & auto-fill** opens `https://prize.ird.gov.np/#billkhata=<base64url bill>`.

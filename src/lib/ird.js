@@ -151,12 +151,16 @@ export function portalFields(e, profile) {
   };
 }
 
-/** Everything the portal helper needs for one bill. */
-export function portalPayload(e, profile, app) {
+/**
+ * Everything the portal helper needs for one bill. `inApp`: sent from an iPhone home-screen app,
+ * whose bills Safari can't reach, so the helper hands the coupon back by copying it instead.
+ */
+export function portalPayload(e, profile, app, { inApp = false } = {}) {
   return {
     v: 1,
     id: e.id,
     app,
+    ...(inApp ? { inApp: true } : {}),
     merchant: e.merchantName || '',
     pay: isAutoEnrolled(e) ? 'digital' : 'cash',
     bs: e.billDateBS || '',
@@ -177,6 +181,6 @@ export function encodePayload(p) {
  * Portal link carrying the bill in the #fragment. Browsers never send the fragment to the
  * server, and the helper removes it from the address bar as soon as the page loads.
  */
-export function portalLink(e, profile, app) {
-  return `${IRD_PORTAL_URL}/#billkhata=${encodePayload(portalPayload(e, profile, app))}`;
+export function portalLink(e, profile, app, opts) {
+  return `${IRD_PORTAL_URL}/#billkhata=${encodePayload(portalPayload(e, profile, app, opts))}`;
 }

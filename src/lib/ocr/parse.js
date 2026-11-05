@@ -49,10 +49,14 @@ export function vatTriplet(lines = []) {
   });
   let best = null;
   for (const s of nums) {
+    // Rounding slack grows with the bill (a rupee and a half at most). A subtotal under रु 20 is a
+    // stray small number ("returned within 3 days"), not a VAT bill.
+    if (s.n < 20) continue;
+    const slack = Math.min(1.5, Math.max(0.1, s.n * 0.002));
     for (const v of nums) {
-      if (v === s || Math.abs(s.n * 0.13 - v.n) > 1.5 || v.n >= s.n) continue;
+      if (v === s || Math.abs(s.n * 0.13 - v.n) > slack || v.n >= s.n) continue;
       for (const t of nums) {
-        if (t === s || t === v || Math.abs(s.n + v.n - t.n) > 1.5) continue;
+        if (t === s || t === v || Math.abs(s.n + v.n - t.n) > slack) continue;
         // Prefer the VAT on a "VAT" line, in printed order (subtotal, VAT, total), largest total.
         const score = (v.vatLine ? 4 : 0) + (s.i <= v.i && v.i <= t.i ? 2 : 0) + t.n / 1e9;
         if (!best || score > best.score) best = { score, subtotal: s.n, vat: v.n, total: t.n };
@@ -75,12 +79,13 @@ function findPan(lines) {
   for (let i = 0; i < lines.length; i++) {
     if (!PAN_KEYWORDS.test(lines[i])) continue;
     const scope = `${lines[i]} ${lines[i + 1] || ''}`.replace(/(\d)[\s-](?=\d)/g, '$1');
-    const m = scope.match(/(?<!\d)(\d{9})(?!\d)/);
+    // A PAN never starts with 0; "01-5921365" under it is the shop's landline.
+    const m = scope.match(/(?<!\d)([1-9]\d{8})(?!\d)/);
     if (m) return m[1];
   }
   // 2) any standalone 9-digit number that does not look like a phone number
   for (const line of lines) {
-    const m = line.match(/(?<!\d)(\d{9})(?!\d)/);
+    const m = line.match(/(?<!\d)([1-9]\d{8})(?!\d)/);
     if (m && !/^(97|98)/.test(m[1])) return m[1];
   }
   return '';
@@ -125,33 +130,77 @@ const TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 
 const SCALES = { hundred: 100, thousand: 1000, lakh: 100000, lakhs: 100000, lac: 100000, lacs: 100000, crore: 10000000, crores: 10000000 };
 
 /**
+ * Number words from `start`, read the way they're spoken: "three hundred sixty-one" is 361, and a
+ * second tens word after "sixty-one" starts a new number ("sixty-one and thirty-five paisa").
+ * @returns {{ value: number, end: number, used: number, hasScale: boolean }}
+ */
+function readNumberWords(words, start) {
+  let total = 0;
+  let current = 0;
+  let last = null; // what the current group ended on: 'ones' | 'teen' | 'tens' | 'hundred'
+  let used = 0;
+  let hasScale = false;
+  let end = start;
+  for (let j = start; j < words.length; j++) {
+    const w = words[j];
+    if (w === 'and' && used) continue;
+    if (w in ONES && ONES[w] < 10) {
+      if (last === 'ones' || last === 'teen') break;
+      current += ONES[w];
+      last = 'ones';
+    } else if (w in ONES) {
+      if (last && last !== 'hundred') break;
+      current += ONES[w];
+      last = 'teen';
+    } else if (w in TENS) {
+      if (last && last !== 'hundred') break;
+      current += TENS[w];
+      last = 'tens';
+    } else if (w === 'hundred') {
+      if (current >= 100 || last === 'hundred') break;
+      current = (current || 1) * 100;
+      last = 'hundred';
+      hasScale = true;
+    } else if (w in SCALES) {
+      total += (current || 1) * SCALES[w];
+      current = 0;
+      last = null;
+      hasScale = true;
+    } else break;
+    used++;
+    end = j + 1;
+  }
+  return { value: total + current, end, used, hasScale };
+}
+
+/**
  * The amount printed in words ("Six hundred and thirty rupees only", "Rupees One Thousand Two
- * Hundred Fifty Only", "Two lakh five thousand"). Nepali bills nearly always print it, and OCR reads
- * words more reliably than a crumpled "630.00". Paisa after "and … paisa" are ignored.
+ * Hundred Fifty Only", "Two lakh five thousand", "Three hundred sixty-one and thirty-five paisa").
+ * Nepali bills nearly always print it, and OCR reads words more reliably than a crumpled "630.00".
  */
 export function amountInWords(text = '') {
   const words = String(text).toLowerCase().replace(/[^a-z\s-]/g, ' ').replace(/-/g, ' ').split(/\s+/).filter(Boolean);
   let best = 0;
   for (let i = 0; i < words.length; i++) {
-    let total = 0;
-    let current = 0;
-    let used = 0;
-    let j = i;
-    for (; j < words.length; j++) {
-      const w = words[j];
-      if (w === 'and' && used) continue;
-      if (w in ONES) current += ONES[w];
-      else if (w in TENS) current += TENS[w];
-      else if (w === 'hundred') current = (current || 1) * 100;
-      else if (w in SCALES) { total += (current || 1) * SCALES[w]; current = 0; }
-      else break;
-      used++;
-    }
-    const value = total + current;
+    const run = readNumberWords(words, i);
+    if (!run.used) continue;
     // Needs at least two number words (or a scale word), so a stray "one" or "ten" doesn't count.
-    const hasScale = words.slice(i, j).some((w) => w in SCALES || w === 'hundred');
-    if ((used >= 2 || hasScale) && value > best) best = value;
-    if (used) i = j - 1;
+    if (run.used >= 2 || run.hasScale) {
+      // Paisa after the rupees: "… and thirty-five paisa", "… rupees and paisa fifty".
+      let k = run.end;
+      while (/^(rupees?|rs|and)$/.test(words[k] || '')) k++;
+      let paisa = 0;
+      if (/^pai?s[ae]$/.test(words[k] || '')) {
+        const p = readNumberWords(words, k + 1);
+        if (p.used && p.value < 100) { paisa = p.value; i = p.end - 1; }
+      } else {
+        const p = readNumberWords(words, k);
+        if (p.used && p.value < 100 && /^pai?s[ae]$/.test(words[p.end] || '')) { paisa = p.value; i = p.end; }
+      }
+      const value = Math.round((run.value + paisa / 100) * 100) / 100;
+      if (value > best) best = value;
+    }
+    if (i < run.end - 1) i = run.end - 1;
   }
   return best || null;
 }
@@ -182,7 +231,19 @@ export function totalCandidates(raw = '') {
  * and the sum of the items. One that two sources agree on wins; the amount in words beats a lone
  * total line; the largest number on the bill is only a last resort.
  */
-function findTotal(lines, itemsSum = 0) {
+/** What was handed over minus the change ("Tender 535.00", "Change 0.00"): the amount paid. */
+function paidFromTender(lines) {
+  const amountOn = (re) => {
+    const l = lines.find((x) => re.test(x));
+    const nums = l ? amountsIn(l) : [];
+    return nums.length ? nums.at(-1) : null;
+  };
+  const tender = amountOn(/\b(tender(ed)?|cash\s*received|received)\b/i);
+  const change = amountOn(/\b(change|return(ed)?\s*amount)\b/i);
+  return tender > 0 && change != null && change < tender ? Math.round((tender - change) * 100) / 100 : null;
+}
+
+function findTotal(lines, itemsSum = 0, discount = 0) {
   const cands = totalCandidates(lines.join('\n'));
   const lineCands = cands.filter((c) => c.source === 'line');
   // Prefer "grand/net/invoice total" lines and later lines (totals usually come last).
@@ -194,10 +255,22 @@ function findTotal(lines, itemsSum = 0) {
   if (agreed) return { value: agreed.value, guessed: false };
   if (words) return { value: words, guessed: false };
   if (line) return { value: line, guessed: false };
+  const paid = paidFromTender(lines);
+  if (paid) return { value: paid, guessed: false };
   // No total printed or read: a guess. Flagged, so a missed item can't pass as a matching total.
-  if (sum > 0) return { value: sum, guessed: true };
+  if (sum > 0) return { value: discount > 0 && discount < sum ? Math.round((sum - discount) * 100) / 100 : sum, guessed: true };
   const all = lines.flatMap(amountsIn).filter((n) => n < 10_000_000);
   return { value: all.length ? Math.max(...all) : null, guessed: true };
+}
+
+/** A discount printed on the bill ("Discount 5.00", "Disc 10% 54.00"): the amount, not the rate. */
+function findDiscount(lines) {
+  for (const line of lines) {
+    if (!/\b(discount|disc)\b/i.test(line)) continue;
+    const nums = amountsIn(line.replace(/\d+(?:\.\d+)?\s*%/g, ' '));
+    if (nums.length && nums.at(-1) > 0) return nums.at(-1);
+  }
+  return null;
 }
 
 function findVat(lines) {
@@ -209,8 +282,18 @@ function findVat(lines) {
   return null;
 }
 
+// Footer lines of the receipt printed before this one, caught at the top of the photo.
+const FOOTER_RE = /(returned?\s*within|thank\s*you|powered\s*by|software|cashier|counter|\b\d{1,2}:\d{2}\s*(am|pm)\b|visit\s*again|goods\s*(once\s*)?(sold|purchased))/i;
+const COMPANY_RE = /\b(pvt|p\.?\s?ltd|ltd|limited|private|mart|store|stores|traders|suppliers?|enterprises?|restaurant|restro|resto|cafe|café|hotel|bakery|pharmacy|pasal|bhandar|udhyog|center|centre)\b\.?/i;
+
 function findMerchant(lines) {
+  const top = lines.slice(0, 10);
+  // "Kathmandu Kreative Mart Pvt. Ltd.": a company name right at the top, above the PAN line.
+  const panAt = top.findIndex((l) => PAN_KEYWORDS.test(l) && /\d{6,}/.test(l.replace(/\D/g, '')));
+  const named = top.slice(0, panAt > 0 ? panAt : 6).find((l) => COMPANY_RE.test(l) && !FOOTER_RE.test(l) && (l.match(/\p{L}/gu) || []).length >= 6);
+  if (named) return named.replace(/[^\p{L}\p{N}&.'\s-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 80);
   for (const line of lines.slice(0, 6)) {
+    if (FOOTER_RE.test(line)) continue;
     const clean = line.replace(/[^\p{L}\p{N}&.'\s-]/gu, '').replace(/\s+/g, ' ').trim();
     // A stray mark or number above the name ("1T4") isn't a shop: it needs a few letters.
     if (clean.length < 3 || /\d{5,}/.test(clean) || (clean.match(/\p{L}/gu) || []).length < 4) continue;
@@ -244,13 +327,28 @@ export function guessCategory(text) {
 // "Estimate", "THIS IS NOT A VALID BILL", "only for accounting purpose", proforma: not a tax bill.
 const ESTIMATE_RE = /\b(estimate|not\s+a\s+valid\s+bill|only\s+for\s+accounting|pro\s*-?\s*forma|take\s+(?:a\s+)?vaild?\s+bill|valid\s+bill\s+from)\b/i;
 
+/**
+ * The bill number, keeping the letters it starts with: digit fixing turns "SI35528" into
+ * "S135528", so the prefix comes from the text as read.
+ */
+function invoiceFrom(asRead, fixed) {
+  const lines = (t) => t.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const v = findInvoice(lines(fixed)) || fixed.match(INVOICE_FALLBACK_RE)?.[1] || '';
+  const r = findInvoice(lines(asRead)) || asRead.match(INVOICE_FALLBACK_RE)?.[1] || '';
+  const prefix = r.match(/^[A-Za-z]+/)?.[0] || '';
+  if (!prefix || r.length !== v.length || fixOcrDigits(r) !== v && fixOcrDigits(` ${r}`).trim() !== v) return v;
+  return prefix + v.slice(prefix.length);
+}
+
 export function parseReceiptText(raw) {
-  const text = fixOcrDigits(toAsciiDigits(raw || ''));
+  const asRead = toAsciiDigits(raw || '');
+  const text = fixOcrDigits(asRead);
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const dates = findDates(text);
   const sellerPan = findPan(lines);
   const itemsSum = parseLineItemsFromText(text).reduce((sum, it) => sum + it.amount, 0);
-  let { value: totalAmount, guessed: totalGuessed } = findTotal(lines, itemsSum);
+  const discount = findDiscount(lines);
+  let { value: totalAmount, guessed: totalGuessed } = findTotal(lines, itemsSum, discount);
   let vatAmount = findVat(lines);
   // Subtotal + 13% VAT = total: when the numbers agree, the total and VAT are confirmed. A missing
   // or guessed total takes the checked one; a printed total that differs (rounded, a tip) stays.
@@ -267,13 +365,14 @@ export function parseReceiptText(raw) {
   return {
     merchantName: findMerchant(lines),
     sellerPan,
-    invoiceNumber: findInvoice(lines) || text.match(INVOICE_FALLBACK_RE)?.[1] || '',
+    invoiceNumber: invoiceFrom(asRead, text),
     paymentMethod: DIGITAL_PAY_RE.test(text) ? PAYMENT.DIGITAL : undefined,
     billDateAD: dates.ad,
     billDateBS: dates.bs,
     totalAmount,
     totalGuessed,
     vatAmount: vatAmount && totalAmount && vatAmount < totalAmount ? vatAmount : null,
+    discountAmount: discount && totalAmount && discount < totalAmount ? discount : null,
     category: guessCategory(text),
     isEstimate: ESTIMATE_RE.test(text),
     looksNepali,

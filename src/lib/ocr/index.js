@@ -56,15 +56,15 @@ async function runLocal(images, { nepali, onProgress }) {
 /** A read that needs no second opinion: a printed total, and items that add up to it. */
 function selfConsistent(text) {
   const f = parseReceiptText(text);
-  return Boolean(f.totalAmount) && !f.totalGuessed && itemsMatchTotal(parseLineItemsFromText(text), f.totalAmount);
+  return Boolean(f.totalAmount) && !f.totalGuessed && itemsMatchTotal(parseLineItemsFromText(text), f.totalAmount, f.discountAmount);
 }
 
 /**
- * Items whose sum matches the bill total, directly or with 10% service charge and/or 13% VAT on
- * top: the read got every row.
+ * Items whose sum matches the bill total, directly, with 10% service charge and/or 13% VAT on top,
+ * or less a printed discount: the read got every row.
  */
-export function itemsMatchTotal(items = [], total) {
-  return items.length > 0 && sumMatches(items.reduce((s, it) => s + (Number(it.amount) || 0), 0), total);
+export function itemsMatchTotal(items = [], total, discount = 0) {
+  return items.length > 0 && sumMatches(items.reduce((s, it) => s + (Number(it.amount) || 0), 0), total, discount);
 }
 
 // Below this mean confidence (0-100) an on-device read is treated as unreliable.
@@ -76,7 +76,7 @@ export function needsBetterRead({ fields = {}, confidence = null, totalGuessed =
   const missingPan = !fields.isEstimate && !/^\d{9}$/.test(String(fields.sellerPan || ''));
   const missingTotal = !(Number(fields.totalAmount) > 0) || totalGuessed;
   // Items that don't add up to the total mean a row was misread or lost.
-  const itemsOff = (fields.lineItems || []).length > 0 && !itemsMatchTotal(fields.lineItems, fields.totalAmount);
+  const itemsOff = (fields.lineItems || []).length > 0 && !itemsMatchTotal(fields.lineItems, fields.totalAmount, fields.discountAmount);
   return missingPan || missingTotal || itemsOff || (confidence != null && confidence < LOW_CONFIDENCE);
 }
 
@@ -175,7 +175,7 @@ export async function extractBill(image, settings, { region, onProgress } = {}) 
 function finishFields(fields, { rawText, engine, confidence, region }) {
   // An item bigger than the whole bill is a misread number.
   if (fields.lineItems?.length && fields.totalAmount > 0) {
-    fields.lineItems = fields.lineItems.filter((it) => it.amount <= fields.totalAmount + 0.5);
+    fields.lineItems = fields.lineItems.filter((it) => it.amount <= fields.totalAmount + (Number(fields.discountAmount) || 0) + 0.5);
   }
 
   const { looksNepali, totalGuessed, ...rest } = fields;

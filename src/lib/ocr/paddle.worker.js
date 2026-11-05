@@ -135,6 +135,119 @@ function measureInk({ data, width, height }, { text, box }) {
   return { trim, parts: spans || undefined };
 }
 
+/**
+ * How much the text in a box slopes, in degrees (positive: the right end is lower), from where the
+ * ink sits in the left and right thirds of the box. Null when there isn't enough ink to tell.
+ */
+function inkTilt({ data, width, height }, box) {
+  const x0 = Math.max(0, Math.floor(box.x));
+  const x1 = Math.min(width, Math.ceil(box.x + box.width));
+  const y0 = Math.max(0, Math.floor(box.y));
+  const y1 = Math.min(height, Math.ceil(box.y + box.height));
+  const w = x1 - x0;
+  if (w < 40 || y1 - y0 < 8) return null;
+  let lo = 255;
+  let hi = 0;
+  for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) {
+    const i = (y * width + x) * 4;
+    const v = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (hi - lo < 40) return null;
+  const mid = (lo + hi) / 2;
+  const centre = (from, to) => {
+    let sum = 0;
+    let n = 0;
+    for (let y = y0; y < y1; y++) for (let x = from; x < to; x++) {
+      const i = (y * width + x) * 4;
+      if (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < mid) { sum += y; n++; }
+    }
+    return n > 20 ? sum / n : null;
+  };
+  const third = Math.floor(w / 3);
+  const left = centre(x0, x0 + third);
+  const right = centre(x1 - third, x1);
+  if (left == null || right == null) return null;
+  return (Math.atan2(right - left, w - third) * 180) / Math.PI;
+}
+
+const lineScore = (rs) => rs.reduce((s, r) => s + r.confidence * String(r.text).replace(/[^\p{L}\p{N}]/gu, '').length, 0);
+
+/**
+ * A curled bill: one part (often the header) is tilted while the rest is straight, so straightening
+ * the whole photo can't fix both. Long lines read with low confidence whose ink slopes are grouped
+ * into strips; each strip is read again rotated by its own tilt, and kept when it reads better.
+ * Boxes from a re-read strip are placed straight, where the strip is, so a row stays one row.
+ */
+async function straightenStrips(service, canvas, pixels, results, strategy) {
+  const hs = results.map((r) => r.box.height).sort((a, b) => a - b);
+  const lineH = hs[Math.floor(hs.length / 2)] || 20;
+  const tilted = [];
+  for (const r of results) {
+    if (r.confidence >= 0.9 || r.box.width < lineH * 4) continue;
+    const t = inkTilt(pixels, r.box);
+    if (t != null && Math.abs(t) >= 1.5 && Math.abs(t) <= 15) tilted.push({ r, t });
+  }
+  if (!tilted.length) return results;
+  tilted.sort((a, b) => a.r.box.y - b.r.box.y);
+  const strips = [];
+  for (const x of tilted) {
+    const last = strips.at(-1);
+    // A misread box can measure a stray tilt, so nearby boxes join whichever way they lean.
+    if (last && x.r.box.y - last.y1 < lineH * 3) {
+      last.y1 = Math.max(last.y1, x.r.box.y + x.r.box.height);
+      last.ts.push(x.t);
+    } else strips.push({ y0: x.r.box.y, y1: x.r.box.y + x.r.box.height, ts: [x.t] });
+  }
+  let out = results;
+  for (const s of strips.slice(0, 3)) {
+    const sorted = [...s.ts].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    // The tilt most boxes share; when the strip leans both ways, also the other side's middle.
+    const tries = [median];
+    const other = s.ts.filter((t) => Math.sign(t) !== Math.sign(median));
+    if (other.length) tries.push(other.sort((a, b) => a - b)[Math.floor(other.length / 2)]);
+    let best = null;
+    for (const angle of tries) {
+      const got = await readStrip(service, canvas, s, angle, lineH, strategy);
+      if (!best || got.score > best.score) best = got;
+    }
+    const old = out.filter((r) => best.inside(r));
+    if (best.score > lineScore(old) * 1.1) out = [...out.filter((r) => !best.inside(r)), ...best.fresh];
+  }
+  return out;
+}
+
+/** One strip of the photo read again, rotated by `angle`; its boxes placed back where it is. */
+async function readStrip(service, canvas, s, angle, lineH, strategy) {
+  // A line's ends drift by the tilt across the width, so the strip takes in that much more.
+  const pad = lineH + Math.abs(Math.tan((angle * Math.PI) / 180)) * canvas.width / 2;
+  const top = Math.max(0, Math.floor(s.y0 - pad));
+  const bottom = Math.min(canvas.height, Math.ceil(s.y1 + pad));
+  const h = bottom - top;
+  const strip = new OffscreenCanvas(canvas.width, h);
+  const g = strip.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, canvas.width, h);
+  g.translate(canvas.width / 2, h / 2);
+  g.rotate((-angle * Math.PI) / 180);
+  g.drawImage(canvas, -canvas.width / 2, -(top + h / 2));
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const again = await service.recognize(strip, { flatten: true, strategy });
+  // Only the middle of the strip is replaced; its edges hold half-cut lines.
+  const keep0 = s.y0 - lineH;
+  const keep1 = s.y1 + lineH;
+  const inside = (r, dy = 0) => { const c = r.box.y + dy + r.box.height / 2; return c >= keep0 && c <= keep1; };
+  const stripPixels = g.getImageData(0, 0, canvas.width, h);
+  const fresh = (again.results || []).filter((r) => r.text?.trim() && inside(r, top)).map((r) => {
+    const { trim, parts } = measureInk(stripPixels, r);
+    const b = trim || r.box;
+    return { text: r.text, confidence: r.confidence, box: { ...b, y: b.y + top }, parts, measured: true };
+  });
+  return { fresh, score: lineScore(fresh), inside };
+}
+
 self.onmessage = ({ data }) => {
   if (data.type !== 'recognize') return;
   queue = queue.then(() => handle(data));
@@ -150,9 +263,12 @@ async function handle(data) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(bitmap, 0, 0);
     bitmap.close?.();
-    const out = await service.recognize(canvas, { flatten: true, strategy: data.strategy || 'per-box' });
+    const strategy = data.strategy || 'per-box';
+    const out = await service.recognize(canvas, { flatten: true, strategy });
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const items = (out.results || []).map((r) => {
+    const results = await straightenStrips(service, canvas, pixels, out.results || [], strategy);
+    const items = results.map((r) => {
+      if (r.measured) return { text: r.text, confidence: r.confidence, box: r.box, parts: r.parts };
       const { trim, parts } = measureInk(pixels, r);
       return { text: r.text, confidence: r.confidence, box: trim || r.box, parts };
     });

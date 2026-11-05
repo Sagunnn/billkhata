@@ -11,10 +11,13 @@ import { parseReceiptText, totalCandidates } from './parse.js';
 const CHARGE_FACTORS = [1, 1.1, 1.13, 1.1 * 1.13]; // plain, +10% service, +13% VAT, both
 
 /** True when the items add up to the total, directly or with service charge and/or VAT on top. */
-export function sumMatches(sum, total) {
+export function sumMatches(sum, total, discount = 0) {
   const t = Number(total);
   if (!(t > 0) || !(sum > 0)) return false;
-  return CHARGE_FACTORS.some((f) => Math.abs(sum * f - t) <= Math.max(0.6, t * 0.005));
+  const near = (x) => CHARGE_FACTORS.some((f) => Math.abs(x * f - t) <= Math.max(0.6, t * 0.005));
+  // A printed discount comes off the items before VAT: 540 of items, 5 off, 535 to pay.
+  const d = Number(discount) || 0;
+  return near(sum) || (d > 0 && d < sum && near(sum - d));
 }
 
 /* ---------- item names ---------- */
@@ -97,7 +100,7 @@ const conflicts = (a, b) => similar(a.name, b.name) && a.quality > 0.5 && b.qual
  * The best set of rows that adds up to `total`: most reads backing it, then the most readable
  * names. Returns null when no set adds up.
  */
-function bestSubset(clusters, total) {
+function bestSubset(clusters, total, discount = 0) {
   const pool = [...clusters]
     .sort((a, b) => b.support - a.support || b.quality - a.quality).slice(0, 16);
   let best = null;
@@ -114,7 +117,7 @@ function bestSubset(clusters, total) {
       score += pool[i].support * (0.5 + 0.5 * pool[i].quality) - 0.6;
       picked.push(pool[i]);
     }
-    if (!sumMatches(sum, total)) continue;
+    if (!sumMatches(sum, total, discount)) continue;
     if (picked.some((a, i) => picked.slice(i + 1).some((b) => conflicts(a, b)))) continue;
     if (!best || score > best.score) best = { picked, score };
   }
@@ -168,14 +171,16 @@ export function combineReads(input = []) {
   ]), (a, b) => Math.abs(a - b) < 0.6);
 
   const clusters = clusterItems(parsed.map((p) => p.items));
-  // A total smaller than a row several reads agree on is a partial read ("hundred and thirty").
+  const discount = Number(vote(parsed.map((p) => ({ value: p.fields.discountAmount })), (a, b) => Math.abs(a - b) < 0.6)[0]?.value) || 0;
+  // A total smaller than a row several reads agree on is a partial read ("hundred and thirty"),
+  // unless a printed discount explains it.
   const surest = Math.max(0, ...clusters.filter((c) => c.support >= 2 && c.quality >= 0.5).map((c) => c.amount));
-  for (const t of totalVotes) if (t.value < surest) t.weight *= 0.4;
+  for (const t of totalVotes) if (t.value + discount < surest - 0.5) t.weight *= 0.4;
   totalVotes.sort((a, b) => b.weight - a.weight);
   // Try the leading totals; keep the total + rows that best explain all the reads.
   let choice = null;
   for (const t of totalVotes.slice(0, 4).filter((x) => x.weight >= totalVotes[0].weight * 0.4)) {
-    const subset = bestSubset(clusters, t.value);
+    const subset = bestSubset(clusters, t.value, discount);
     if (!subset) continue;
     const score = t.weight * 2 + subset.score;
     if (!choice || score > choice.score) choice = { total: t.value, rows: subset.picked, score };
@@ -188,16 +193,17 @@ export function combineReads(input = []) {
   } else {
     // Nothing adds up: keep rows most reads saw, and drop the weaker of two readings of one row.
     const need = Math.max(1, Math.ceil(reads.length / 2));
-    rows = clusters.filter((c) => c.support >= need && (!totalAmount || c.amount <= totalAmount + 0.5));
+    rows = clusters.filter((c) => c.support >= need && (!totalAmount || c.amount <= totalAmount + discount + 0.5));
     rows = rows.filter((c) => !rows.some((o) => o !== c && conflicts(c, o) && (o.support > c.support || (o.support === c.support && o.quality > c.quality))));
   }
   // A misread decimal ("200.09" for "200.00"): when the rows miss the total by under a rupee and
   // only one row has odd paisa, that row takes the difference.
   if (choice) {
     const sum = rows.reduce((s, c) => s + c.amount, 0);
-    const diff = Math.round((totalAmount - sum) * 100) / 100;
+    const diff = Math.round((totalAmount + discount - sum) * 100) / 100;
+    const exact = Math.abs(totalAmount - sum) < 0.01 || Math.abs(totalAmount + discount - sum) < 0.01;
     const odd = rows.filter((c) => !Number.isInteger(c.amount * 2));
-    if (diff && Math.abs(diff) < 1 && odd.length === 1) {
+    if (!exact && diff && Math.abs(diff) < 1 && odd.length === 1) {
       rows = rows.map((c) => (c === odd[0] ? { ...c, amount: Math.round((c.amount + diff) * 100) / 100 } : c));
     }
   }
@@ -237,6 +243,7 @@ export function combineReads(input = []) {
     totalAmount,
     totalGuessed: !totalVotes.length || totalVotes[0].weight < 1 || undefined,
     vatAmount: pick('vatAmount', (a, b) => Math.abs(a - b) < 0.6) || null,
+    discountAmount: discount || null,
     category: pick('category'),
     isEstimate: parsed.filter((p) => p.fields.isEstimate).length * 2 >= reads.length || undefined,
     looksNepali: parsed.some((p) => p.fields.looksNepali),

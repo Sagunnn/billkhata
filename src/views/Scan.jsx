@@ -205,7 +205,7 @@ export default function Scan() {
    * The scan's details go onto that bill, which keeps its code, split, trip and IRD state.
    */
   async function useScanFor(other) {
-    const SCAN_FIELDS = ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'totalAmount', 'vatAmount', 'category', 'lineItems', 'receiptImage', 'imageHash', 'isNepalBill', 'isEstimate', 'ocrEngine'];
+    const SCAN_FIELDS = ['merchantName', 'sellerPan', 'invoiceNumber', 'billDateAD', 'billDateBS', 'totalAmount', 'vatAmount', 'discountAmount', 'category', 'lineItems', 'receiptImage', 'imageHash', 'isNepalBill', 'isEstimate', 'ocrEngine'];
     const fromScan = Object.fromEntries(SCAN_FIELDS.filter((k) => draft[k] !== undefined && draft[k] !== '' && draft[k] !== null).map((k) => [k, draft[k]]));
     setSaving(true);
     try {
@@ -269,7 +269,7 @@ export default function Scan() {
       !lastRead.fields.isEstimate && !/^\d{9}$/.test(String(lastRead.fields.sellerPan || '')) && (String(lastRead.fields.sellerPan || '').length ? `The PAN has ${String(lastRead.fields.sellerPan).length} of 9 digits. Type the rest from the paper bill.` : 'No seller PAN found. Type it from the paper bill.'),
       !(Number(lastRead.fields.totalAmount) > 0) && 'No total found.',
       lastRead.totalGuessed && Number(lastRead.fields.totalAmount) > 0 && 'The total wasn’t printed clearly: the one shown is the sum of the items read.',
-      (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount) && 'The items don’t add up to the total.',
+      (lastRead.fields.lineItems || []).length > 0 && !itemsMatchTotal(lastRead.fields.lineItems, lastRead.fields.totalAmount, lastRead.fields.discountAmount) && 'The items don’t add up to the total.',
       lastRead.confidence != null && lastRead.confidence < LOW_CONFIDENCE && `The reader was only ${Math.round(lastRead.confidence)}% sure.`,
     ].filter(Boolean) : [];
     return (

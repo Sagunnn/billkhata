@@ -250,7 +250,7 @@ function MobilePhoto({ src, onViewPhoto, onPhoto, onRemovePhoto, focus, marks })
 }
 
 /** The item rows read from the bill. Used by Split Khata and Trip Khata; fix them here once. */
-function LineItems({ items = [], total, onChange }) {
+function LineItems({ items = [], total, discount = 0, onChange }) {
   // Open when items were read, so they're in view; it follows a re-read that finds some.
   const [open, setOpen] = useState(items.length > 0);
   const hadItems = useRef(items.length > 0);
@@ -260,9 +260,11 @@ function LineItems({ items = [], total, onChange }) {
   }, [items.length]);
   const sum = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const billTotal = Number(total) || 0;
-  // Items usually add up to the total, or a bit under it (VAT, service charge on top).
+  // Items usually add up to the total, a bit under it (VAT, service charge on top), or a printed
+  // discount over it.
+  const off = Number(discount) > 0 && Number(discount) < sum ? Number(discount) : 0;
+  const offBy = items.length > 0 && billTotal > 0 && !itemsMatchTotal(items, billTotal, off);
   const gap = items.length && billTotal > 0 ? Math.round((billTotal - sum) * 100) / 100 : 0;
-  const offBy = items.length > 0 && billTotal > 0 && !itemsMatchTotal(items, billTotal);
   const set = (id, patch) => onChange(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   return (
     <div className="card rounded-2xl">
@@ -270,7 +272,7 @@ function LineItems({ items = [], total, onChange }) {
         <ReceiptText className="size-5 shrink-0 text-ink-2" />
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-semibold text-ink">{items.length ? `${items.length} item${items.length === 1 ? '' : 's'} read from the bill` : 'Items'}</span>
-          <span className={`t-caption block ${offBy ? 'text-warn' : 'text-ink-3'}`}>{items.length ? `Add up to ${money(sum)}${offBy ? (gap > 0 ? ` · ${money(gap)} missing` : ` · ${money(-gap)} too much`) : ''}` : 'None read from the bill · add them to split it by item'}</span>
+          <span className={`t-caption block ${offBy ? 'text-warn' : 'text-ink-3'}`}>{items.length ? `Add up to ${money(sum)}${offBy ? (gap > 0 ? ` · ${money(gap)} missing` : ` · ${money(-gap)} too much`) : off && sum > billTotal ? ` · ${money(off)} discount` : ''}` : 'None read from the bill · add them to split it by item'}</span>
         </span>
         <ChevronDown className={`size-5 shrink-0 text-ink-3 transition ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -508,7 +510,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
         </div>
       </fieldset>
 
-      <LineItems items={e.lineItems || []} total={e.totalAmount} onChange={(lineItems) => onChange({ lineItems })} />
+      <LineItems items={e.lineItems || []} total={e.totalAmount} discount={e.discountAmount} onChange={(lineItems) => onChange({ lineItems })} />
 
       <Field label="Notes" htmlFor="f-notes">
         <textarea id="f-notes" rows={2} className="input" value={e.notes || ''} onChange={set('notes')} placeholder="Optional" />

@@ -114,3 +114,71 @@ export function saveGroup(name, members) {
   write(GROUPS_KEY, [...loadGroups().filter((g) => g.name.toLowerCase() !== group.name.toLowerCase()), group].slice(-20));
 }
 export const deleteGroup = (name) => write(GROUPS_KEY, loadGroups().filter((g) => g.name.toLowerCase() !== String(name).toLowerCase()));
+
+/* ---------- deleted trips ---------- */
+
+const DELETED_TRIPS_KEY = 'billkhata_deleted_trips';
+
+/**
+ * Trips deleted on this device: { tripId: deletedAt }. An older copy of a deleted trip (a second
+ * open copy of the app, a backup, a file) must not bring it back by itself.
+ */
+export function loadDeletedTrips() {
+  const v = read(DELETED_TRIPS_KEY);
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+export function rememberDeletedTrip(id, at = new Date().toISOString()) {
+  write(DELETED_TRIPS_KEY, { ...loadDeletedTrips(), [id]: at });
+}
+/** The trip was brought back on purpose (opened from a friend's file, restored over everything). */
+export function forgetDeletedTrips(ids = []) {
+  const all = loadDeletedTrips();
+  ids.forEach((id) => delete all[id]);
+  write(DELETED_TRIPS_KEY, all);
+}
+
+/* ---------- the rest of a backup ---------- */
+
+const RECEIVED_KEY = 'billkhata_received_splits';
+
+/**
+ * What a backup carries besides bills, trips and bank data: settings (never API keys), your
+ * payment QR, saved friends and groups, splits friends sent, and trips deleted here.
+ */
+export function backupExtras() {
+  const { apiKeys: _keys, ...settings } = loadSettings();
+  return {
+    settings,
+    paymentQr: loadPaymentQr(),
+    friends: loadFriends(),
+    groups: loadGroups(),
+    receivedSplits: Array.isArray(read(RECEIVED_KEY)) ? read(RECEIVED_KEY) : [],
+    deletedTrips: loadDeletedTrips(),
+  };
+}
+
+const byKey = (list, key) => [...new Map(list.filter(Boolean).map((x) => [key(x), x])).values()];
+
+/**
+ * Puts a backup's extras back. 'merge' adds friends, groups, received splits and deleted trips to
+ * what's here and keeps this device's settings and QR (the QR only when none is set);
+ * 'overwrite' replaces them. API keys on this device are always kept.
+ * @returns the settings to apply, or null to keep the current ones
+ */
+export function restoreExtras(x, mode = 'merge') {
+  if (!x) return null;
+  const name = (v) => String(v?.name || '').toLowerCase();
+  const over = mode === 'overwrite';
+  if (x.friends) write(FRIENDS_KEY, (over ? x.friends : byKey([...x.friends, ...loadFriends()], name)).slice(-60));
+  if (x.groups) write(GROUPS_KEY, (over ? x.groups : byKey([...x.groups, ...loadGroups()], name)).slice(-20));
+  if (x.receivedSplits) {
+    const here = Array.isArray(read(RECEIVED_KEY)) ? read(RECEIVED_KEY) : [];
+    write(RECEIVED_KEY, (over ? x.receivedSplits : byKey([...x.receivedSplits, ...here], (s) => s?.id || JSON.stringify(s))).slice(-50));
+    try { window.dispatchEvent(new Event('billkhata-received')); } catch { /* not in a browser */ }
+  }
+  if (x.paymentQr?.mode && (over || !loadPaymentQr().mode)) savePaymentQr(x.paymentQr);
+  if (x.deletedTrips) write(DELETED_TRIPS_KEY, over ? x.deletedTrips : { ...x.deletedTrips, ...loadDeletedTrips() });
+  if (!over || !x.settings) return null;
+  const { apiKeys: _ignored, ...settings } = x.settings;
+  return { ...settings, apiKeys: loadSettings().apiKeys };
+}

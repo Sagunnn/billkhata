@@ -5,7 +5,7 @@ import {
 import { OCR_ENGINES, REGIONS, VISION_PROVIDERS } from '../lib/constants.js';
 import { backupFilename, backupStatus, buildBackup, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
 import { bytes, downloadBlob } from '../lib/format.js';
-import { validateProfile } from '../lib/profile.js';
+import { backupExtras, restoreExtras, validateProfile } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
 import { downloadForOffline, offlineStatus, READER_MB, useInstallPrompt, useOnline } from '../lib/offline.js';
 import { useToast } from '../components/Toast.jsx';
@@ -198,7 +198,7 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp, money } = useStore();
+  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp, money, setSettings } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
@@ -208,11 +208,11 @@ function DataSection() {
   const status = backupStatus(lastBackupAt, expenses.length - samples);
 
   function download() {
-    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money });
+    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money }, backupExtras());
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
     markBackedUp();
     const bank = statements.length || payments.length ? `, ${statements.length} statement${statements.length === 1 ? '' : 's'}, ${payments.length} payment screenshot${payments.length === 1 ? '' : 's'}` : '';
-    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}${bank}).`);
+    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}${bank}, settings, payment QR and friends).`);
   }
 
   function downloadCsv() {
@@ -239,12 +239,15 @@ function DataSection() {
       await replaceAll(list);
       await replaceAllTrips(pending.trips || []);
       await restoreBankData(pending, 'overwrite');
+      const restoredSettings = restoreExtras(pending.extras, 'overwrite');
+      if (restoredSettings) setSettings(restoredSettings);
       if (p) setProfile(p);
       toast(`Restored ${list.length} bills and ${(pending.trips || []).length} trips.`);
     } else {
       const added = await mergeExpenses(list);
       const addedTrips = await mergeTrips(pending.trips || []);
       await restoreBankData(pending, 'merge');
+      restoreExtras(pending.extras, 'merge');
       toast(`Added ${added} new bill${added === 1 ? '' : 's'} and ${addedTrips} trip${addedTrips === 1 ? '' : 's'}; the rest were already here.`);
     }
     setPending(null);
@@ -270,7 +273,7 @@ function DataSection() {
       <div className="grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={download} className="flex min-w-0 items-center gap-3 rounded-xl border-2 border-slate-200 p-4 text-left hover:border-slate-400">
           <Download className="size-6 shrink-0 text-navy" />
-          <span className="min-w-0"><span className="block font-bold">Download backup</span><span className="block text-sm text-slate-600">Bills, photos, trips and bank data in one .json file</span></span>
+          <span className="min-w-0"><span className="block font-bold">Download backup</span><span className="block text-sm text-slate-600">Bills, photos, trips, bank data, your payment QR, friends and settings in one .json file (never API keys)</span></span>
         </button>
         <label
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}

@@ -1,6 +1,7 @@
 // "Saved on this device": where the bills live, how fresh the last backup is, and one-tap backup.
 import { ShieldCheck, WifiOff } from 'lucide-react';
 import { useOnline } from '../lib/offline.js';
+import { backupExtras } from '../lib/profile.js';
 import { backupFilename, backupStatus, buildBackup } from '../lib/backup.js';
 import { bytes, downloadBlob } from '../lib/format.js';
 import { useStore } from '../store.jsx';
@@ -17,7 +18,7 @@ export function useDownloadBackup() {
   const { profile, expenses, trips, statements, payments, reconOverrides, money, markBackedUp } = useStore();
   const toast = useToast();
   return () => {
-    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money });
+    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money }, backupExtras());
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
     markBackedUp();
     toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}).`);

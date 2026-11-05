@@ -5,7 +5,7 @@ import * as db from './lib/db.js';
 import { finalizeExpense } from './lib/expense.js';
 import { assignBillCode, ensureBillCodes, tripInitials } from './lib/billCode.js';
 import { imageHash } from './lib/image.js';
-import { flag, hasProfile, loadProfile, loadSettings, saveProfile, saveSettings } from './lib/profile.js';
+import { flag, forgetDeletedTrips, hasProfile, loadDeletedTrips, loadProfile, loadSettings, rememberDeletedTrip, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 import { reconcileAll } from './lib/bank/reconcile.js';
 import { cleanMoney } from './lib/money.js';
@@ -14,7 +14,7 @@ import { applyTheme } from './lib/theme.js';
 
 const StoreContext = createContext(null);
 
-// Link/unlink choices on the Bank page: small, so they live in localStorage (and in backups).
+// Link/unlink choices on Money: small, so they live in localStorage (and in backups).
 const RECON_KEY = 'billkhata_recon';
 function loadReconOverrides() {
   try {
@@ -97,8 +97,7 @@ export function StoreProvider({ children }) {
     (async () => {
       try {
         // First visit: load demo bills (and a demo profile) so every flow can be tried.
-        const viewingSharedSplit = /^#\/split\/[A-Za-z0-9_-]+$/.test(window.location.hash);
-        if (!flag('seeded') && !viewingSharedSplit) {
+        if (!flag('seeded')) {
           flag('seeded', true);
           if ((await db.getAllExpenses()).length === 0) await db.putMany(await buildSampleExpenses());
           if (!hasProfile()) {
@@ -165,8 +164,16 @@ export function StoreProvider({ children }) {
     setExpenses(await syncBillCodes());
   }, []);
 
-  const saveTrip = useCallback(async (t) => {
+  /**
+   * Saves a trip. A trip deleted here isn't brought back by an older copy still open somewhere
+   * (another tab, a sheet left open); `revive` is for bringing it back on purpose (a friend's file).
+   */
+  const saveTrip = useCallback(async (t, { revive = false } = {}) => {
     const before = (await db.getAllTrips()).find((x) => x.id === t.id);
+    if (!before && loadDeletedTrips()[t.id]) {
+      if (!revive) return null;
+      forgetDeletedTrips([t.id]);
+    }
     // Each expense and person keeps when it last changed (and deletes are remembered), so a copy
     // from a friend's phone merges right (lib/share.js).
     const clean = stampTrip(before, { ...t, updatedAt: new Date().toISOString() });
@@ -178,21 +185,24 @@ export function StoreProvider({ children }) {
   }, []);
 
   const deleteTrip = useCallback(async (id) => {
+    rememberDeletedTrip(id);
     await db.deleteTripRecord(id);
     setTrips((list) => list.filter((x) => x.id !== id));
   }, []);
 
   const replaceAllTrips = useCallback(async (list) => {
+    forgetDeletedTrips(list.map((t) => t.id)); // replacing everything: the backup's trips are wanted
     await db.clearTrips();
     await db.putManyTrips(list);
     setTrips(await db.getAllTrips());
     setExpenses(await syncBillCodes());
   }, []);
 
-  /** Adds trips whose id is not already stored. Returns how many were added. */
+  /** Adds trips whose id is not already stored, except ones deleted here. Returns how many were added. */
   const mergeTrips = useCallback(async (list) => {
     const have = new Set((await db.getAllTrips()).map((t) => t.id));
-    const fresh = list.filter((t) => !have.has(t.id));
+    const gone = loadDeletedTrips();
+    const fresh = list.filter((t) => !have.has(t.id) && !gone[t.id]);
     await db.putManyTrips(fresh);
     setTrips(await db.getAllTrips());
     setExpenses(await syncBillCodes());
@@ -269,7 +279,7 @@ export function StoreProvider({ children }) {
     setSettingsState(next);
   }, []);
 
-  // Bank rows ↔ screenshots ↔ bills, worked out once for the Bank page and the ledger tags.
+  // Bank rows ↔ screenshots ↔ bills, worked out once for Money and the ledger tags.
   const bankRecon = useMemo(
     () => reconcileAll({ statements, payments, expenses, overrides: reconOverrides }),
     [statements, payments, expenses, reconOverrides],

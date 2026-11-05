@@ -9,7 +9,7 @@ import { cleanMoney } from './money.js';
 
 export const BACKUP_VERSION = 1;
 
-export function buildBackup(profile, expenses, trips = [], bank = {}) {
+export function buildBackup(profile, expenses, trips = [], bank = {}, extras = null) {
   return {
     app: 'BillKhata',
     version: BACKUP_VERSION,
@@ -21,6 +21,30 @@ export function buildBackup(profile, expenses, trips = [], bank = {}) {
     payments: bank.payments || [],
     reconOverrides: bank.reconOverrides || { links: [], unlinks: [] },
     money: bank.money || null,
+    ...(extras ? { extras } : {}),
+  };
+}
+
+const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const SETTINGS_FIELDS = ['ocrEngine', 'nepaliScript', 'theme', 'showLuckyDraw', 'visionProvider', 'models'];
+
+/** Settings, payment QR, friends, groups… (older backups have none). Bad parts are left out. */
+function validateExtras(x) {
+  if (!plain(x)) return null;
+  const list = (v, ok) => (Array.isArray(v) ? v.filter(ok) : undefined);
+  const named = (f) => plain(f) && typeof f.name === 'string' && f.name.trim();
+  const settings = plain(x.settings) ? Object.fromEntries(SETTINGS_FIELDS.filter((k) => k in x.settings).map((k) => [k, x.settings[k]])) : undefined;
+  const qr = plain(x.paymentQr) && ['esewa', 'image'].includes(x.paymentQr.mode)
+    && (x.paymentQr.mode !== 'image' || String(x.paymentQr.image || '').startsWith('data:image/')) ? x.paymentQr : undefined;
+  const deletedTrips = plain(x.deletedTrips)
+    ? Object.fromEntries(Object.entries(x.deletedTrips).filter(([k, v]) => k && typeof v === 'string')) : undefined;
+  return {
+    settings,
+    paymentQr: qr,
+    friends: list(x.friends, named),
+    groups: list(x.groups, (g) => named(g) && Array.isArray(g.members)),
+    receivedSplits: list(x.receivedSplits, plain),
+    deletedTrips,
   };
 }
 
@@ -157,7 +181,7 @@ export function validateBackup(obj) {
 
   const trips = validateTrips(obj.trips, skipped);
   const bank = validateBank(obj, skipped);
-  return { ok: true, errors, skipped, expenses, trips, ...bank, profile, exportedAt: obj.exportedAt };
+  return { ok: true, errors, skipped, expenses, trips, ...bank, extras: validateExtras(obj.extras), profile, exportedAt: obj.exportedAt };
 }
 
 export async function readBackupFile(file) {

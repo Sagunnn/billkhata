@@ -187,10 +187,10 @@ export function ReceiveSheet({ onClose }) {
     setBusy(true);
     try {
       if (local) {
-        await saveTrip(preview.trip);
+        await saveTrip(preview.trip, { revive: true });
         toast(`${data.trip.name}: ${preview.added} new, ${preview.updated} updated, ${preview.removed} removed.`);
       } else {
-        await saveTrip(tripFromShare(data.trip, { meId, myName: myFirst }));
+        await saveTrip(tripFromShare(data.trip, { meId, myName: myFirst }), { revive: true });
         toast(`${data.trip.name} added. Add your own expenses and send it back.`);
       }
       onClose();

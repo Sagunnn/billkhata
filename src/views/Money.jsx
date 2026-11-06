@@ -16,7 +16,7 @@ import { useStore } from '../store.jsx';
 import { takeStatement } from '../lib/statementHandoff.js';
 import { useToast } from '../components/Toast.jsx';
 import { Badge, Button, Card, Chip, EmptyState, Field, Modal, Segmented, useFileDrop } from '../components/ui.jsx';
-import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
+import { ACCOUNT_ICON, EntryRow, entriesNewestFirst, useOpenEntry } from '../components/MoneySheets.jsx';
 
 // MIME types too: iPhone's file picker greys out files whose type isn't listed.
 const STATEMENT_TYPES = [
@@ -514,6 +514,33 @@ export function AccountsCard({ compact = false, onAddStatement }) {
   );
 }
 
+/** The last few money in and moves, so a mistake is easy to find and fix (tap one). */
+function RecentEntries() {
+  const { money: m, expenses } = useStore();
+  const open = useOpenEntry();
+  const now = useMemo(() => moneyNow(m, expenses), [m, expenses]);
+  const recent = entriesNewestFirst(m).slice(0, 3);
+  if (!m.since || !recent.length) return null;
+  const name = (id) => now.accounts.find((a) => a.id === id)?.name || id;
+  return (
+    <Card className="px-4 pb-1 pt-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="t-overline text-ink-3">Recent money in &amp; moves</h2>
+        <MoreHistory />
+      </div>
+      <ul className="divide-y divide-line">
+        {recent.map((x) => <EntryRow key={x.id} x={x} name={name} onOpen={open} />)}
+      </ul>
+      <p className="t-caption pb-2 pt-1 text-ink-3">Tap one to fix or delete it.</p>
+    </Card>
+  );
+}
+
+function MoreHistory() {
+  const { openSheet } = useStore();
+  return <button type="button" onClick={() => openSheet('moneyHistory')} className="t-label font-medium text-brand hover:underline">All history</button>;
+}
+
 export function MoneyActions({ className = '' }) {
   const { openSheet, money: m } = useStore();
   const ready = Boolean(m.since);
@@ -646,15 +673,17 @@ export default function Money() {
   const ready = credits.filter((r) => creditState(m, r.x.bank) === 'ready');
   const creditTotal = credits.reduce((t, r) => t + r.x.amount, 0);
   const accountOf = (row) => accountForName(m, statements.find((s) => s.id === row.statementId)?.bank)?.id;
+  // Undo on the toast: takes back what a tap just counted from these statement rows.
+  const undoRows = (keys) => ({ action: { label: 'Undo', run: () => setMoney((cur) => ({ ...cur, entries: (cur.entries || []).filter((e) => !keys.includes(e.bankKey)) })) } });
   function addCredit(row) {
     const entry = entryFromCredit(row, accountOf(row), m);
     setMoney((cur) => addEntry(cur, entry));
     const name = accountsOf(m).find((a) => a.id === (entry.account || entry.to))?.name || 'your main account';
-    toast(entry.kind === 'move' ? `Cash deposit: ${money(row.credit)} moved from cash to ${name}.` : `${money(row.credit)} added to ${name} (${entry.source}).`);
+    toast(entry.kind === 'move' ? `Cash deposit: ${money(row.credit)} moved from cash to ${name}.` : `${money(row.credit)} added to ${name} (${entry.source}).`, 'success', undoRows([row.key]));
   }
   function addAllCredits() {
     setMoney((cur) => ready.reduce((acc, r) => addEntry(acc, entryFromCredit(r.x.bank, accountOf(r.x.bank), acc)), cur));
-    toast(`${plural(ready.length, 'credit')} added (${money(ready.reduce((t, r) => t + r.x.amount, 0), region)}).`);
+    toast(`${plural(ready.length, 'credit')} added (${money(ready.reduce((t, r) => t + r.x.amount, 0), region)}).`, 'success', undoRows(ready.map((r) => r.x.bank.key)));
   }
 
   function unlink(x) {
@@ -711,7 +740,7 @@ export default function Money() {
   function countMove(x, from, to) {
     setMoney((cur) => addEntry(cur, { kind: 'move', from, to, amount: x.amount, date: x.bank.date, note: x.bank.description, bankKey: x.bank.key }));
     const name = (id) => accountsOf(m).find((a) => a.id === id)?.name || id;
-    toast(`${money(x.amount)} moved from ${name(from)} to ${name(to)}.`);
+    toast(`${money(x.amount)} moved from ${name(from)} to ${name(to)}.`, 'success', undoRows([x.bank.key]));
   }
   // An ATM withdrawal isn't spending: the money moves from this account to cash in hand.
   async function atmToCash(x) {
@@ -799,6 +828,7 @@ export default function Money() {
         <div className="min-w-0 space-y-3 lg:sticky lg:top-6">
           <AccountsCard />
           <MoneyActions />
+          <RecentEntries />
           {/* Uploading a statement is this page's main job, so it's a big button, not a corner icon. */}
           <div>
             <Button variant="primary" size="lg" icon={FileUp} className="w-full" onClick={() => setUploading({ name: '' })}>Upload statement</Button>

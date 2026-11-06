@@ -149,8 +149,10 @@ export function ModalHost() {
   if (modal.type === 'ird') return <IrdModal key={modal.expense.id} expense={modal.expense} onClose={modal.queue ? irdDone : closeModal} />;
   if (modal.type === 'photo') return <PhotoViewer expense={modal.expense} onClose={closeModal} />;
   if (modal.type === 'accounts') return <AccountsSheet onClose={closeModal} />;
-  if (modal.type === 'moneyIn') return <MoneyInSheet account={modal.account} onClose={closeModal} />;
-  if (modal.type === 'move') return <MoveSheet onClose={closeModal} />;
+  // Opened from History to fix an entry: closing goes back to History.
+  const back = modal.back ? () => openSheet(modal.back) : closeModal;
+  if (modal.type === 'moneyIn') return <MoneyInSheet key={modal.entry?.id} account={modal.account} entry={modal.entry} onClose={back} />;
+  if (modal.type === 'move') return <MoveSheet key={modal.entry?.id} entry={modal.entry} onClose={back} />;
   if (modal.type === 'quickOut') return <QuickOutSheet split={modal.split} onClose={closeModal} />;
   if (modal.type === 'moneyHistory') return <MoneyHistorySheet onClose={closeModal} />;
   if (modal.type === 'shortcuts') return <ShortcutsSheet onClose={closeModal} />;

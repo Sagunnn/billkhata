@@ -1,14 +1,14 @@
 // Money sheets (Figma: Phone 12 · Quick cash out, Home wallet card actions): set your accounts,
 // money in, move money between accounts (ATM), quick cash out, and the history.
 import { useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Lock, Luggage, Plus, Trash, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, Banknote, Check, Landmark, Lock, Luggage, Pencil, Plus, Trash, Wallet } from 'lucide-react';
 import { CATEGORIES, PAYMENT } from '../lib/constants.js';
 import { blankExpense } from '../lib/expense.js';
 import { money as fmt } from '../lib/format.js';
 import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import {
   ACCOUNT_SUGGESTIONS, addEntry, cashAccountId, creditsBySource, defaultAccountId, kindForName, moneyNow, potOf,
-  removeEntry, setAccounts, sourceOptions, spentBills,
+  entryId, removeEntry, restoreEntry, setAccounts, sourceOptions, spentBills, updateEntry,
 } from '../lib/money.js';
 import { ongoingTrips } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -18,7 +18,7 @@ import { Button, Field, Modal } from './ui.jsx';
 export const ACCOUNT_ICON = { cash: Banknote, bank: Landmark, wallet: Wallet };
 
 /** The big centred amount with +20 / +50 / +100 / +500 nudges (Phone 12). */
-export function AmountInput({ value, onChange, error }) {
+export function AmountInput({ value, onChange, error, readOnly = false, autoFocus = true }) {
   return (
     <div className="flex flex-col items-center gap-3 pb-2">
       <label htmlFor="mn-amt" className="t-label text-ink-2">Amount</label>
@@ -27,7 +27,8 @@ export function AmountInput({ value, onChange, error }) {
         <input
           id="mn-amt"
           inputMode="decimal"
-          autoFocus
+          autoFocus={autoFocus && !readOnly}
+          readOnly={readOnly}
           value={value}
           onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
           placeholder="0"
@@ -37,11 +38,11 @@ export function AmountInput({ value, onChange, error }) {
         />
       </div>
       {error && <p className="t-caption text-danger">{error}</p>}
-      <div className="flex flex-wrap justify-center gap-2">
+      {!readOnly && <div className="flex flex-wrap justify-center gap-2">
         {[20, 50, 100, 500].map((n) => (
           <button key={n} type="button" onClick={() => onChange(String((Number(value) || 0) + n))} className="tap rounded-full bg-sunken px-4 py-1.5 text-[14px] font-medium text-ink-2 hover:text-ink">+{n}</button>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -148,29 +149,74 @@ export function AccountsSheet({ onClose }) {
 
 /* ---------- Money in ---------- */
 
-export function MoneyInSheet({ onClose, account: preset }) {
-  const { money, setMoney } = useStore();
+/** Removes an entry, with Undo on the toast. */
+function useRemoveEntry() {
+  const { setMoney } = useStore();
   const toast = useToast();
+  return (entry) => {
+    setMoney((m) => removeEntry(m, entry.id));
+    toast(`${fmt(entry.amount)} ${entry.kind === 'move' ? 'move' : entry.kind === 'in' ? 'money in' : 'entry'} deleted${entry.bankKey ? '; its bank row can be added again' : ''}.`, 'success', {
+      action: { label: 'Undo', run: () => setMoney((m) => restoreEntry(m, entry)) },
+    });
+  };
+}
+
+/** Taken back with the toast's Undo, right after adding it by mistake. */
+function undoAdd(setMoney, id) {
+  return { action: { label: 'Undo', run: () => setMoney((m) => removeEntry(m, id)) } };
+}
+
+const FromStatement = () => (
+  <p className="t-caption text-center text-ink-3">The amount and date come from your bank statement. To take it out of Money, delete it: the bank row stays.</p>
+);
+
+/** `entry`: an entry already saved, to fix or delete (opened from History or the Money page). */
+export function MoneyInSheet({ onClose, account: preset, entry }) {
+  const { money, setMoney, statements, saveStatement } = useStore();
+  const toast = useToast();
+  const remove = useRemoveEntry();
   const now = useAccountsNow();
-  const [amount, setAmount] = useState('');
-  const [source, setSource] = useState('');
-  const [account, setAccount] = useState(preset || defaultAccountId(money));
-  const [note, setNote] = useState('');
-  const [date, setDate] = useState(todayAD());
+  const editing = Boolean(entry);
+  const fromBank = Boolean(entry?.bankKey);
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '');
+  const [source, setSource] = useState(entry?.source || '');
+  const [account, setAccount] = useState(entry?.account || entry?.pot || preset || defaultAccountId(money));
+  const [note, setNote] = useState(entry?.note || '');
+  const [date, setDate] = useState(entry?.date || todayAD());
   const [error, setError] = useState('');
   const options = sourceOptions(money).slice(0, 6);
-  function save() {
+  async function save() {
+    const kind = source === 'Cash deposit' ? 'move' : 'in';
+    const next = { kind, amount, account, from: cashAccountId(money), to: account, source, note, date };
     try {
-      setMoney((m) => addEntry(m, { kind: source === 'Cash deposit' ? 'move' : 'in', amount, account, from: cashAccountId(m), to: account, source, note, date }));
-      toast(`${fmt(Number(amount))} in${source ? ` from ${source}` : ''}.`);
+      if (editing) {
+        setMoney((m) => updateEntry(m, entry.id, next));
+        // Money in from a statement row: the row takes the new title too, so both say the same.
+        if (fromBank && source.trim() !== (entry.source || '')) {
+          const st = statements.find((s) => s.rows.some((r) => r.key === entry.bankKey));
+          if (st) await saveStatement({ ...st, rows: st.rows.map((r) => (r.key === entry.bankKey ? { ...r, source: source.trim().slice(0, 40) } : r)) });
+        }
+        toast(kind === 'move' ? `Changed to a cash deposit: ${fmt(Number(amount))} moved from cash.` : 'Money in saved.');
+      } else {
+        const id = entryId();
+        setMoney((m) => addEntry(m, { ...next, id }));
+        toast(`${fmt(Number(amount))} in${source ? ` from ${source}` : ''}.`, 'success', undoAdd(setMoney, id));
+      }
       onClose();
     } catch (e) { setError(e.message); }
   }
   return (
-    <Modal open keepFooter onClose={onClose} size="md" title="Money in" subtitle="Salary, a friend paying you back, a refund"
-      footer={<Button variant="primary" size="lg" icon={Check} className="w-full" onClick={save}>Add {amount ? fmt(Number(amount)) : 'money'}</Button>}>
+    <Modal open keepFooter onClose={onClose} size="md" title={editing ? 'Edit money in' : 'Money in'} subtitle={editing ? `Added ${formatAD(entry.date)}` : 'Salary, a friend paying you back, a refund'}
+      footer={editing ? (
+        <>
+          <Button variant="danger" icon={Trash} className="mr-auto" onClick={() => { remove(entry); onClose(); }}>Delete</Button>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={Check} onClick={save}>Save</Button>
+        </>
+      ) : <Button variant="primary" size="lg" icon={Check} className="w-full" onClick={save}>Add {amount ? fmt(Number(amount)) : 'money'}</Button>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
+        <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} readOnly={fromBank} autoFocus={!editing} />
+        {fromBank && <FromStatement />}
         <fieldset>
           <legend className="label">From</legend>
           <div className="flex flex-wrap gap-2">
@@ -181,7 +227,7 @@ export function MoneyInSheet({ onClose, account: preset }) {
         <AccountPicker label="Into" value={account} onChange={setAccount} accounts={now.accounts} />
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
           <NoteField value={note} onChange={setNote} placeholder="October" />
-          <Field label="Date" htmlFor="mn-date"><input id="mn-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Date" htmlFor="mn-date"><input id="mn-date" type="date" className="input" value={date} disabled={fromBank} onChange={(e) => setDate(e.target.value)} /></Field>
         </div>
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
       </form>
@@ -191,31 +237,52 @@ export function MoneyInSheet({ onClose, account: preset }) {
 
 /* ---------- Move / ATM ---------- */
 
-export function MoveSheet({ onClose }) {
+export function MoveSheet({ onClose, entry }) {
   const { money, setMoney } = useStore();
   const toast = useToast();
+  const remove = useRemoveEntry();
   const now = useAccountsNow();
-  const [amount, setAmount] = useState('');
-  const [from, setFrom] = useState(defaultAccountId(money));
-  const [to, setTo] = useState(cashAccountId(money));
-  const [note, setNote] = useState('ATM');
+  const editing = Boolean(entry);
+  const fromBank = Boolean(entry?.bankKey);
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '');
+  const [from, setFrom] = useState(entry?.from || defaultAccountId(money));
+  const [to, setTo] = useState(entry?.to || cashAccountId(money));
+  const [note, setNote] = useState(entry ? entry.note || '' : 'ATM');
+  const [date, setDate] = useState(entry?.date || todayAD());
   const [error, setError] = useState('');
   function save() {
+    const next = { kind: 'move', amount, from, to, note, date };
     try {
-      setMoney((m) => addEntry(m, { kind: 'move', amount, from, to, note }));
       const name = (id) => now.accounts.find((a) => a.id === id)?.name || id;
-      toast(`${fmt(Number(amount))} moved: ${name(from)} → ${name(to)}.`);
+      if (editing) {
+        setMoney((m) => updateEntry(m, entry.id, next));
+        toast(`Move saved: ${fmt(Number(amount))}, ${name(from)} → ${name(to)}.`);
+      } else {
+        const id = entryId();
+        setMoney((m) => addEntry(m, { ...next, id }));
+        toast(`${fmt(Number(amount))} moved: ${name(from)} → ${name(to)}.`, 'success', undoAdd(setMoney, id));
+      }
       onClose();
     } catch (e) { setError(e.message); }
   }
   return (
-    <Modal open keepFooter onClose={onClose} size="md" title="ATM / Move" subtitle="Money between your own accounts"
-      footer={<Button variant="primary" size="lg" icon={ArrowLeftRight} className="w-full" onClick={save} disabled={from === to}>Move {amount ? fmt(Number(amount)) : 'money'}</Button>}>
+    <Modal open keepFooter onClose={onClose} size="md" title={editing ? 'Edit move' : 'ATM / Move'} subtitle={editing ? `Added ${formatAD(entry.date)}` : 'Money between your own accounts'}
+      footer={editing ? (
+        <>
+          <Button variant="danger" icon={Trash} className="mr-auto" onClick={() => { remove(entry); onClose(); }}>Delete</Button>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={Check} onClick={save} disabled={from === to}>Save</Button>
+        </>
+      ) : <Button variant="primary" size="lg" icon={ArrowLeftRight} className="w-full" onClick={save} disabled={from === to}>Move {amount ? fmt(Number(amount)) : 'money'}</Button>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} />
+        <AmountInput value={amount} onChange={(v) => { setAmount(v); setError(''); }} error={error} readOnly={fromBank} autoFocus={!editing} />
+        {fromBank && <FromStatement />}
         <AccountPicker label="From" value={from} onChange={(v) => { setFrom(v); if (v === to) setTo(now.accounts.find((a) => a.id !== v)?.id || ''); }} accounts={now.accounts} />
         <AccountPicker label="To" value={to} onChange={setTo} accounts={now.accounts} exclude={from} />
-        <NoteField value={note} onChange={setNote} placeholder="ATM, deposit" />
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+          <NoteField value={note} onChange={setNote} placeholder="ATM, deposit" />
+          <Field label="Date" htmlFor="mv-date"><input id="mv-date" type="date" className="input" value={date} max={todayAD()} disabled={fromBank} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
       </form>
     </Modal>
@@ -239,7 +306,7 @@ const lastQuick = () => { try { return JSON.parse(localStorage.getItem(LAST_KEY)
  */
 /** `split`: opened from Split, so after saving it goes on to sharing it with friends. */
 export function QuickOutSheet({ onClose, split = false }) {
-  const { money, profile, saveExpense, trips, openSheet } = useStore();
+  const { money, profile, saveExpense, removeExpense, trips, openSheet } = useStore();
   const onTrip = ongoingTrips(trips)[0];
   const toast = useToast();
   const now = useAccountsNow();
@@ -276,7 +343,8 @@ export function QuickOutSheet({ onClose, split = false }) {
       notes: note.trim(),
     });
     try { localStorage.setItem(LAST_KEY, JSON.stringify({ label, account, method })); } catch { /* ignore */ }
-    toast(`${fmt(Number(amount))} for ${note.trim() || label.toLowerCase()} saved${acc ? `, off ${acc.name}` : ''}.`);
+    toast(`${fmt(Number(amount))} for ${note.trim() || label.toLowerCase()} saved${acc ? `, off ${acc.name}` : ''}.`, 'success',
+      split ? {} : { action: { label: 'Undo', run: () => removeExpense(saved.id) } });
     if (again) { setAmount(''); setNote(''); setError(''); setCount((n) => n + 1); return; }
     onClose();
     if (split) window.location.hash = `#/split-bill/${encodeURIComponent(saved.id)}`;
@@ -336,10 +404,47 @@ export function QuickOutSheet({ onClose, split = false }) {
 
 /* ---------- History ---------- */
 
+/** What each kind of entry is called in History and on the Money page. */
+export const ENTRY_KIND = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
+
+/** Opens an entry or a bill to fix it; `back` is the sheet to return to after. */
+export function useOpenEntry(back) {
+  const { money, expenses, openSheet, openEditor } = useStore();
+  const remove = useRemoveEntry();
+  return (x) => {
+    if (x.kind === 'bill' || x.kind === 'quick') { const e = expenses.find((y) => y.id === x.id); if (e) openEditor(e); return; }
+    const entry = (money.entries || []).find((y) => y.id === x.id);
+    if (!entry) return;
+    if (entry.kind === 'in') openSheet('moneyIn', { entry, back });
+    else if (entry.kind === 'move') openSheet('move', { entry, back });
+    else if (window.confirm(`Delete this ${fmt(entry.amount)} entry?`)) remove(entry); // older "Spent, no bill" entries
+  };
+}
+
+/** One entry or bill: what, when, which account, the amount; tapping it opens it to fix. */
+export function EntryRow({ x, name, onOpen }) {
+  return (
+    <li>
+      <button type="button" onClick={() => onOpen(x)} className="tap flex w-full items-center gap-3 py-2.5 text-left hover:bg-sunken/60"
+        aria-label={`${x.kind === 'out' ? 'Delete' : 'Edit'} ${ENTRY_KIND[x.kind].toLowerCase()} ${fmt(x.amount)} on ${formatAD(x.date)}`}>
+        <span className="min-w-0 flex-1">
+          <span className="t-body block truncate font-semibold text-ink">{x.kind === 'in' ? [x.source, x.note].filter(Boolean).join(': ') : x.note || ENTRY_KIND[x.kind]}</span>
+          <span className="t-caption num block truncate text-ink-3">{formatAD(x.date)} · {ENTRY_KIND[x.kind]} · {x.kind === 'move' ? `${name(x.from)} → ${name(x.to)}` : name(x.account || x.pot)}</span>
+        </span>
+        <span className={`num shrink-0 font-nepali text-[15px] font-semibold ${x.kind === 'in' ? 'text-leaf' : 'text-ink'}`}>{x.kind === 'in' ? '+ ' : x.kind === 'move' ? '' : '− '}{fmt(x.amount)}</span>
+        {x.kind === 'out' ? <Trash className="size-4 shrink-0 text-ink-3" /> : <Pencil className="size-4 shrink-0 text-ink-3" />}
+      </button>
+    </li>
+  );
+}
+
+/** Money in and moves, newest first. */
+export const entriesNewestFirst = (money) => [...(money.entries || [])].sort((a, b) => `${b.date}|${b.createdAt}`.localeCompare(`${a.date}|${a.createdAt}`));
+
 export function MoneyHistorySheet({ onClose }) {
-  const { money, setMoney, expenses } = useStore();
-  const toast = useToast();
+  const { money, expenses } = useStore();
   const now = useAccountsNow();
+  const open = useOpenEntry('moneyHistory');
   const name = (id) => now.accounts.find((a) => a.id === id)?.name || id;
   const bills = useMemo(() => spentBills(expenses, money), [expenses, money]);
   const bySource = creditsBySource(money);
@@ -347,9 +452,8 @@ export function MoneyHistorySheet({ onClose }) {
     ...(money.entries || []).map((x) => ({ ...x, sort: `${x.date}|${x.createdAt}` })),
     ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: Number(e.totalAmount) || 0, date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
   ].sort((a, b) => b.sort.localeCompare(a.sort));
-  const what = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
   return (
-    <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)}` : ''}>
+    <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)} · tap one to fix or delete it` : ''}>
       {bySource.length > 0 && (
         <div className="mb-3 rounded-[14px] bg-leaf-soft px-3.5 py-2.5">
           <p className="t-overline text-leaf">Money in, by source</p>
@@ -360,18 +464,7 @@ export function MoneyHistorySheet({ onClose }) {
       )}
       {rows.length ? (
         <ul className="divide-y divide-line">
-          {rows.map((x) => (
-            <li key={`${x.kind}-${x.id}`} className="flex items-center gap-3 py-2.5">
-              <span className="min-w-0 flex-1">
-                <span className="t-body block truncate font-semibold text-ink">{x.kind === 'in' ? [x.source, x.note].filter(Boolean).join(': ') : x.note || what[x.kind]}</span>
-                <span className="t-caption num block text-ink-3">{formatAD(x.date)} · {what[x.kind]} · {x.kind === 'move' ? `${name(x.from)} → ${name(x.to)}` : name(x.account || x.pot)}</span>
-              </span>
-              <span className={`num shrink-0 font-nepali text-[15px] font-semibold ${x.kind === 'in' ? 'text-leaf' : 'text-ink'}`}>{x.kind === 'in' ? '+ ' : x.kind === 'move' ? '' : '− '}{fmt(x.amount)}</span>
-              {['in', 'move', 'out'].includes(x.kind)
-                ? <button type="button" className="tap rounded-full p-1.5 text-ink-3 hover:bg-danger-soft hover:text-danger" aria-label="Remove this entry" onClick={() => { setMoney((m) => removeEntry(m, x.id)); toast('Entry removed.'); }}><Trash className="size-4" /></button>
-                : <span className="w-8" />}
-            </li>
-          ))}
+          {rows.map((x) => <EntryRow key={`${x.kind}-${x.id}`} x={x} name={name} onOpen={open} />)}
         </ul>
       ) : <p className="t-body py-6 text-center text-ink-3">Nothing yet. Bills you save and money you add show up here.</p>}
     </Modal>

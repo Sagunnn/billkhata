@@ -410,8 +410,13 @@ Laxmi Sunrise…), with one of them the **main** account. From then on:
   you pick. **Move** is an ATM withdrawal or a deposit between accounts. **Quick cash out** (Q on
   desktop) is a fare or a tip with no bill: it's saved as a ledger expense (counted in spending and
   categories, never in the IRD draw) and comes off the account you pick.
-- **History** lists everything with the bills; an entry can be removed. Editing the accounts starts
-  over from now (old entries are kept in the record).
+- **Fixing a mistake:** the Money page shows the last few money in and moves, and **History** lists
+  everything with the bills. Tap one to edit it (amount, date, account, where it came from, note) or
+  delete it; a bill opens in the bill editor. Money in that was really your own cash deposited can
+  be changed into a move. One counted from a statement row keeps the statement's amount and date,
+  and its new title shows on the row too; deleting it puts the row back to "not counted yet".
+  Adding, deleting and counting a statement row all show **Undo** for a few seconds (only the newest
+  Undo stays). Editing the accounts starts over from now (old entries are kept in the record).
 
 Home shows the total, each account (cash and banks together on phones), and what's been spent since
 you set them. Data from before the redesign (one "Bank & wallets" total) becomes the first bank

@@ -144,3 +144,36 @@ test('separate accounts: each bank and wallet has its own balance; QR bills come
   assert.deepEqual(again.accounts.map((a) => a.id), ['cash', 'laxmisunrisebank', 'esewa']);
   assert.equal(defaultAccountId(again), 'esewa');
 });
+
+test('a money entry can be fixed after saving, and put back after Undo', async () => {
+  const { updateEntry, restoreEntry, entryId } = await import('../src/lib/money.js');
+  let money = setStart(EMPTY_MONEY, { cash: 1000, bank: 10000 }, at);
+  const id = entryId(at);
+  money = addEntry(money, { id, kind: 'in', amount: 5000, account: 'bank', source: 'Salary', date: '2026-11-03' }, at);
+  money = { ...money, entries: money.entries.map((x) => ({ ...x, bankKey: x.id === id ? 'row1' : undefined })) };
+  assert.equal(moneyNow(money).bank, 15000);
+
+  // Typed 5000 for 500, in the wrong account.
+  const later = new Date(at.getTime() + 60e3);
+  const fixed = updateEntry(money, id, { kind: 'in', amount: '500', account: 'cash', source: 'Friend paid back', date: '2026-11-03' }, later);
+  assert.deepEqual([moneyNow(fixed).cash, moneyNow(fixed).bank], [1500, 10000]);
+  const e = fixed.entries[0];
+  assert.equal(e.id, id);
+  assert.equal(e.createdAt, money.entries[0].createdAt); // still sorts where it was added
+  assert.equal(e.bankKey, 'row1'); // still tied to its statement row
+  assert.equal(e.source, 'Friend paid back');
+
+  // Money in that was really your own cash deposited: it becomes a move.
+  const moved = updateEntry(money, id, { kind: 'move', amount: 5000, from: 'cash', to: 'bank', date: '2026-11-03' }, later);
+  assert.deepEqual([moneyNow(moved).cash, moneyNow(moved).bank], [-4000, 15000]);
+  assert.equal(moved.entries[0].account, undefined);
+
+  assert.throws(() => updateEntry(money, id, { kind: 'in', amount: 0, account: 'bank' }), /above zero/);
+  assert.throws(() => updateEntry(money, 'gone', { kind: 'in', amount: 5, account: 'bank' }), /already removed/);
+
+  const removed = removeEntry(money, id);
+  assert.equal(moneyNow(removed).bank, 10000);
+  const back = restoreEntry(restoreEntry(removed, money.entries[0]), money.entries[0]);
+  assert.equal(back.entries.length, 1); // Undo twice still puts it back once
+  assert.equal(moneyNow(back).bank, 15000);
+});

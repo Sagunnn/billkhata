@@ -147,7 +147,7 @@ export const setStart = (money, { cash, bank }, now = new Date()) => setAccounts
 export function addEntry(money, entry, now = new Date()) {
   const amount = round2(num(entry.amount));
   if (!(amount > 0)) throw new Error('Enter an amount above zero.');
-  const clean = { id: entry.id || `m${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`, kind: entry.kind, amount, date: entry.date || localDay(now), note: String(entry.note || '').trim().slice(0, 80), createdAt: now.toISOString() };
+  const clean = { id: entry.id || entryId(now), kind: entry.kind, amount, date: entry.date || localDay(now), note: String(entry.note || '').trim().slice(0, 80), createdAt: now.toISOString() };
   if (entry.kind === 'move') Object.assign(clean, { from: entry.from, to: entry.to });
   else clean.account = entry.account || entry.pot || (entry.kind === 'in' ? defaultAccountId(money) : cashAccountId(money));
   if (entry.kind === 'in') clean.source = String(entry.source || '').trim().slice(0, 40) || 'Other';
@@ -240,6 +240,25 @@ export function creditState(money, row) {
 }
 
 export const removeEntry = (money, id) => ({ ...money, entries: (money.entries || []).filter((x) => x.id !== id) });
+
+/** A new entry's id, made before saving so the toast's Undo can take it back. */
+export const entryId = (now = new Date()) => `m${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** An entry put back after Undo (once: it isn't added twice). */
+export const restoreEntry = (money, entry) => ((money.entries || []).some((x) => x.id === entry.id)
+  ? money
+  : { ...money, entries: [...(money.entries || []), entry] });
+
+/**
+ * An entry fixed after saving: amount, date, account, source or note, or money in that was really a
+ * cash deposit (it becomes a move). Keeps its id, when it was added and the statement row it came from.
+ */
+export function updateEntry(money, id, entry, now = new Date()) {
+  const old = (money.entries || []).find((x) => x.id === id);
+  if (!old) throw new Error('That entry was already removed.');
+  const [fixed] = addEntry({ ...money, entries: [] }, { ...entry, id, bankKey: old.bankKey }, now).entries;
+  return { ...money, entries: money.entries.map((x) => (x.id === id ? { ...fixed, createdAt: old.createdAt, editedAt: now.toISOString() } : x)) };
+}
 
 /** Reads a stored or backed-up value, dropping anything malformed; two-pot data becomes accounts. */
 export function cleanMoney(v) {

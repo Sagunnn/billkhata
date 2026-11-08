@@ -7,6 +7,13 @@
 // Stored in localStorage (small) and included in backups.
 import { PAYMENT } from './constants.js';
 import { countsAsSpend } from './expense.js';
+import { payersOf } from './payers.js';
+
+/** What left your account for a bill: all of it, or your part when friends paid part of it too (a split). */
+export const outOfPocket = (e) => {
+  const total = num(e.totalAmount);
+  return e.split?.alsoPaid?.length ? payersOf('me', e.split.alsoPaid, total)[0].amount : total;
+};
 
 export const ACCOUNT_KINDS = { cash: 'Cash', bank: 'Bank', wallet: 'Wallet' };
 export const EMPTY_MONEY = { setAt: '', since: '', accounts: [], defaultAccount: '', defaults: [], entries: [], history: [] };
@@ -97,7 +104,7 @@ export function moneyNow(money = EMPTY_MONEY, expenses = []) {
   if (ready) {
     for (const e of spentBills(expenses, money)) {
       const a = byId.get(potOf(e, money));
-      if (a) a.spent += num(e.totalAmount);
+      if (a) a.spent += outOfPocket(e);
     }
     for (const x of money.entries || []) {
       const amount = num(x.amount);

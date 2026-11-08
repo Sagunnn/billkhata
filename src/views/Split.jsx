@@ -12,13 +12,13 @@ import { forgetFriend, loadFriends, loadPaymentQr, rememberFriends } from '../li
 import { clearPendingGroup, groupMembersFrom, peekPendingGroup, splitMembersFromGroup } from '../lib/groups.js';
 import { GroupSheet, GroupsCard, useGroups } from '../components/Groups.jsx';
 import PassAround from '../components/PassAround.jsx';
+import PaidByEditor from '../components/PaidBy.jsx';
 import { hasPhoto } from '../lib/expense.js';
 import { photoOf } from '../lib/photos.js';
 import PixelAvatar, { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 import { payNumberFor } from '../lib/qr.js';
 import {
-  autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember,
-  newSplitForExpense, outstanding, parseLineItemsFromText, splitText, TAG_LABELS, TAGS, weightOf,
+  autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember, newSplitForExpense, outstanding, parseLineItemsFromText, splitText, TAG_LABELS, TAGS, weightOf, transferKey,
 } from '../lib/splitter.js';
 import { drawSplitSummary } from '../lib/splitImage.js';
 import { useStore } from '../store.jsx';
@@ -437,7 +437,7 @@ function PassCard({ onPass, className = '' }) {
   );
 }
 
-function PeopleStep({ split, update, onNext, nextLabel, onPass }) {
+function PeopleStep({ split, update, onNext, nextLabel, onPass, total = 0 }) {
   const [friends, setFriends] = useState(loadFriends);
   const [groups, saveGroups] = useGroups();
   const [naming, setNaming] = useState(null); // the people, to save as a group
@@ -561,6 +561,13 @@ function PeopleStep({ split, update, onNext, nextLabel, onPass }) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-slate-500">Tap a name to rename it, a face for a new look. Someone who wasn’t there: tap <b>Not here?</b>, they stay listed and pay nothing.{byItems ? ' Veg and the beer button decide who shares which items; fine-tune it under Shares.' : ''}</p>
+        {split.members.length > 1 && (
+          <div className="mt-3 border-t border-line pt-3">
+            {/* You paid the bill unless friends paid part of it too (equally, or 70 and 50). */}
+            <PaidByEditor members={split.members.filter((m) => !m.isPayer)} primaryId={split.members.find((m) => m.isPayer)?.id || 'me'} primaryName="You"
+              total={total} alsoPaid={split.alsoPaid || []} onChange={(alsoPaid) => update({ ...split, alsoPaid })} />
+          </div>
+        )}
         {byItems && hasItems && split.members.filter((m) => !m.out).length > 1 && onPass && <PassCard onPass={onPass} className="mt-3" />}
         {/* While a name is being typed the pinned bar steps aside for the keyboard: Next is here instead. */}
         {onNext && (
@@ -610,8 +617,13 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople, onPass
   const [changed, setChanged] = useState(null); // { id, text, before: { id: share } }
   const byItems = split.mode !== 'equal';
   const people = result.members.filter((r) => !r.out);
-  const others = people.filter((r) => !r.isPayer && r.share > 0);
-  const paidBack = others.filter((r) => split.paid?.[r.id]).length;
+  // Payments to settle: everyone to you, or (when friends paid part) as few as possible.
+  const payerId = result.members.find((r) => r.isPayer)?.id;
+  const multi = result.payers.length > 1;
+  const toMe = result.transfers.filter((t) => t.toMemberId === payerId);
+  const others = toMe;
+  const paidBack = toMe.filter((t) => split.paid?.[t.fromMemberId]).length;
+  const nameOf = (id) => result.members.find((r) => r.id === id)?.name || 'Friend';
 
   function switchPref(r, patch, text) {
     const before = Object.fromEntries(result.members.map((m) => [m.id, m.share]));
@@ -619,7 +631,7 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople, onPass
     setChanged({ id: r.id, text, before });
   }
   const moved = changed ? people.filter((r) => Math.abs((changed.before[r.id] ?? r.share) - r.share) >= 0.01).length : 0;
-  const markPaid = (r, on) => update({ ...split, paid: { ...split.paid, [r.id]: on ? todayAD() : false } });
+  const markPaid = (key, on) => update({ ...split, paid: { ...split.paid, [key]: on ? todayAD() : false } });
 
   return (
     <div className="space-y-4">
@@ -648,7 +660,8 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople, onPass
           {people.map((r) => {
             const m = split.members.find((x) => x.id === r.id) || {};
             const was = changed && r.id === changed.id && Math.abs((changed.before[r.id] ?? r.share) - r.share) >= 0.01 ? changed.before[r.id] : null;
-            const paid = split.paid?.[r.id];
+            const outgoing = result.transfers.filter((t) => t.fromMemberId === r.id);
+            const incoming = r.isPayer ? 0 : result.transfers.filter((t) => t.toMemberId === r.id).reduce((s, t) => s + t.amount, 0);
             return (
               <li key={r.id} className={`rounded-[14px] p-3 ${changed?.id === r.id && moved ? 'bg-navy-soft' : ''}`}>
                 <div className="flex items-center gap-3">
@@ -670,20 +683,33 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople, onPass
                         onClick={() => switchPref(r, { alcohol: !m.alcohol }, `${r.name} ${m.alcohol ? 'had no drinks' : 'had drinks'}`)} />
                     </>
                   )}
-                  {r.isPayer && <Badge tone="neutral" icon={Banknote}>You paid the bill</Badge>}
-                  {!r.isPayer && paid && (
-                    <button type="button" onClick={() => markPaid(r, false)} title="Tap to undo"><Badge tone="success" icon={Check}>Paid back{typeof paid === 'string' ? ` · ${shortBS(paid)}` : ''}</Badge></button>
-                  )}
+                  {r.isPayer && <Badge tone="neutral" icon={Banknote}>{multi ? `You paid ${money(r.paid, region)}` : 'You paid the bill'}</Badge>}
+                  {!r.isPayer && r.paid > 0 && <Badge tone="neutral" icon={Banknote}>Paid {money(r.paid, region)} of the bill</Badge>}
+                  {incoming > 0 && <Badge tone="info">Gets {money(incoming, region)} back</Badge>}
+                  {outgoing.filter((t) => split.paid?.[transferKey(t, payerId)]).map((t) => {
+                    const done = split.paid[transferKey(t, payerId)];
+                    return (
+                      <button key={t.toMemberId} type="button" onClick={() => markPaid(transferKey(t, payerId), false)} title="Tap to undo">
+                        <Badge tone="success" icon={Check}>{t.toMemberId === payerId ? 'Paid back' : `Paid ${nameOf(t.toMemberId)}`}{typeof done === 'string' ? ` · ${shortBS(done)}` : ''}</Badge>
+                      </button>
+                    );
+                  })}
                 </div>
-                {!r.isPayer && !paid && r.share > 0 && (
-                  <div className="mt-3 flex gap-2">
+                {outgoing.filter((t) => !split.paid?.[transferKey(t, payerId)]).map((t) => (t.toMemberId === payerId ? (
+                  <div key={t.toMemberId} className="mt-3 flex gap-2">
                     <Button className="flex-1" icon={QrCode} aria-expanded={qrFor === r.id} onClick={() => setQrFor(qrFor === r.id ? '' : r.id)} disabled={!payerInfo} title={payerInfo ? '' : 'Add your payment QR in Settings'}>
-                      Collect {money(r.share, region)}
+                      Collect {money(t.amount, region)}
                     </Button>
-                    <Button variant="ghost" icon={Check} onClick={() => markPaid(r, true)}>Mark paid</Button>
+                    <Button variant="ghost" icon={Check} onClick={() => markPaid(r.id, true)}>Mark paid</Button>
                   </div>
-                )}
-                {qrFor === r.id && payerInfo && !paid && <MemberPayQr payer={payerInfo} amount={r.share} name={r.name} region={region} />}
+                ) : (
+                  // Owes a friend who paid part of the bill: paid to them directly, not through you.
+                  <div key={t.toMemberId} className="mt-3 flex items-center gap-2 rounded-[12px] bg-sunken px-3 py-2">
+                    <span className="t-label min-w-0 flex-1 text-ink">Pays <b>{nameOf(t.toMemberId)}</b> <span className="num font-semibold">{money(t.amount, region)}</span> directly</span>
+                    <Button size="sm" variant="ghost" icon={Check} onClick={() => markPaid(transferKey(t, payerId), true)}>Mark paid</Button>
+                  </div>
+                )))}
+                {qrFor === r.id && payerInfo && toMe.some((t) => t.fromMemberId === r.id && !split.paid?.[r.id]) && <MemberPayQr payer={payerInfo} amount={toMe.find((t) => t.fromMemberId === r.id).amount} name={r.name} region={region} />}
                 {byItems && r.lines.length > 0 && (
                   <details className="mt-2 pl-[52px] text-[13px] text-ink-2">
                     <summary className="cursor-pointer text-ink-3">{r.lines.length} item{r.lines.length === 1 ? '' : 's'}{Math.abs(r.extra) >= 0.01 ? ` + ${r.extra > 0 ? 'VAT/SC' : 'discount'}` : ''}</summary>
@@ -852,7 +878,7 @@ export function SplitEditor({ billId }) {
       <div className="mb-4"><Stepper step={step} setStep={setStep} /></div>
 
       {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={hasPhoto(expense) ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
-      {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} onPass={() => setPassing(true)} />}
+      {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} onPass={() => setPassing(true)} total={total} />}
       {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} onPass={() => setPassing(true)} />}
       {passing && <PassAround split={live} update={update} region={profile.region} onClose={() => { setPassing(false); setStep(2); }} />}
 

@@ -1,5 +1,6 @@
 // Split Khata: split an itemised bill between friends, with Nepali menu-aware auto-ticks.
 // Pure functions only (no DOM), so the maths and the share-link format are unit-tested.
+import { payersOf, simplifyDebts } from './payers.js';
 import { toAsciiDigits } from './nepaliDate.js';
 import { levenshtein } from './dedupe.js';
 
@@ -371,6 +372,14 @@ export function computeSplit(split) {
 
   const payer = rows.find((r) => r.isPayer);
   const myShare = payer ? payer.share : 0;
+  // Who paid the bill: you (the rest), plus anyone who paid part (split.alsoPaid). Then who pays
+  // whom: everyone to you when you paid it all, else as few payments as possible.
+  const payers = payer ? payersOf(payer.id, (split.alsoPaid || []).filter((p) => rows.some((r) => r.id === p.memberId)), total) : [];
+  const paidBy = Object.fromEntries(payers.map((p) => [p.memberId, p.amount]));
+  rows.forEach((r) => { r.paid = paidBy[r.id] || 0; });
+  const transfers = payers.length > 1
+    ? simplifyDebts(rows.map((r) => ({ memberId: r.id, netBalance: r.paid - r.share })))
+    : rows.filter((r) => !r.isPayer && r.share > 0).map((r) => ({ fromMemberId: r.id, toMemberId: payer?.id, amount: r.share }));
   return {
     total,
     itemsSubtotal: Math.round(itemsSubtotal * 100) / 100,
@@ -379,13 +388,23 @@ export function computeSplit(split) {
     unassigned: Math.round(unassigned * 100) / 100,
     members: rows,
     myShare,
-    recoverable: Math.round((rows.reduce((s, r) => s + r.share, 0) - myShare) * 100) / 100,
+    payers,
+    transfers,
+    // What comes back to you (the payer).
+    recoverable: Math.round(transfers.filter((t) => t.toMemberId === payer?.id).reduce((s, t) => s + t.amount, 0) * 100) / 100,
   };
 }
 
-/** Money still owed to the payer: shares of members not marked as paid. */
+/**
+ * A payment as "done" in split.paid: someone paying you is keyed by their id (as always); someone
+ * paying another friend who paid part is keyed "from>to".
+ */
+export const transferKey = (t, payerId) => (t.toMemberId === payerId ? t.fromMemberId : `${t.fromMemberId}>${t.toMemberId}`);
+
+/** Money still owed to you: payments to you not marked as paid. */
 export function outstanding(split, result = computeSplit(split)) {
-  return Math.round(result.members.filter((r) => !r.isPayer && !r.out && !split.paid?.[r.id]).reduce((s, r) => s + r.share, 0) * 100) / 100;
+  const me = result.members.find((r) => r.isPayer)?.id;
+  return Math.round(result.transfers.filter((t) => t.toMemberId === me && !split.paid?.[t.fromMemberId]).reduce((s, t) => s + t.amount, 0) * 100) / 100;
 }
 
 /** A fresh split for a saved bill. The payer (the BillKhata user) is the first member. */
@@ -424,9 +443,18 @@ export function splitText(split, result, { payerName = '', pay = null, date = ''
     [split.title || 'Bill', date, rs(result.total)].filter(Boolean).join(' · '),
     `${how}.`,
     '',
-    ...people.filter((r) => !r.isPayer).map((r) => `${r.name || 'Friend'}: ${rs(r.share)}${split.paid?.[r.id] ? ' (paid)' : ''}`),
-    ...people.filter((r) => r.isPayer).map((r) => `${r.name || 'Me'} (paid the bill): ${rs(r.share)}`),
   ];
+  const nameOf = (id) => result.members.find((r) => r.id === id)?.name || 'Friend';
+  const payerId = result.members.find((r) => r.isPayer)?.id;
+  if (result.payers.length > 1) {
+    // Several people paid: everyone's share, who paid what, then who pays whom.
+    lines.push(...people.map((r) => `${r.name || 'Friend'}: ${rs(r.share)}`));
+    lines.push('', `Paid: ${result.payers.map((p) => `${nameOf(p.memberId)} ${rs(p.amount)}`).join(', ')}`, '');
+    lines.push(...result.transfers.map((t) => `${nameOf(t.fromMemberId)} pays ${nameOf(t.toMemberId)} ${rs(t.amount)}${split.paid?.[transferKey(t, payerId)] ? ' (paid)' : ''}`));
+  } else {
+    lines.push(...people.filter((r) => !r.isPayer).map((r) => `${r.name || 'Friend'}: ${rs(r.share)}${split.paid?.[r.id] ? ' (paid)' : ''}`));
+    lines.push(...people.filter((r) => r.isPayer).map((r) => `${r.name || 'Me'} (paid the bill): ${rs(r.share)}`));
+  }
   const owed = outstanding(split, result);
   const name = payerName || people.find((r) => r.isPayer)?.name || '';
   if (owed > 0 && pay?.number) lines.push('', `Pay ${name || 'me'} on ${pay.via || 'eSewa'} ${pay.number}.`);

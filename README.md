@@ -594,6 +594,25 @@ Bills live only on this device, so the app guards them (`src/lib/storageSafety.j
   not from the app's state, and makes a normal backup file. A page file missing after an update
   reloads the app once (at most once a minute).
 
+## When more than one person paid
+
+A bill paid by two or more people, equally or not (70 and 50), split among everyone
+(`src/lib/payers.js`, `src/components/PaidBy.jsx`):
+
+- **Who paid**: under "Paid by" (a trip expense, a trip quick expense) or the people of a split,
+  **Someone else paid part of it too** adds rows: who, and how much. Whoever has the bill pays the
+  rest, shown as it's typed; **Paid equally** shares the payment evenly. What the others paid must
+  be less than the bill. Stored as `alsoPaid: [{ memberId, amount }]` on the trip expense or the split.
+- **Trips**: each payer is credited what they paid, so settle-up's fewest-payments list just works.
+  The expense reads "paid by Ram रु 70 + Hari रु 50" (and in the trip PDF).
+- **Splits**: shares are as before; then who pays whom in as few payments as possible
+  (`simplifyDebts`). Payments to you get **Collect** (your QR) and **Mark paid**; one to a friend who
+  paid part shows "Pays Hari रु 20 directly" with Mark paid (kept as `paid["from>to"]`). Cards say
+  "You paid रु 70", "Paid रु 50 of the bill · Gets रु 20 back". To collect counts only what comes
+  back to you. The text summary, summary image and the file sent to friends list who pays whom, and
+  a friend opening it sees what they pay, and to whom.
+- **Money**: only what you paid comes off your account (रु 70, not the whole bill).
+
 ## Trip drinks and payment QRs from friends' files
 
 - **Soft drinks are for everyone**: trip items have five types, Veg, Non-veg, **Soft drink** (tea,

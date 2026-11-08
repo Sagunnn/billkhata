@@ -1,4 +1,5 @@
 // Client-side PDF expense report (jsPDF + jspdf-autotable), loaded on demand.
+import { entryPayers } from './trips.js';
 import { reportTotals } from './expense.js';
 import { formatAD } from './nepaliDate.js';
 
@@ -296,7 +297,7 @@ export async function buildTripPdf({ trip, settlement, profile }) {
       latin(e.title) || '-',
       e.hasBill ? 'Bill' : 'No bill',
       e.hasBill ? `${e.sellerPan || '-'} / ${latin(e.invoiceNumber) || '-'}` : '-',
-      name(e.paidByMemberId),
+      e.alsoPaid?.length ? entryPayers(e).map((p) => `${name(p.memberId)} ${npr(p.amount)}`).join(' + ') : name(e.paidByMemberId),
       (e.items || []).map((it) => `${latin(it.name) || 'Item'} ${npr(it.amount)} (${it.category}: ${it.assignedMemberIds.map(name).join(', ') || 'everyone'})`).join('\n'),
       npr(e.totalAmount),
     ]),

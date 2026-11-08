@@ -8,7 +8,7 @@ import { money as fmt } from '../lib/format.js';
 import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import {
   ACCOUNT_SUGGESTIONS, addEntry, cashAccountId, creditsBySource, defaultAccountId, kindForName, moneyNow, potOf,
-  editAccounts, entryId, removeEntry, restoreEntry, setAccounts, sourceOptions, spentBills, updateEntry,
+  editAccounts, entryId, outOfPocket, removeEntry, restoreEntry, setAccounts, sourceOptions, spentBills, updateEntry,
 } from '../lib/money.js';
 import { ongoingTrips } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -478,7 +478,7 @@ export function MoneyHistorySheet({ onClose }) {
   const bySource = creditsBySource(money);
   const rows = [
     ...(money.entries || []).map((x) => ({ ...x, sort: `${x.date}|${x.createdAt}` })),
-    ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: Number(e.totalAmount) || 0, date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
+    ...bills.map((e) => ({ id: e.id, kind: e.quick ? 'quick' : 'bill', account: potOf(e, money), amount: outOfPocket(e), date: e.billDateAD, note: e.merchantName || 'Bill', sort: `${e.billDateAD}|${e.createdAt}` })),
   ].sort((a, b) => b.sort.localeCompare(a.sort));
   return (
     <Modal open onClose={onClose} size="md" title="Money history" subtitle={money.since ? `Since ${formatAD(money.since)} · tap one to fix or delete it` : ''}>

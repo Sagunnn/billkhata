@@ -3,6 +3,7 @@
 // Pure functions only, so all the money maths is unit-tested.
 import { adToBs, todayAD } from './nepaliDate.js';
 import { ALCOHOL, EXPLICIT_VEG, NON_VEG } from './splitter.js';
+import { cleanAlsoPaid, payersOf, simplifyDebts } from './payers.js';
 
 /* ---------- categories ---------- */
 
@@ -84,11 +85,14 @@ export function makeEntry({ id, title = '', paidByMemberId, dateAD = todayAD(), 
   const list = Array.isArray(items) && items.length
     ? items.map((it) => makeTripItem(it, members))
     : [makeTripItem({ name: title, amount: total }, members)];
+  const payer = paidByMemberId || members[0]?.id || 'me';
+  const alsoPaid = cleanAlsoPaid(rest.alsoPaid, { total, primaryId: payer });
   return {
     ...rest,
+    alsoPaid: alsoPaid.length ? alsoPaid : undefined,
     id: id || tripId('e'),
     title: String(title).trim(),
-    paidByMemberId: paidByMemberId || members[0]?.id || 'me',
+    paidByMemberId: payer,
     dateAD,
     dateBS: adToBs(dateAD) || '',
     totalAmount: total,
@@ -158,28 +162,7 @@ export function entryShares(entry, members) {
 
 /* ---------- settlement ---------- */
 
-/**
- * Fewest-hops settlement: largest debtor pays largest creditor, repeat.
- * Balances within ±Rs. 0.50 count as settled. Gives at most N − 1 transfers.
- * @param {{memberId: string, netBalance: number}[]} balances
- */
-export function simplifyDebts(balances) {
-  const paisa = balances.map((b) => ({ id: b.memberId, v: Math.round(b.netBalance * 100) }));
-  const creditors = paisa.filter((b) => b.v > 50).sort((a, b) => b.v - a.v);
-  const debtors = paisa.filter((b) => b.v < -50).map((b) => ({ ...b, v: -b.v })).sort((a, b) => b.v - a.v);
-  const transfers = [];
-  let i = 0;
-  let j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const amt = Math.min(debtors[i].v, creditors[j].v);
-    if (amt > 0) transfers.push({ fromMemberId: debtors[i].id, toMemberId: creditors[j].id, amount: amt / 100 });
-    debtors[i].v -= amt;
-    creditors[j].v -= amt;
-    if (debtors[i].v <= 50) i++;
-    if (creditors[j].v <= 50) j++;
-  }
-  return transfers;
-}
+export { simplifyDebts } from './payers.js';
 
 /** Paid, consumed (by category), net balance per member, and who pays whom. */
 export function calculateTripSettlement(trip) {
@@ -189,8 +172,11 @@ export function calculateTripSettlement(trip) {
   let tripTotal = 0;
   for (const entry of trip.entries || []) {
     tripTotal += Number(entry.totalAmount) || 0;
-    if (acc[entry.paidByMemberId]) acc[entry.paidByMemberId].paid += Number(entry.totalAmount) || 0;
-    else warnings.push(`“${entry.title || 'An expense'}” was paid by someone no longer on the trip.`);
+    // Each person who paid gets credit for what they paid (one, or several: alsoPaid).
+    for (const p of entryPayers(entry)) {
+      if (acc[p.memberId]) acc[p.memberId].paid += p.amount;
+      else warnings.push(`“${entry.title || 'An expense'}” was paid by someone no longer on the trip.`);
+    }
     const { shares, warnings: w } = entryShares(entry, members);
     warnings.push(...w.map((x) => `${entry.title || 'Expense'}: ${x}`));
     for (const [id, s] of Object.entries(shares)) for (const k of Object.keys(s)) acc[id][k] += s[k];
@@ -245,12 +231,15 @@ export function entryFromExpense(exp, trip) {
  * Cash with no bill, added in a few taps: what, how much, who paid, and who it's for (everyone
  * when nobody is picked). Veg / non-veg / drink is guessed from the name.
  */
-export function quickTripEntry({ title, amount, paidByMemberId, forIds, dateAD = todayAD() }, members) {
+/** Who paid a trip expense and how much: the main payer (the rest), then anyone who paid part. */
+export const entryPayers = (entry) => payersOf(entry.paidByMemberId, entry.alsoPaid, Number(entry.totalAmount) || 0);
+
+export function quickTripEntry({ title, amount, paidByMemberId, alsoPaid, forIds, dateAD = todayAD() }, members) {
   const name = String(title || '').trim() || 'Expense';
   const category = classifyTripItem(name);
   const ids = forIds?.length ? forIds : hereMembers(members).map((m) => m.id);
   return makeEntry({
-    title: name, paidByMemberId, dateAD, totalAmount: amount, hasBill: false,
+    title: name, paidByMemberId, alsoPaid, dateAD, totalAmount: amount, hasBill: false,
     items: [makeTripItem({ name, amount, category, assignedMemberIds: ids }, members)],
   }, members);
 }

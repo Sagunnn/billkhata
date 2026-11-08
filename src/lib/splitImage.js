@@ -31,7 +31,11 @@ function blockHeight(m) {
 export async function drawSplitSummary({ split, result, payer = {} }) {
   const people = result.members.filter((r) => !r.out);
   const qrH = payer.qrText || payer.qrImage ? 420 : 0;
-  const H = 300 + people.reduce((h, m) => h + blockHeight(m), 0) + (result.unassigned ? 50 : 0) + qrH + 90;
+  // Several people paid: a "who pays whom" list follows the shares.
+  const multi = (result.payers || []).length > 1;
+  const nameOf = (id) => result.members.find((r) => r.id === id)?.name || 'Friend';
+  const payH = multi ? 90 + result.transfers.length * 44 : 0;
+  const H = 300 + people.reduce((h, m) => h + blockHeight(m), 0) + (result.unassigned ? 50 : 0) + payH + qrH + 90;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -81,7 +85,8 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
     y += 48;
     g.fillStyle = INK;
     g.font = `800 36px ${FONT}`;
-    g.fillText(fit(g, `${m.name}${m.isPayer ? ' (paid)' : ''}`, right - PAD - 260), PAD, y);
+    const paidNote = multi ? (m.paid > 0 ? ` (paid ${npr(m.paid)})` : '') : m.isPayer ? ' (paid)' : '';
+    g.fillText(fit(g, `${m.name}${paidNote}`, right - PAD - 260), PAD, y);
     g.textAlign = 'right';
     g.fillStyle = m.isPayer ? MUTED : BRAND;
     g.fillText(npr(m.share), right, y);
@@ -106,6 +111,22 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
       g.textAlign = 'left';
     }
     y += 24;
+  }
+  if (multi) {
+    y += 56;
+    g.fillStyle = INK;
+    g.font = `700 30px ${FONT}`;
+    g.fillText('Who pays whom', PAD, y);
+    g.font = `400 28px ${FONT}`;
+    for (const t of result.transfers) {
+      y += 44;
+      g.fillStyle = '#334155';
+      g.fillText(fit(g, `${nameOf(t.fromMemberId)} pays ${nameOf(t.toMemberId)}`, W - 2 * PAD - 220), PAD + 24, y);
+      g.textAlign = 'right';
+      g.fillStyle = BRAND;
+      g.fillText(npr(t.amount), W - PAD, y);
+      g.textAlign = 'left';
+    }
   }
   if (result.unassigned) {
     y += 40;
@@ -133,7 +154,7 @@ export async function drawSplitSummary({ split, result, payer = {} }) {
     g.fillStyle = MUTED;
     g.fillText(fit(g, payer.qrLabel || 'Scan to pay', W - PAD - tx - 20), tx, y + 148);
     g.fillText('Scan, then type the amount', tx, y + 210);
-    g.fillText('next to your name above.', tx, y + 248);
+    g.fillText(multi ? `you pay ${payer.name || 'me'} above.` : 'next to your name above.', tx, y + 248);
     y += qrH - 40;
   }
 

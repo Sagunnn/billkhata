@@ -70,9 +70,11 @@ export function splitShareFile(expense, result, { payer = {}, pay = null, from =
       total: Number(expense.totalAmount) || 0,
       mode: split.mode || 'equal',
       people: result.members.filter((m) => !m.out).map((m) => ({
-        id: m.id, name: m.name, isPayer: Boolean(m.isPayer), share: m.share,
+        id: m.id, name: m.name, isPayer: Boolean(m.isPayer), share: m.share, ...(m.paid && !m.isPayer ? { paidPart: m.paid } : {}),
         lines: (m.lines || []).map((l) => ({ name: l.name, amount: l.amount })), extra: m.extra || 0,
       })),
+      // Several people paid: who pays whom (someone may owe a friend who paid, not the sender).
+      ...((result.payers || []).length > 1 ? { transfers: result.transfers.map((t) => ({ from: t.fromMemberId, to: t.toMemberId, amount: t.amount })) } : {}),
       pay: pay ? { via: pay.via, number: pay.number } : null,
       payerName: payer.name || '',
     },
@@ -93,6 +95,11 @@ export function parseShareFile(text) {
     if (!t?.id || !Array.isArray(t.members) || !Array.isArray(t.entries)) throw new Error('This trip file is incomplete.');
   } else if (data.type === 'split') {
     if (!data.split?.id || !Array.isArray(data.split.people)) throw new Error('This split file is incomplete.');
+    // Who pays whom (several people paid): only well-formed rows are kept.
+    if ('transfers' in data.split) {
+      const ok = Array.isArray(data.split.transfers) ? data.split.transfers.filter((t) => t && typeof t.from === 'string' && typeof t.to === 'string' && Number(t.amount) > 0) : [];
+      if (ok.length) data.split.transfers = ok; else delete data.split.transfers;
+    }
   } else {
     throw new Error('That isn’t a BillKhata trip or split file.');
   }

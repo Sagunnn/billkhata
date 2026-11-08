@@ -140,7 +140,20 @@ export function ReceivedSplits() {
                   <span className="num block font-nepali text-[16px] font-semibold text-ink">{money(me?.share || 0)}</span>
                 </span>
               </div>
-              {r.split.pay?.number && me && !me.isPayer && <p className="t-label mt-1.5 text-ink-2">Pay {r.split.payerName || r.from} on {r.split.pay.via} <b className="num">{r.split.pay.number}</b>. Check the number with them before paying.</p>}
+              {r.split.transfers ? (() => {
+                // Several people paid: what's yours to pay (maybe to a friend who paid part), or to get back.
+                const who = (id) => r.split.people.find((p) => p.id === id)?.name || 'a friend';
+                const payerId = r.split.people.find((p) => p.isPayer)?.id;
+                const mineOut = r.split.transfers.filter((t) => t.from === r.meId);
+                const mineIn = r.split.transfers.filter((t) => t.to === r.meId);
+                return (
+                  <div className="t-label mt-1.5 space-y-0.5 text-ink-2">
+                    {mineOut.map((t) => <p key={t.to}>You pay <b>{who(t.to)}</b> <b className="num">{money(t.amount)}</b>{t.to === payerId && r.split.pay?.number ? ` on ${r.split.pay.via} ${r.split.pay.number}` : ''}.</p>)}
+                    {mineIn.map((t) => <p key={t.from}><b>{who(t.from)}</b> pays you <b className="num">{money(t.amount)}</b>.</p>)}
+                    {!mineOut.length && !mineIn.length && <p>Nothing to pay: you’re even.</p>}
+                  </div>
+                );
+              })() : r.split.pay?.number && me && !me.isPayer && <p className="t-label mt-1.5 text-ink-2">Pay {r.split.payerName || r.from} on {r.split.pay.via} <b className="num">{r.split.pay.number}</b>. Check the number with them before paying.</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {me && !me.isPayer && (r.added
                   ? <span className="t-label inline-flex items-center gap-1 text-leaf"><Check className="size-4" />In your ledger</span>

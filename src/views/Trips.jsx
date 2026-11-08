@@ -13,7 +13,7 @@ import { getIrdStatus } from '../lib/ird.js';
 import { adToBs, formatAD, formatBS, todayAD } from '../lib/nepaliDate.js';
 import { decodeQrFromImage, qrKind, qrPayee } from '../lib/qr.js';
 import {
-  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTripItem,
+  calculateTripSettlement, classifyTripItem, entryFromExpense, entryPayers, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTripItem,
   makeTripMember, quickTripEntry, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey, tripStatus,
 } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -29,6 +29,7 @@ import { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 import { usePhoto } from '../components/usePhoto.js';
 import { hasPhoto } from '../lib/expense.js';
 import { photoOf } from '../lib/photos.js';
+import PaidByEditor from '../components/PaidBy.jsx';
 
 const CAT_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -117,7 +118,7 @@ function MembersCard({ trip, update, myQr }) {
   const toast = useToast();
   const [name, setName] = useState('');
   const [qrFor, setQrFor] = useState('');
-  const used = new Set(trip.entries.map((e) => e.paidByMemberId));
+  const used = new Set(trip.entries.flatMap((e) => entryPayers(e).map((p) => p.memberId)));
   const [groups] = useGroups();
   const onTrip = new Set(trip.members.map((m) => m.name.trim().toLowerCase()));
   const addable = groups.filter((g) => g.members.some((m) => !onTrip.has(m.name.trim().toLowerCase())));
@@ -359,6 +360,8 @@ function EntryModal({ trip, entry, onClose, onSave }) {
     }
     if (!d.title.trim()) return toast('Give the expense a name.', 'error');
     if (!(total > 0)) return toast('Enter the amount paid.', 'error');
+    const othersPaid = (d.alsoPaid || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    if (othersPaid >= total && othersPaid > 0) return toast('What the others paid is the whole bill or more. Whoever has the bill paid part too: lower their amounts.', 'error');
     const listed = d.itemised
       ? d.items.filter((it) => it.name.trim() || Number(it.amount) > 0).map((it) => makeTripItem({ ...it, amount: Number(it.amount) || 0 }, members))
       : [];
@@ -402,7 +405,7 @@ function EntryModal({ trip, entry, onClose, onSave }) {
             <input id="te-title" className="input" value={d.title} onChange={(e) => set({ title: e.target.value })} placeholder={d.hasBill ? 'e.g. Nagarkot Sekuwa Corner' : 'e.g. Taxi to Nagarkot, Petrol, Snacks'} />
           </Field>
           <Field label="Paid by" htmlFor="te-paid">
-            <select id="te-paid" className="input" value={d.paidByMemberId} onChange={(e) => set({ paidByMemberId: e.target.value })}>
+            <select id="te-paid" className="input" value={d.paidByMemberId} onChange={(e) => set({ paidByMemberId: e.target.value, alsoPaid: (d.alsoPaid || []).filter((p) => p.memberId !== e.target.value) })}>
               {members.map((m) => <option key={m.id} value={m.id}>{m.name || 'Person'}{m.isMe ? ' (you)' : ''}</option>)}
             </select>
           </Field>
@@ -412,6 +415,10 @@ function EntryModal({ trip, entry, onClose, onSave }) {
           <Field label="Date" htmlFor="te-date" hint={d.dateAD ? `${formatBS(adToBs(d.dateAD))} BS` : ''}>
             <input id="te-date" type="date" className="input" value={d.dateAD} onChange={(e) => set({ dateAD: e.target.value })} />
           </Field>
+          <div className="col-span-full">
+            <PaidByEditor members={members} primaryId={d.paidByMemberId} primaryName={members.find((m) => m.id === d.paidByMemberId)?.name || 'They'}
+              total={Number(d.totalAmount) || 0} alsoPaid={(d.alsoPaid || []).map((p) => ({ ...p, amount: String(p.amount ?? '') }))} onChange={(alsoPaid) => set({ alsoPaid })} />
+          </div>
           {d.hasBill && (
             <>
               <Field label="Seller PAN / VAT" htmlFor="te-pan"><input id="te-pan" inputMode="numeric" className="input num" value={d.sellerPan || ''} onChange={(e) => set({ sellerPan: e.target.value.replace(/\D/g, '').slice(0, 9) })} /></Field>
@@ -594,13 +601,16 @@ export function TripQuickSheet({ tripId: id, onClose }) {
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [paidBy, setPaidBy] = useState(me?.id || '');
+  const [alsoPaid, setAlsoPaid] = useState([]);
   const [forIds, setForIds] = useState(hereMembers(members).map((m) => m.id));
   const [error, setError] = useState('');
   const [count, setCount] = useState(0);
   if (!trip) return null;
   async function save(again) {
     if (!(Number(amount) > 0)) { setError('Enter an amount above zero.'); return; }
-    const entry = quickTripEntry({ title, amount: Number(amount), paidByMemberId: paidBy, forIds }, members);
+    const othersPaid = alsoPaid.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    if (othersPaid >= Number(amount) && othersPaid > 0) { setError('What the others paid is the whole amount or more.'); return; }
+    const entry = quickTripEntry({ title, amount: Number(amount), paidByMemberId: paidBy, alsoPaid, forIds }, members);
     await saveTrip({ ...trip, entries: [...trip.entries, entry] });
     const who = members.find((m) => m.id === paidBy);
     toast(`${money(Number(amount), profile.region)} ${entry.title.toLowerCase()} added to ${trip.name}${who && !who.isMe ? `, paid by ${who.name}` : ''}.`);
@@ -627,7 +637,11 @@ export function TripQuickSheet({ tripId: id, onClose }) {
         <fieldset>
           <legend className="label">Paid by</legend>
           <div className="flex flex-wrap gap-1.5">
-            {members.map((m) => <button key={m.id} type="button" aria-pressed={paidBy === m.id} className={pill(paidBy === m.id)} onClick={() => setPaidBy(m.id)}>{m.isMe ? 'Me' : m.name || 'Person'}</button>)}
+            {members.map((m) => <button key={m.id} type="button" aria-pressed={paidBy === m.id} className={pill(paidBy === m.id)} onClick={() => { setPaidBy(m.id); setAlsoPaid((l) => l.filter((p) => p.memberId !== m.id)); }}>{m.isMe ? 'Me' : m.name || 'Person'}</button>)}
+          </div>
+          <div className="mt-2">
+            <PaidByEditor members={members.map((m) => ({ ...m, name: m.isMe ? 'Me' : m.name }))} primaryId={paidBy} primaryName={members.find((m) => m.id === paidBy)?.isMe ? 'You' : members.find((m) => m.id === paidBy)?.name || 'They'}
+              total={Number(amount) || 0} alsoPaid={alsoPaid} onChange={setAlsoPaid} region={profile.region} />
           </div>
         </fieldset>
         <fieldset>
@@ -816,7 +830,7 @@ export function TripView({ tripId: id }) {
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-semibold">{e.title}</div>
                         <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                          <span>{formatAD(e.dateAD)} · paid by {byId[e.paidByMemberId]?.name || '?'} · {e.hasBill ? 'bill' : 'no bill'}</span>
+                          <span>{formatAD(e.dateAD)} · paid by {e.alsoPaid?.length ? entryPayers(e).map((p) => `${byId[p.memberId]?.name || '?'} ${money(p.amount, region)}`).join(' + ') : byId[e.paidByMemberId]?.name || '?'} · {e.hasBill ? 'bill' : 'no bill'}</span>
                           {[...new Set(e.items.map((it) => it.category))].map((c) => <CatChip key={c} cat={c} />)}
                           {linked && <StatusBadge status={getIrdStatus(linked)} />}
                         </div>

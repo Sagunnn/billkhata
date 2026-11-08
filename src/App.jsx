@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
-import { StorageNote } from './components/LocalFirst.jsx';
+import { StorageNote, useKeepStorage } from './components/LocalFirst.jsx';
 import { Wordmark } from './components/Brand.jsx';
 import { useUpdateReady } from './lib/offline.js';
 import { needsWelcome } from './components/Welcome.jsx';
@@ -244,6 +244,7 @@ export default function App() {
   useDropGuard();
   useShortcuts();
   useTypingFlag();
+  useKeepStorage();
   const { ready, loadError, profile, expenses, modal, openSheet } = useStore();
   // A first visit opens the welcome (on Home only, so a shared link or shortcut isn't interrupted).
   useEffect(() => {

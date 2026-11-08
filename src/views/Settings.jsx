@@ -3,9 +3,10 @@ import {
   CircleCheck, CircleDashed, Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, LoaderCircle, Monitor, Moon, Palette, ScanText, ShieldCheck, Smartphone, Sparkles, Sun, Trash, UserRound, Wifi, WifiOff,
 } from 'lucide-react';
 import { OCR_ENGINES, REGIONS, VISION_PROVIDERS } from '../lib/constants.js';
-import { backupFilename, backupStatus, buildBackup, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
+import { backupSize, csvFilename, expensesCsv, readBackupFile, validateBackup } from '../lib/backup.js';
+import { StorageSafetyRow, useBackupStatus, useDownloadBackup } from '../components/LocalFirst.jsx';
 import { bytes, downloadBlob } from '../lib/format.js';
-import { backupExtras, restoreExtras, validateProfile } from '../lib/profile.js';
+import { restoreExtras, validateProfile } from '../lib/profile.js';
 import { useStore } from '../store.jsx';
 import { downloadForOffline, offlineStatus, READER_MB, useInstallPrompt, useOnline } from '../lib/offline.js';
 import { useToast } from '../components/Toast.jsx';
@@ -198,22 +199,17 @@ function OcrSection() {
 }
 
 function DataSection() {
-  const { expenses, trips, profile, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, statements, payments, reconOverrides, restoreBankData, lastBackupAt, markBackedUp, money, setSettings } = useStore();
+  const { expenses, trips, replaceAll, mergeExpenses, replaceAllTrips, mergeTrips, setProfile, removeSamples, loadSamples, payments, restoreBankData, setSettings } = useStore();
   const toast = useToast();
   const [pending, setPending] = useState(null); // validated backup awaiting a mode choice
   const [dragging, setDragging] = useState(false);
   const [mode, setMode] = useState('merge');
-  const sizeEstimate = new Blob([JSON.stringify(expenses)]).size;
+  // Sizes from the photo lengths: no building the whole backup just to show a number.
+  const fullSize = backupSize(expenses, trips, payments);
+  const smallSize = backupSize(expenses, trips, payments, { photos: false });
   const samples = expenses.filter((e) => e.isSample).length;
-  const status = backupStatus(lastBackupAt, expenses.length - samples);
-
-  function download() {
-    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money }, backupExtras());
-    downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), backupFilename());
-    markBackedUp();
-    const bank = statements.length || payments.length ? `, ${statements.length} statement${statements.length === 1 ? '' : 's'}, ${payments.length} payment screenshot${payments.length === 1 ? '' : 's'}` : '';
-    toast(`Backup downloaded (${expenses.length} bills, ${trips.length} trip${trips.length === 1 ? '' : 's'}${bank}, settings, payment QR and friends).`);
-  }
+  const status = useBackupStatus();
+  const download = useDownloadBackup();
 
   function downloadCsv() {
     // The byte-order mark makes Excel read Nepali text as UTF-8.
@@ -235,7 +231,9 @@ function DataSection() {
   async function restore() {
     const { expenses: list, profile: p } = pending;
     if (mode === 'overwrite') {
-      if (!window.confirm(`Replace all ${expenses.length} bills and ${trips.length} trips in this browser with the ${list.length} bills and ${(pending.trips || []).length} trips from the backup?`)) return;
+      const photosHere = expenses.filter((e) => e.receiptImage).length;
+      const lose = !pending.photos && photosHere ? ` This backup has no photos, so the ${photosHere} bill photo${photosHere === 1 ? '' : 's'} here will be gone.` : '';
+      if (!window.confirm(`Replace all ${expenses.length} bills and ${trips.length} trips in this browser with the ${list.length} bills and ${(pending.trips || []).length} trips from the backup?${lose}`)) return;
       await replaceAll(list);
       await replaceAllTrips(pending.trips || []);
       await restoreBankData(pending, 'overwrite');
@@ -263,18 +261,26 @@ function DataSection() {
     <Card id="backup" className="scroll-mt-[calc(var(--header-h)+1rem)] p-4 md:scroll-mt-6 md:p-5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-bold"><Database className="size-5" />Backup & restore</h2>
       <p className="mb-3 text-sm text-slate-600">
-        Your bills live only in this browser. Clearing site data deletes them, so keep a backup file somewhere safe.
+        Your bills live only in this browser. Clearing site data deletes them, so keep a backup file somewhere other than this phone.
       </p>
+      <StorageSafetyRow />
       <div className={`mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ring-1 ring-inset ${status.stale ? 'bg-amber-50 text-amber-950 ring-amber-200' : 'bg-emerald-50 text-emerald-950 ring-emerald-200'}`}>
         <span className="flex items-center gap-1.5 font-semibold"><ShieldCheck className="size-4" />Saved on this device</span>
-        <span className="num text-xs">{expenses.length} bills · {trips.length} trips · about {bytes(sizeEstimate)}</span>
+        <span className="num text-xs">{expenses.length} bills · {trips.length} trips</span>
         <span className="text-xs font-semibold sm:ml-auto">{status.text}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={download} className="flex min-w-0 items-center gap-3 rounded-xl border-2 border-slate-200 p-4 text-left hover:border-slate-400">
-          <Download className="size-6 shrink-0 text-navy" />
-          <span className="min-w-0"><span className="block font-bold">Download backup</span><span className="block text-sm text-slate-600">Bills, photos, trips, bank data, your payment QR, friends and settings in one .json file (never API keys)</span></span>
-        </button>
+        <div className="flex min-w-0 flex-col gap-1 rounded-xl border-2 border-slate-200 p-1 hover:border-slate-400">
+          <button type="button" onClick={() => download()} className="flex min-w-0 items-center gap-3 rounded-lg p-3 text-left">
+            <Download className="size-6 shrink-0 text-navy" />
+            <span className="min-w-0"><span className="block font-bold">Download backup <span className="num font-normal text-slate-500">· about {bytes(fullSize)}</span></span><span className="block text-sm text-slate-600">Bills, photos, trips, bank data, your payment QR, friends and settings in one .json file (never API keys)</span></span>
+          </button>
+          {fullSize - smallSize > 2e6 && (
+            <button type="button" onClick={() => download({ photos: false })} className="mx-3 mb-2 self-start text-left text-sm font-semibold text-navy underline-offset-2 hover:underline">
+              Without photos: about {bytes(smallSize)}, easy to email or send
+            </button>
+          )}
+        </div>
         <label
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -308,6 +314,7 @@ function DataSection() {
           <p className="text-sm text-slate-700">
             <b>{pending.fileName}</b>{pending.exportedAt ? `, made ${new Date(pending.exportedAt).toLocaleString('en-GB')}` : ''}: {pending.expenses.length} valid bills, {(pending.trips || []).length} trips
             {pending.profile ? ` and a profile for ${pending.profile.fullName || 'someone'}` : ''}.
+            {!pending.photos && ' This backup was made without photos.'}
           </p>
           {pending.skipped.length > 0 && (
             <details className="mt-2 rounded-lg bg-amber-50 p-2.5 text-sm text-amber-950">

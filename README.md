@@ -530,6 +530,26 @@ version 3), and they're in backups.
   Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
   in the store and shared with the Money page).
 
+## Keeping your bills safe
+
+Bills live only on this device, so the app guards them (`src/lib/storageSafety.js`,
+`src/components/LocalFirst.jsx`):
+
+- **Persistent storage**: once you have bills of your own, BillKhata asks the browser to keep its
+  data (`navigator.storage.persist()`, at most once a day). Chrome and Safari decide quietly;
+  Firefox asks once. Settings → Backup shows whether it's kept, the space used, and the one fix:
+  **Keep my bills safe**, or on iPhone Safari **Add to Home Screen** (Safari deletes a site's data
+  after 7 days without a visit; Home Screen apps are exempt).
+- **Reminders by risk**: "Backed up 7 days ago · 3 bills since". A Home card appears when 5+ bills
+  were never backed up, 10+ changed since the last backup, or 14 days passed with something new
+  (Later hides it for 3 days). The amber dot on "On this device" also shows when the browser may
+  clear data and there's something not backed up.
+- **Backup without photos**: when photos make the file large, Settings offers a small one (bills,
+  trips, money and settings, no pictures; marked `photos: false`). Overwriting from it warns that
+  the photos here would be gone.
+- Sizes come from the photo lengths (`backupSize`), not from building the whole backup on every
+  render.
+
 ## Friend groups, Not here, Pass the phone and pixel faces
 
 - **Groups** (`src/lib/groups.js`, `src/components/Groups.jsx`): **Your groups** on the Split page.

@@ -9,16 +9,19 @@ import { cleanMoney } from './money.js';
 
 export const BACKUP_VERSION = 1;
 
-export function buildBackup(profile, expenses, trips = [], bank = {}, extras = null) {
+export function buildBackup(profile, expenses, trips = [], bank = {}, extras = null, { photos = true } = {}) {
+  // Without photos: a small file (bills, trips and money in full, just no pictures).
+  const noPhoto = ({ receiptImage: _r, ...x }) => x;
   return {
     app: 'BillKhata',
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
+    ...(photos ? {} : { photos: false }),
     userProfile: profile,
-    expenses,
-    trips,
+    expenses: photos ? expenses : expenses.map(noPhoto),
+    trips: photos ? trips : trips.map((t) => ({ ...t, entries: (t.entries || []).map(noPhoto) })),
     statements: bank.statements || [],
-    payments: bank.payments || [],
+    payments: photos ? bank.payments || [] : (bank.payments || []).map(({ image: _i, ...p }) => p),
     reconOverrides: bank.reconOverrides || { links: [], unlinks: [] },
     money: bank.money || null,
     ...(extras ? { extras } : {}),
@@ -119,17 +122,36 @@ export function expensesCsv(expenses = []) {
 
 export const csvFilename = () => `billkhata_bills_${todayAD().replace(/-/g, '_')}.csv`;
 
+/** Your own bills added or changed after the last backup (none backed up yet: all of them). */
+export function changedSince(expenses, lastAt) {
+  const own = expenses.filter((e) => !e.isSample);
+  return lastAt ? own.filter((e) => (e.updatedAt || e.createdAt || '') > lastAt).length : own.length;
+}
+
 /**
- * How fresh the last backup is, for the "saved on this device" indicator.
- * `stale` when there are bills of your own and no backup in the last 14 days.
+ * How fresh the last backup is, for the "saved on this device" indicator and the Home reminder.
+ * `changed`: bills added or changed since (changedSince). `stale` (an amber dot) when there are
+ * bills of your own and no backup in 14 days, or 10 or more not in one. `nudge`: worth a reminder
+ * on Home (5 or more bills never backed up, 10 or more since the last, or 14 days with new ones).
  */
-export function backupStatus(lastAt, ownBills, now = Date.now()) {
+export function backupStatus(lastAt, ownBills, now = Date.now(), changed) {
   if (!ownBills) return { stale: false, text: lastAt ? 'Backed up' : 'Nothing to back up yet' };
   const t = Date.parse(lastAt || '');
-  if (!Number.isFinite(t)) return { stale: true, text: 'Not backed up yet' };
+  const plural = (n) => `${n} bill${n === 1 ? '' : 's'}`;
+  if (!Number.isFinite(t)) return { stale: true, text: 'Not backed up yet', nudge: ownBills >= 5, changed: ownBills };
   const days = Math.max(0, Math.floor((now - t) / 864e5));
-  const text = days === 0 ? 'Backed up today' : days === 1 ? 'Backed up yesterday' : `Backed up ${days} days ago`;
-  return { stale: days >= 14, text, days };
+  const when = days === 0 ? 'Backed up today' : days === 1 ? 'Backed up yesterday' : `Backed up ${days} days ago`;
+  if (changed == null) return { stale: days >= 14, text: when, days };
+  const text = changed ? `${when} · ${plural(changed)} since` : when;
+  return { stale: changed >= 10 || (days >= 14 && changed > 0), nudge: changed >= 10 || (days >= 14 && changed > 0), text, days, changed };
+}
+
+/** Roughly how big a backup is, without building it (photos are most of it). */
+export function backupSize(expenses = [], trips = [], payments = [], { photos = true } = {}) {
+  const img = (s) => (photos && typeof s === 'string' ? s.length : 0);
+  return expenses.reduce((n, e) => n + 1200 + img(e.receiptImage), 0)
+    + trips.reduce((n, t) => n + 600 + (t.entries || []).reduce((m, x) => m + 800 + img(x.receiptImage), 0), 0)
+    + payments.reduce((n, p) => n + 600 + img(p.image), 0);
 }
 
 export const backupFilename = () => `billkhata_backup_${todayAD().replace(/-/g, '_')}.json`;
@@ -182,7 +204,7 @@ export function validateBackup(obj) {
 
   const trips = validateTrips(obj.trips, skipped);
   const bank = validateBank(obj, skipped);
-  return { ok: true, errors, skipped, expenses, trips, ...bank, extras: validateExtras(obj.extras), profile, exportedAt: obj.exportedAt };
+  return { ok: true, errors, skipped, expenses, trips, ...bank, extras: validateExtras(obj.extras), profile, exportedAt: obj.exportedAt, photos: obj.photos !== false };
 }
 
 export async function readBackupFile(file) {

@@ -15,7 +15,7 @@ import { CATEGORY_ICONS, CATEGORY_SHORT } from '../lib/categoryIcons.js';
 import { isDemoProfile, useStore } from '../store.jsx';
 import { NoBillsYet } from '../components/NoBillsYet.jsx';
 import { BillCards, BillTable } from '../components/BillCard.jsx';
-import { StorageIndicator } from '../components/LocalFirst.jsx';
+import { BackupReminder, StorageIndicator } from '../components/LocalFirst.jsx';
 import { Wordmark } from '../components/Brand.jsx';
 import { ACCOUNT_ICON } from '../components/MoneySheets.jsx';
 import { ActionChip, Button, Card, Kbd, Notice } from '../components/ui.jsx';
@@ -465,6 +465,7 @@ export default function Dashboard() {
 
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="min-w-0 space-y-4">
+          <BackupReminder />
           {ongoingTrips(trips).slice(0, 2).map((t) => <TripNow key={t.id} trip={t} />)}
           <WalletHero />
           <LuckyStrip />

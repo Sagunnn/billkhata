@@ -13,13 +13,16 @@ registerServiceWorker();
 import App from './App.jsx';
 import { StoreProvider } from './store.jsx';
 import { ToastProvider } from './components/Toast.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ToastProvider>
-      <StoreProvider>
-        <App />
-      </StoreProvider>
-    </ToastProvider>
+    <ErrorBoundary scope="app">
+      <ToastProvider>
+        <StoreProvider>
+          <App />
+        </StoreProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

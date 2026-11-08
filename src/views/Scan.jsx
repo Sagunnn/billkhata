@@ -11,6 +11,7 @@ import { locateFields } from '../lib/ocr/locate.js';
 import { entryFromExpense, tripStatus } from '../lib/trips.js';
 import { handOffStatement, isStatementFile } from '../lib/statementHandoff.js';
 import { money } from '../lib/format.js';
+import { clearScanDraft, draftAge, loadScanDraft, saveScanDraft } from '../lib/scanDraft.js';
 import { sampleReceiptForScan } from '../lib/sample.js';
 import { useStore } from '../store.jsx';
 import BillForm from '../components/BillForm.jsx';
@@ -68,7 +69,35 @@ export default function Scan() {
   const hasCamera = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
   // Phones open straight into the live camera; desktops start on the choices (drop, upload, type).
   const phoneCamera = () => hasCamera && Boolean(window.matchMedia?.('(pointer: coarse)').matches) && window.innerWidth < 768;
-  const [camera, setCamera] = useState(phoneCamera);
+  // An unfinished scan (the phone closed the app while you were checking it) is offered first;
+  // otherwise phones open the camera once that's known.
+  const [camera, setCamera] = useState(false);
+  const [resume, setResume] = useState(null);
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    loadScanDraft().then((d) => {
+      if (d) setResume(d);
+      else if (phoneCamera()) setCamera(true);
+      setChecked(true);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // While you check a scan it's kept on this device, so it survives the app being closed.
+  useEffect(() => {
+    if (step !== 'review' || !draft) return undefined;
+    const t = setTimeout(() => saveScanDraft({ draft, rawText, lastRead, forTrip, forSplit }), 400);
+    return () => clearTimeout(t);
+  }, [step, draft, rawText, lastRead, forTrip, forSplit]);
+  function resumeDraft() {
+    setDraft(resume.draft);
+    setRawText(resume.rawText || '');
+    setLastRead(resume.lastRead || null);
+    setForTrip(resume.forTrip || '');
+    setForSplit(Boolean(resume.forSplit));
+    setPreview(resume.draft.receiptImage || '');
+    setErrors({});
+    setResume(null);
+    setStep('review');
+  }
 
   const engineLabel = settings.ocrEngine === OCR_ENGINES.VISION
     ? `${VISION_PROVIDERS[settings.visionProvider]?.label} (${settings.models[settings.visionProvider]})`
@@ -226,6 +255,8 @@ export default function Scan() {
   }
 
   function reset() {
+    clearScanDraft();
+    setResume(null);
     setStep('pick');
     setDraft(null);
     setPreview('');
@@ -366,6 +397,7 @@ export default function Scan() {
   }
 
   const pickFile = (e) => { onFile(e.target.files?.[0]); e.target.value = ''; };
+  if (!checked && phoneCamera()) return null; // a moment, to see if there's a scan to finish
   if (camera) {
     const off = (then) => () => { setCamera(false); then?.(); };
     return (
@@ -391,6 +423,19 @@ export default function Scan() {
         </div>
       )}
       <PageHeader title={trip ? `Add a bill to ${trip.name}` : 'Add a bill'} subtitle={<>OCR engine: <b>{engineLabel}</b> · <a href="#/settings" className="font-semibold text-navy underline">change</a></>} />
+      {resume && (
+        <div className="card mb-4 flex items-center gap-3 rounded-2xl border-2 border-brand/40 p-3.5">
+          {resume.draft.receiptImage && <img src={resume.draft.receiptImage} alt="" className="h-16 w-12 shrink-0 rounded-lg border border-line object-cover object-top" />}
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold text-ink">Finish your bill from {draftAge(resume.at)}</p>
+            <p className="t-caption truncate text-ink-3">{resume.draft.merchantName || 'Unnamed shop'}{Number(resume.draft.totalAmount) > 0 ? ` · ${money(resume.draft.totalAmount)}` : ''} · read, not saved yet</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button size="sm" variant="primary" onClick={resumeDraft}>Continue</Button>
+              <Button size="sm" variant="ghost" onClick={() => { clearScanDraft(); setResume(null); }}>Discard it</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {trip && (
         <div className="mb-4">
           <Notice tone="prize" icon={Luggage} title={`For ${trip.name}`}

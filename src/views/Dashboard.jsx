@@ -25,6 +25,7 @@ import { welcomeState } from '../components/Welcome.jsx';
 import { openWins, WinnerCheckModal } from '../components/Winners.jsx';
 import { moneyLookCount } from './Money.jsx';
 import { calculateTripSettlement, ongoingTrips, tripDay } from '../lib/trips.js';
+import { draftAge, loadScanDraft } from '../lib/scanDraft.js';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const HERO_BG = { backgroundImage: 'linear-gradient(180deg, rgba(245,189,82,0.13) 0%, rgba(245,189,82,0) 50%)' };
@@ -388,6 +389,28 @@ function DeskSearch() {
   );
 }
 
+/** A scan read but not saved (the phone closed the app while it was being checked): finish it. */
+function UnfinishedScan() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    const load = () => loadScanDraft().then(setD);
+    load();
+    window.addEventListener('billkhata-draft', load);
+    return () => window.removeEventListener('billkhata-draft', load);
+  }, []);
+  if (!d) return null;
+  return (
+    <a href="#/scan" className="card flex items-center gap-3 rounded-[16px] border-2 border-brand/40 p-3.5 hover:border-brand">
+      {d.draft.receiptImage && <img src={d.draft.receiptImage} alt="" className="h-14 w-10 shrink-0 rounded-lg border border-line object-cover object-top" />}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold text-ink">Finish your bill from {draftAge(d.at)}</span>
+        <span className="t-caption block truncate text-ink-3">{d.draft.merchantName || 'Unnamed shop'}{Number(d.draft.totalAmount) > 0 ? ` · ${money(d.draft.totalAmount)}` : ''} · read, not saved yet</span>
+      </span>
+      <span className="shrink-0 text-[14px] font-medium text-brand">Continue</span>
+    </a>
+  );
+}
+
 export default function Dashboard() {
   const { expenses, profile, openSheet, trips, removeSamples } = useStore();
   const toast = useToast();
@@ -465,6 +488,7 @@ export default function Dashboard() {
 
       <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="min-w-0 space-y-4">
+          <UnfinishedScan />
           <BackupReminder />
           {ongoingTrips(trips).slice(0, 2).map((t) => <TripNow key={t.id} trip={t} />)}
           <WalletHero />

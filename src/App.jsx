@@ -5,6 +5,7 @@ import {
 import { useStore } from './store.jsx';
 import { ModalHost } from './components/Modals.jsx';
 import { StorageNote, useKeepStorage } from './components/LocalFirst.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { Wordmark } from './components/Brand.jsx';
 import { useUpdateReady } from './lib/offline.js';
 import { needsWelcome } from './components/Welcome.jsx';
@@ -245,7 +246,7 @@ export default function App() {
   useShortcuts();
   useTypingFlag();
   useKeepStorage();
-  const { ready, loadError, profile, expenses, modal, openSheet } = useStore();
+  const { ready, loadError, profile, expenses, modal, openSheet, closeModal } = useStore();
   // A first visit opens the welcome (on Home only, so a shared link or shortcut isn't interrupted).
   useEffect(() => {
     if (route === '' && !modal && needsWelcome({ profile, expenses, ready })) openSheet('welcome');
@@ -291,12 +292,12 @@ export default function App() {
               Could not open local storage: {loadError} Bills will not be saved in this window.
             </div>
           )}
-          {ready ? <Suspense fallback={<LoadingView />}><View key={route} {...viewProps} /></Suspense> : <LoadingView />}
+          {ready ? <ErrorBoundary resetKey={route}><Suspense fallback={<LoadingView />}><View key={route} {...viewProps} /></Suspense></ErrorBoundary> : <LoadingView />}
         </div>
       </main>
       <BottomNav route={tabRoute} />
       <UpdateBanner />
-      <ModalHost />
+      <ErrorBoundary scope="window" resetKey={modal?.type} onClose={closeModal}><ModalHost /></ErrorBoundary>
     </div>
   );
 }

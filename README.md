@@ -550,6 +550,20 @@ Bills live only on this device, so the app guards them (`src/lib/storageSafety.j
 - Sizes come from the photo lengths (`backupSize`), not from building the whole backup on every
   render.
 
+## When something goes wrong
+
+- **Unfinished scans are kept** (`src/lib/scanDraft.js`): while you check a scan, the draft (fields,
+  photo, what the reader found, trip/split) is saved to a small database of its own,
+  `billkhata-drafts`. If the phone closes the app, Home and the Scan page offer "Finish your bill
+  from 2 min ago" (Continue / Discard it). Saving or discarding the bill clears it; drafts older
+  than a week are ignored. With one waiting, the Scan page shows it instead of opening the camera.
+- **No blank screens** (`src/components/ErrorBoundary.jsx`): a page that hits a bug shows "Something
+  went wrong on this page" with Try again, Back to Home and **Download all my data**, and the
+  bottom bar keeps working. A sheet that hits one closes; anything worse shows the same card over
+  the whole app. "Download all my data" (`src/lib/emergency.js`) reads straight from the device,
+  not from the app's state, and makes a normal backup file. A page file missing after an update
+  reloads the app once (at most once a minute).
+
 ## Friend groups, Not here, Pass the phone and pixel faces
 
 - **Groups** (`src/lib/groups.js`, `src/components/Groups.jsx`): **Your groups** on the Split page.

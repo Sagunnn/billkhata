@@ -11,7 +11,7 @@ export const BACKUP_VERSION = 1;
 
 export function buildBackup(profile, expenses, trips = [], bank = {}, extras = null, { photos = true } = {}) {
   // Without photos: a small file (bills, trips and money in full, just no pictures).
-  const noPhoto = ({ receiptImage: _r, ...x }) => x;
+  const noPhoto = ({ receiptImage: _r, thumb: _t, photoBytes: _b, ...x }) => (x.hasPhoto ? { ...x, hasPhoto: false } : x);
   return {
     app: 'BillKhata',
     version: BACKUP_VERSION,
@@ -149,7 +149,7 @@ export function backupStatus(lastAt, ownBills, now = Date.now(), changed) {
 /** Roughly how big a backup is, without building it (photos are most of it). */
 export function backupSize(expenses = [], trips = [], payments = [], { photos = true } = {}) {
   const img = (s) => (photos && typeof s === 'string' ? s.length : 0);
-  return expenses.reduce((n, e) => n + 1200 + img(e.receiptImage), 0)
+  return expenses.reduce((n, e) => n + 1200 + (photos ? e.photoBytes || 0 : 0) + img(e.receiptImage), 0)
     + trips.reduce((n, t) => n + 600 + (t.entries || []).reduce((m, x) => m + 800 + img(x.receiptImage), 0), 0)
     + payments.reduce((n, p) => n + 600 + img(p.image), 0);
 }
@@ -189,6 +189,9 @@ export function validateBackup(obj) {
     expenses.push(finalizeExpense({
       ...e,
       paymentMethod: PAYMENT_METHODS.includes(e.paymentMethod) ? e.paymentMethod : PAYMENT_METHODS[0],
+      // A bill has a photo only if the file carries it.
+      hasPhoto: Boolean(e.receiptImage),
+      thumb: e.receiptImage && typeof e.thumb === 'string' && e.thumb.startsWith('data:image/') ? e.thumb : '',
       category: CATEGORIES.includes(e.category) ? e.category : CATEGORIES.at(-1),
       updatedAt: e.updatedAt,
     }));

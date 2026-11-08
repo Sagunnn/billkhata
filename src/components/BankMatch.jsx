@@ -1,6 +1,7 @@
 // On the bill form: what your bank statement and payment screenshots say about this bill.
 // A bill scanned anywhere (Scan page, bill editor) is checked against them as soon as it has a
 // total and a date, so you see "paid from Global IME ••0123 on 29 Oct" before you save it.
+import { hasPhoto } from '../lib/expense.js';
 import { useMemo } from 'react';
 import { CircleCheck, Landmark, Smartphone, TriangleAlert } from 'lucide-react';
 import { PAYMENT } from '../lib/constants.js';
@@ -44,7 +45,7 @@ export function useBankMatch(bill) {
 }
 
 /** The scan can replace a photo-less bill that holds its bank row (then it handles the duplicate warning too). */
-export const canReplace = (m, bill, onUseFor) => Boolean(onUseFor && m?.taken && !m.taken.expense.receiptImage
+export const canReplace = (m, bill, onUseFor) => Boolean(onUseFor && m?.taken && !hasPhoto(m.taken.expense)
   && !(bill.duplicateOverride || []).includes(m.taken.expense.id));
 
 export function BankMatchCard({ bill, match: m, region, onChange, onUseFor }) {

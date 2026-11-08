@@ -8,6 +8,7 @@ import { assignBillCode } from '../lib/billCode.js';
 import { money } from '../lib/format.js';
 import { adToBs, bsToAd, formatAD, formatBS, isValidBS, toAsciiDigits } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
+import { usePhoto } from './usePhoto.js';
 import { Button, Chip, Field, Notice, Segmented, StageBadge, Toggle } from './ui.jsx';
 import { BILL_AREAS, joinBoxes } from '../lib/ocr/locate.js';
 import { accountsOf, defaultAccountId } from '../lib/money.js';
@@ -346,6 +347,8 @@ function useMediaQuery(q) {
 }
 
 export default function BillForm({ value: e, onChange, errors = {}, region, onPhoto, onRemovePhoto, onViewPhoto, onDiscard, discardLabel, onUseFor, read = null, boxes = null }) {
+  const photo = usePhoto(e); // the bill's full photo (a new one, or read from the photos store)
+  const showsPhoto = Boolean(e.receiptImage || (e.hasPhoto && e.receiptImage !== null));
   const { expenses, trips, openEditor, money: m } = useStore();
   const [allCats, setAllCats] = useState(false);
   const saved = expenses.some((x) => x.id === e.id);
@@ -525,7 +528,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
       </div>
     </>
   );
-  const attachPhoto = onPhoto && !e.receiptImage && (
+  const attachPhoto = onPhoto && !showsPhoto && (
     <label className="card flex cursor-pointer flex-col items-center gap-2 border-dashed px-4 py-8 text-center text-[14px] text-ink-2 hover:bg-sunken">
       <ImagePlus className="size-6 text-ink-3" />
       <span className="font-semibold text-ink">Attach bill photo</span>
@@ -558,7 +561,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
     const st = STEPS[step];
     return (
       <div className="space-y-4" onFocusCapture={track}>
-        {e.receiptImage && <MobilePhoto src={e.receiptImage} onViewPhoto={onViewPhoto} onPhoto={onPhoto} onRemovePhoto={onRemovePhoto} focus={focus} marks={marks} />}
+        {showsPhoto && <MobilePhoto src={photo} onViewPhoto={onViewPhoto} onPhoto={onPhoto} onRemovePhoto={onRemovePhoto} focus={focus} marks={marks} />}
         <div ref={top} className="scroll-mt-[calc(var(--header-h)+16rem)]" />
         <div role="tablist" aria-label="Parts of the bill" className="grid grid-cols-4 gap-1 rounded-[14px] bg-sunken p-1">
           {STEPS.map((x, i) => (
@@ -596,9 +599,9 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
       {/* The aside is as tall as the form, so the photo can stay in view while you scroll. */}
       <aside className="space-y-4">
         <EligibilityPanel expense={e} />
-        {e.receiptImage ? (
+        {showsPhoto ? (
           <div className="card sticky-top sticky overflow-hidden">
-            <ReceiptViewer src={e.receiptImage} onExpand={onViewPhoto} focus={focus} marks={marks} className="h-[min(58dvh,560px)] bg-sunken" />
+            <ReceiptViewer src={photo} onExpand={onViewPhoto} focus={focus} marks={marks} className="h-[min(58dvh,560px)] bg-sunken" />
             <div className="flex gap-2 border-t border-line p-2">
               {onPhoto && <label className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg py-1.5 text-[14px] font-medium text-ink hover:bg-sunken"><ImagePlus className="size-4" />Replace<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(ev) => onPhoto(ev.target.files?.[0])} /></label>}
               {onRemovePhoto && <button type="button" onClick={onRemovePhoto} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[14px] font-medium text-danger hover:bg-danger-soft"><Trash className="size-4" />Remove</button>}

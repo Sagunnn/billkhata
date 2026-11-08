@@ -64,8 +64,10 @@ export function payLabel(e, m) {
 const shownAmount = (e) => (e.split ? e.split.myShare : e.totalAmount);
 
 function Thumb({ e }) {
-  return e.receiptImage
-    ? <img src={e.receiptImage} alt="" loading="lazy" className="h-[52px] w-11 shrink-0 rounded-lg border border-line object-cover object-top" />
+  // Lists show the small thumbnail; the full photo opens in the viewer.
+  const src = e.thumb || (typeof e.receiptImage === 'string' ? e.receiptImage : '');
+  return src
+    ? <img src={src} alt="" loading="lazy" className="h-[52px] w-11 shrink-0 rounded-lg border border-line object-cover object-top" />
     : <span className="flex h-[52px] w-11 shrink-0 items-center justify-center rounded-lg bg-sunken text-ink-3"><ReceiptText className="size-5" /></span>;
 }
 

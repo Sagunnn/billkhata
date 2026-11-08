@@ -1,5 +1,7 @@
 // Fortnightly winner check and the 15-day claim checklist.
 // Rules: Taxpayer Incentive Gift Programme Operating Procedure, 2083 (Sections 6, 8, 9).
+import { usePhoto } from './usePhoto.js';
+import { hasPhoto } from '../lib/expense.js';
 import { useState } from 'react';
 import { CalendarClock, CircleAlert, ExternalLink, PartyPopper, SearchCheck, Trophy } from 'lucide-react';
 import { IRD_PORTAL_URL } from '../lib/constants.js';
@@ -89,6 +91,7 @@ export function ClaimChecklist({ bill }) {
 }
 
 function WinnerCard({ bill }) {
+  const photo = usePhoto(bill);
   const { profile, openPhoto } = useStore();
   return (
     <div className="overflow-hidden rounded-xl border-2 border-emerald-400 bg-white">
@@ -96,9 +99,9 @@ function WinnerCard({ bill }) {
         <Trophy className="size-5" />Winning coupon <span className="ml-auto font-mono tracking-wider">{formatCoupon(bill.irdCoupon)}</span>
       </div>
       <div className="grid gap-4 p-4 sm:grid-cols-[160px_minmax(0,1fr)]">
-        {bill.receiptImage ? (
+        {hasPhoto(bill) ? (
           <button type="button" onClick={() => openPhoto(bill)} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50" aria-label="View the bill photo">
-            <img src={bill.receiptImage} alt={`Bill from ${bill.merchantName}`} className="max-h-56 w-full object-contain" />
+            <img src={photo || bill.thumb} alt={`Bill from ${bill.merchantName}`} className="max-h-56 w-full object-contain" />
           </button>
         ) : <div className="flex h-32 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">No photo saved</div>}
         <div className="min-w-0">

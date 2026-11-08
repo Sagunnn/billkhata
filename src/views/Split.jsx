@@ -12,6 +12,8 @@ import { forgetFriend, loadFriends, loadPaymentQr, rememberFriends } from '../li
 import { clearPendingGroup, groupMembersFrom, peekPendingGroup, splitMembersFromGroup } from '../lib/groups.js';
 import { GroupSheet, GroupsCard, useGroups } from '../components/Groups.jsx';
 import PassAround from '../components/PassAround.jsx';
+import { hasPhoto } from '../lib/expense.js';
+import { photoOf } from '../lib/photos.js';
 import PixelAvatar, { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 import { payNumberFor } from '../lib/qr.js';
 import {
@@ -356,8 +358,8 @@ function BillStep({ expense, split, update, result, region, readPhoto, reading, 
   return (
     <div className="space-y-4">
       <Card className="flex items-center gap-3 p-3">
-        {expense.receiptImage
-          ? <button type="button" onClick={() => openPhoto(expense)} className="shrink-0 overflow-hidden rounded-md border border-slate-200" aria-label="View bill photo"><img src={expense.receiptImage} alt="" className="h-16 w-12 object-cover object-top" /></button>
+        {hasPhoto(expense)
+          ? <button type="button" onClick={() => openPhoto(expense)} className="shrink-0 overflow-hidden rounded-md border border-slate-200" aria-label="View bill photo"><img src={expense.thumb || expense.receiptImage} alt="" className="h-16 w-12 object-cover object-top" /></button>
           : <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-md bg-slate-100"><ReceiptText className="size-5 text-slate-400" /></div>}
         <div className="min-w-0 flex-1">
           <div className="truncate font-bold">{expense.merchantName || 'Bill'}</div>
@@ -765,7 +767,7 @@ export function SplitEditor({ billId }) {
   });
   useEffect(() => { if (expense && split?.group && !expense.split) { clearPendingGroup(); dirty.current = true; setSplit((sp) => ({ ...sp })); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Coming back to a split that already has people opens on the shares; a new one starts at the bill.
-  const [step, setStepState] = useState(() => (expense?.split?.members?.length > 1 ? 2 : expense && !expense.lineItems?.length && !expense.receiptImage ? 1 : 0));
+  const [step, setStepState] = useState(() => (expense?.split?.members?.length > 1 ? 2 : expense && !expense.lineItems?.length && !hasPhoto(expense) ? 1 : 0));
   const [reading, setReading] = useState(false);
   const [passing, setPassing] = useState(false);
   const dirty = useRef(false);
@@ -791,7 +793,7 @@ export function SplitEditor({ billId }) {
     if (expense.lineItems?.length) {
       dirty.current = true;
       setSplit((sp) => ({ ...sp, mode: 'items', items: expense.lineItems.map((it) => makeItem(it)) }));
-    } else if (expense.receiptImage && !expense.split) {
+    } else if (hasPhoto(expense) && !expense.split) {
       readPhotoRef.current?.({ auto: true });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -806,7 +808,7 @@ export function SplitEditor({ billId }) {
     setReading(true);
     try {
       const [{ prepareForOcr }, { extractBill }] = await Promise.all([import('../lib/image.js'), import('../lib/ocr/index.js')]);
-      const out = await extractBill(await prepareForOcr(expense.receiptImage), settings, { region: profile.region });
+      const out = await extractBill(await prepareForOcr(await photoOf(expense)), settings, { region: profile.region });
       const found = out.fields.lineItems || [];
       if (!found.length) toast(auto ? 'No item rows found on the bill’s photo, so it’s split equally. Add items by hand to split by what each had.' : 'No item rows found on the photo. Add them by hand or paste the text.', auto ? 'success' : 'error');
       else {
@@ -849,7 +851,7 @@ export function SplitEditor({ billId }) {
       </div>
       <div className="mb-4"><Stepper step={step} setStep={setStep} /></div>
 
-      {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={expense.receiptImage ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
+      {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={hasPhoto(expense) ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
       {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} onPass={() => setPassing(true)} />}
       {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} onPass={() => setPassing(true)} />}
       {passing && <PassAround split={live} update={update} region={profile.region} onClose={() => { setPassing(false); setStep(2); }} />}

@@ -28,6 +28,8 @@ function dayHeading(ad, today) {
   return ad ? `${day} · ${shortBS(ad)}` : 'No date';
 }
 
+const PAGE = 80;
+
 function groupByDay(list) {
   const groups = [];
   for (const e of list) {
@@ -88,6 +90,7 @@ export default function Ledger() {
   const update = (patch) => {
     const next = { ...f, ...patch };
     setF(next);
+    setShown(PAGE); // a new filter starts at the top
     try { sessionStorage.setItem('billkhata_filters', JSON.stringify(next)); } catch { /* ignore */ }
   };
   // "/" from elsewhere lands here with ?search.
@@ -96,13 +99,16 @@ export default function Ledger() {
   }, []);
 
   const list = filterExpenses(expenses, f);
+  // Long histories show a page at a time (80 bills), so the list stays quick to open and scroll.
+  const [shown, setShown] = useState(PAGE);
+  const page = list.slice(0, shown);
   const t = reportTotals(list);
   const today = todayAD();
   const tBs = todayBS();
   const monthName = tBs ? BS_MONTHS[parseYmd(tBs).m - 1] : 'Month';
   const ranges = [['today', 'Today'], ['week', 'Week'], ['bsmonth', monthName], ['all', 'All'], ['custom', 'Custom']];
   const extra = [f.category, f.payment, f.status].filter(Boolean).length;
-  const groups = groupByDay(list);
+  const groups = groupByDay(page);
 
   if (!expenses.length) {
     return (
@@ -157,8 +163,11 @@ export default function Ledger() {
             ))}
           </div>
           <Card className="mt-4 hidden overflow-hidden rounded-[20px] md:block">
-            <BillTable list={list} pan />
+            <BillTable list={page} pan />
           </Card>
+          {list.length > shown && (
+            <Button className="mt-3 w-full" onClick={() => setShown((n) => n + PAGE)}>Show {Math.min(PAGE, list.length - shown)} more <span className="font-normal text-ink-3">· {list.length - shown} left</span></Button>
+          )}
         </>
       ) : (
         <Card className="mt-4">

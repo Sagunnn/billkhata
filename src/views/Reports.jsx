@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { hasPhoto } from '../lib/expense.js';
+import { withPhotos as loadPhotos } from '../lib/photos.js';
 import { FileDown, LoaderCircle } from 'lucide-react';
 import { filterExpenses, rangeFor, reportTotals } from '../lib/expense.js';
 import { downloadBlob, money } from '../lib/format.js';
@@ -28,12 +30,14 @@ export default function Reports() {
   const list = filterExpenses(expenses, { range, from, to });
   const r = rangeFor(range, { from, to });
   const t = reportTotals(list);
-  const withPhotos = list.filter((e) => e.receiptImage).length;
+  const withPhotos = list.filter(hasPhoto).length;
 
   async function generate() {
     setBusy(true);
     try {
-      const doc = await buildReportPdf({ expenses: list, profile, from: r.from, to: r.to, includeImages: images });
+      // Photos load one by one from the photos store only when the appendix wants them.
+      const rows = images ? await loadPhotos(list) : list;
+      const doc = await buildReportPdf({ expenses: rows, profile, from: r.from, to: r.to, includeImages: images });
       downloadBlob(doc.output('blob'), reportFilename(r.from, r.to));
       toast('Report downloaded.');
     } catch (e) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ShieldAlert, ShieldCheck, WifiOff, X } from 'lucide-react';
 import { useOnline, isInstalled } from '../lib/offline.js';
 import { backupExtras } from '../lib/profile.js';
+import { withPhotos } from '../lib/photos.js';
 import { backupFilename, backupSize, backupStatus, buildBackup, changedSince } from '../lib/backup.js';
 import { advice, askedLately, askToKeep, isIos, storageState } from '../lib/storageSafety.js';
 import { bytes, downloadBlob } from '../lib/format.js';
@@ -44,8 +45,10 @@ export function useKeepStorage() {
 export function useDownloadBackup() {
   const { profile, expenses, trips, statements, payments, reconOverrides, money, markBackedUp } = useStore();
   const toast = useToast();
-  return ({ photos = true } = {}) => {
-    const data = buildBackup(profile, expenses, trips, { statements, payments, reconOverrides, money }, backupExtras(), { photos });
+  return async ({ photos = true } = {}) => {
+    // Photos live in their own store: read them in (one at a time) only for a backup with photos.
+    const bills = photos ? await withPhotos(expenses) : expenses;
+    const data = buildBackup(profile, bills, trips, { statements, payments, reconOverrides, money }, backupExtras(), { photos });
     const name = photos ? backupFilename() : backupFilename().replace('.json', '_no_photos.json');
     downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), name);
     markBackedUp();

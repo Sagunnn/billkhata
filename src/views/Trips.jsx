@@ -26,6 +26,9 @@ import { AmountInput } from '../components/MoneySheets.jsx';
 import { StartTripSheet, useGroups } from '../components/Groups.jsx';
 import { tripMembersFromGroup } from '../lib/groups.js';
 import { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
+import { usePhoto } from '../components/usePhoto.js';
+import { hasPhoto } from '../lib/expense.js';
+import { photoOf } from '../lib/photos.js';
 
 const CAT_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -271,7 +274,8 @@ function EntryModal({ trip, entry, onClose, onSave }) {
   const me = members.find((m) => m.isMe) || members[0];
   const linked = entry?.linkedExpenseId ? expenses.find((x) => x.id === entry.linkedExpenseId) : null;
   const [d, setD] = useState(() => {
-    if (entry) return { ...entry, items: entry.items.map((it) => ({ ...it })), receiptImage: entry.receiptImage || linked?.receiptImage || '', paymentMethod: linked?.paymentMethod || entry.paymentMethod || PAYMENT.CASH, itemised: entry.hasBill || entry.items.length > 1 };
+    // A ledger bill's photo is shown (linkedPhoto) but not copied in: it stays put unless re-scanned.
+    if (entry) return { ...entry, items: entry.items.map((it) => ({ ...it })), receiptImage: entry.receiptImage || '', paymentMethod: linked?.paymentMethod || entry.paymentMethod || PAYMENT.CASH, itemised: entry.hasBill || entry.items.length > 1 };
     return { title: '', paidByMemberId: me.id, dateAD: todayAD(), totalAmount: '', hasBill: false, items: [], receiptImage: '', sellerPan: '', invoiceNumber: '', vatAmount: '', paymentMethod: PAYMENT.CASH, itemised: false };
   });
   const [simple, setSimple] = useState(() => {
@@ -280,6 +284,8 @@ function EntryModal({ trip, entry, onClose, onSave }) {
   });
   const [reading, setReading] = useState(false);
   const [rawText, setRawText] = useState('');
+  const linkedPhoto = usePhoto(linked);
+  const shownPhoto = d.receiptImage || linkedPhoto;
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
   const itemsSum = d.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const total = Number(d.totalAmount) || 0;
@@ -383,9 +389,9 @@ function EntryModal({ trip, entry, onClose, onSave }) {
         />
         {d.hasBill && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3">
-            {d.receiptImage ? <img src={d.receiptImage} alt="Bill" className="h-24 rounded border border-slate-200 object-contain" /> : <Receipt className="size-8 text-slate-300" />}
+            {shownPhoto ? <img src={shownPhoto} alt="Bill" className="h-24 rounded border border-slate-200 object-contain" /> : <Receipt className="size-8 text-slate-300" />}
             <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800">
-              {reading ? <LoaderCircle className="size-4 animate-spin" /> : <Camera className="size-4" />}{reading ? 'Reading…' : d.receiptImage ? 'Re-scan bill' : 'Scan / upload bill'}
+              {reading ? <LoaderCircle className="size-4 animate-spin" /> : <Camera className="size-4" />}{reading ? 'Reading…' : shownPhoto || hasPhoto(linked) ? 'Re-scan bill' : 'Scan / upload bill'}
               <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" disabled={reading} onChange={(e) => { readPhoto(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
             <span className="text-xs text-slate-500">Reads the shop, PAN, bill number, total and items.</span>
@@ -671,7 +677,8 @@ export function TripView({ tripId: id }) {
         paymentMethod: entry.paymentMethod || PAYMENT.CASH,
         category: base.category || (entry.items.some((it) => it.category !== 'shared') ? 'Food & Dining' : 'Other'),
         isNepalBill: base.isNepalBill ?? region === REGIONS.NEPAL,
-        receiptImage: entry.receiptImage || base.receiptImage || null,
+        // A new photo goes in; otherwise a ledger bill keeps the photo it has (photos store).
+        ...(entry.receiptImage ? { receiptImage: entry.receiptImage } : hasPhoto(base) ? {} : { receiptImage: null }),
         imageHash: entry.receiptImage ? (entry.imageHash || '') : base.imageHash || '',
         duplicateOverride: entry.duplicateOverride || base.duplicateOverride || [],
         lineItems: entry.items.map((it) => ({ id: it.id, name: it.name, qty: 1, price: it.amount, amount: it.amount })),
@@ -681,14 +688,17 @@ export function TripView({ tripId: id }) {
       const { receiptImage: _photo, paymentMethod, ...rest } = entry;
       return { ...rest, paymentMethod, linkedExpenseId: saved.id };
     }
+    let photo = entry.receiptImage || '';
     if (prevLinked) {
-      // No longer your bill: one the trip created is removed (its photo stays with the trip
-      // expense); one you added from your ledger goes back to being a normal bill.
+      // No longer your bill: one the trip created is removed (its photo comes back to the trip
+      // expense first); one you added from your ledger goes back to being a normal bill.
       const { excludeFromSpend: _x, tripId: _t, ...plain } = prevLinked;
-      if (prevLinked.createdByTrip) await removeExpense(prevLinked.id);
-      else await saveExpense(plain);
+      if (prevLinked.createdByTrip) {
+        if (!photo) photo = await photoOf(prevLinked);
+        await removeExpense(prevLinked.id);
+      } else await saveExpense(plain);
     }
-    return { ...entry, linkedExpenseId: '' };
+    return { ...entry, ...(photo ? { receiptImage: photo } : {}), linkedExpenseId: '' };
   }
 
   async function saveEntry(entry) {

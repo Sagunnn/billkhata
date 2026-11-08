@@ -129,7 +129,7 @@ export async function buildReportPdf({ expenses, profile, from, to, includeImage
       cells.set(e.id, {
         page: doc.getCurrentPageInfo().pageNumber,
         x: data.cell.x, y: data.cell.y, w: data.cell.width, h: data.cell.height,
-        rowIndex: data.row.index + 1, code: e.billCode || '-', hasImage: Boolean(e.receiptImage),
+        rowIndex: data.row.index + 1, code: e.billCode || '-', hasImage: Boolean(e.receiptImage || e.hasPhoto),
       });
     },
   });

@@ -1,6 +1,7 @@
 // Sending a trip or a split to friends as a file (through the phone's share sheet), and opening
 // one a friend sent: a trip merges into yours (or comes in new), a split shows your share.
 // The logic is in lib/share.js; received splits are kept in localStorage.
+import { withPhotos } from '../lib/photos.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FileUp, Luggage, Send, Trash, UserPlus, Users } from 'lucide-react';
 import { CATEGORIES, PAYMENT } from '../lib/constants.js';
@@ -41,16 +42,20 @@ export function SendTripSheet({ tripId, onClose }) {
   const [busy, setBusy] = useState(false);
   const sizes = useMemo(() => {
     if (!trip) return { with: 0, without: 0 };
-    const w = JSON.stringify(tripShareFile(trip, { expenses, photos: true })).length;
+    // Without building the photos in: their sizes are known (photoBytes on each ledger bill).
     const wo = JSON.stringify(tripShareFile(trip, { expenses, photos: false })).length;
-    return { with: w, without: wo };
+    const byId = new Map(expenses.map((e) => [e.id, e]));
+    const pics = trip.entries.reduce((n, x) => n + (x.receiptImage?.length || byId.get(x.linkedExpenseId)?.photoBytes || 0), 0);
+    return { with: wo + pics, without: wo };
   }, [trip, expenses]);
   if (!trip) return null;
   const others = trip.members.filter((m) => !m.isMe);
   async function send() {
     setBusy(true);
     const me = trip.members.find((m) => m.isMe);
-    const data = tripShareFile(trip, { expenses, photos, from: me?.name || profile.fullName?.split(' ')[0] || '' });
+    // The trip's ledger bills with their photos read from the photos store (only these, only now).
+    const linked = expenses.filter((e) => trip.entries.some((x) => x.linkedExpenseId === e.id));
+    const data = tripShareFile(trip, { expenses: photos ? await withPhotos(linked) : linked, photos, from: me?.name || profile.fullName?.split(' ')[0] || '' });
     const how = await sendShareFile(data, shareFileName('trip', trip.name), trip.name);
     setBusy(false);
     if (how === 'cancelled') return;

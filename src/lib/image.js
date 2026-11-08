@@ -41,6 +41,11 @@ function render(img, maxSide, quality) {
   return { dataUrl: canvas.toDataURL('image/jpeg', quality), width: w, height: h };
 }
 
+/** A small JPEG for lists (a few KB): the bill photo's top, about 160 px on the long side. */
+export async function makeThumb(src) {
+  try { return render(await loadImage(src), 160, 0.6).dataUrl; } catch { return ''; }
+}
+
 /** Compresses to a JPEG data URL no bigger than maxBytes. */
 export async function compressImage(src, maxBytes = MAX_IMAGE_BYTES) {
   const img = await loadImage(src);

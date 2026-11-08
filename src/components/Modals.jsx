@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { usePhoto } from './usePhoto.js';
 import { Check, Divide, Ticket, Trash } from 'lucide-react';
 import { validateExpense } from '../lib/expense.js';
 import { compressImage, fileToDataUrl, imageHash, validateImageFile } from '../lib/image.js';
@@ -124,9 +125,10 @@ export function BillEditor({ expense, onClose }) {
 
 export function PhotoViewer({ expense, onClose }) {
   const { profile } = useStore();
+  const photo = usePhoto(expense);
   return (
     <Modal open onClose={onClose} title={expense.merchantName || 'Bill photo'} size="lg">
-      <ReceiptViewer src={expense.receiptImage} alt={`Bill from ${expense.merchantName || 'this shop'}`} className="h-[68dvh] rounded-lg border border-slate-200" />
+      <ReceiptViewer src={photo} alt={`Bill from ${expense.merchantName || 'this shop'}`} className="h-[68dvh] rounded-lg border border-slate-200" />
       <p className="mt-3 text-center text-sm text-slate-600">
         {formatAD(expense.billDateAD)}{expense.billDateBS ? ` · ${formatBS(expense.billDateBS)} BS` : ''} · <span className="num font-semibold text-slate-900">{money(expense.totalAmount, profile.region)}</span>
       </p>

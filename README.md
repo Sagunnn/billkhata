@@ -530,6 +530,28 @@ version 3), and they're in backups.
   Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
   in the store and shared with the Money page).
 
+## Photos are stored apart from bills
+
+A bill's full receipt photo lives in its own IndexedDB store, `photos` (database version 4), keyed by
+the bill's id. The bill keeps `hasPhoto`, `photoBytes` and a small `thumb` (about 5 KB, made when a
+photo is saved, or in the background for older ones). Loading the bills never loads the photos, so
+memory doesn't grow with history: with 200 photo bills (54 MB of photos) the app holds about 11 MB
+instead of 60 MB.
+
+- **Writing** (`splitPhoto` in db.js): a bill saved with `receiptImage` (a new photo) moves it to the
+  photos store; `receiptImage: null` removes it; no `receiptImage` at all keeps the stored one. So an
+  edit that doesn't touch the photo never loses it. Deleting or clearing bills deletes their photos.
+- **Reading**: lists use `thumb`; screens that show the full photo use `usePhoto(bill)` (viewer, bill
+  editor, duplicate check, winner card, trip expense); the PDF appendix, backups and trip files
+  read photos in one at a time (`withPhotos`), only when they need them.
+- **Upgrading**: on the first start after the update, photos still inside bills move to the photos
+  store, one bill per transaction (quick: no image work; safe to stop halfway). Thumbnails and any
+  missing duplicate-check hashes are then made in the background. A tab still open on the old
+  version closes its database connection and reloads, so the upgrade can't hang.
+- **Backups** carry photos back on each bill as before; a bill only says it has a photo if the file
+  carries it.
+- **Ledger** shows 80 bills at a time ("Show 80 more").
+
 ## Keeping your bills safe
 
 Bills live only on this device, so the app guards them (`src/lib/storageSafety.js`,

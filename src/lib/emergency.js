@@ -4,6 +4,7 @@ import * as db from './db.js';
 import { buildBackup, backupFilename } from './backup.js';
 import { downloadBlob } from './format.js';
 import { backupExtras, loadProfile } from './profile.js';
+import { withPhotos } from './photos.js';
 
 const json = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; } };
 const safe = (p) => p.catch(() => []);
@@ -14,7 +15,7 @@ export async function downloadEverything() {
   ]);
   let extras = null;
   try { extras = backupExtras(); } catch { /* keep going without them */ }
-  const data = buildBackup(loadProfile(), expenses, trips, {
+  const data = buildBackup(loadProfile(), await withPhotos(expenses).catch(() => expenses), trips, {
     statements, payments, reconOverrides: json('billkhata_recon', { links: [], unlinks: [] }), money: json('billkhata_money', null),
   }, extras);
   downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), backupFilename());

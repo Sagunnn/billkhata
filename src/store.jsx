@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import * as db from './lib/db.js';
 import { finalizeExpense } from './lib/expense.js';
 import { assignBillCode, ensureBillCodes, tripInitials } from './lib/billCode.js';
-import { imageHash } from './lib/image.js';
+import { imageHash, makeThumb } from './lib/image.js';
 import { flag, forgetDeletedTrips, hasProfile, loadDeletedTrips, loadProfile, loadSettings, rememberDeletedTrip, saveProfile, saveSettings } from './lib/profile.js';
 import { buildSampleExpenses, DEMO_PROFILE } from './lib/sample.js';
 import { reconcileAll } from './lib/bank/reconcile.js';
@@ -50,13 +50,24 @@ async function deleteSampleBills() {
   return ids.length;
 }
 
-/** Photo hashes for bills saved before duplicate checks existed. Returns the new list, or null. */
-async function backfillImageHashes() {
+/**
+ * Thumbnails and duplicate-check hashes for bills that have a photo but not these yet (photos moved
+ * out of older bills, restored backups). One photo at a time; returns the new list, or null.
+ */
+async function backfillPhotoExtras(onBatch) {
   try {
-    const missing = (await db.getAllExpenses()).filter((e) => e.receiptImage && !e.imageHash);
-    if (!missing.length) return null;
-    for (const e of missing) e.imageHash = await imageHash(e.receiptImage).catch(() => '');
-    await db.putMany(missing.filter((e) => e.imageHash));
+    const todo = (await db.getAllExpenses()).filter((e) => e.hasPhoto && (!e.thumb || !e.imageHash));
+    if (!todo.length) return null;
+    let n = 0;
+    for (const e of todo) {
+      const photo = await db.getPhoto(e.id);
+      if (!photo) continue;
+      const patch = {};
+      if (!e.thumb) patch.thumb = await makeThumb(photo);
+      if (!e.imageHash) patch.imageHash = await imageHash(photo).catch(() => '');
+      await db.patchExpense(e.id, patch);
+      if (++n % 25 === 0) onBatch?.(await db.getAllExpenses());
+    }
     return db.getAllExpenses();
   } catch {
     return null;
@@ -107,11 +118,12 @@ export function StoreProvider({ children }) {
         }
         // Real details saved: the demo bills have done their job (unless loaded again on purpose).
         if (hasProfile() && !isDemoProfile(loadProfile()) && !flag('keepSamples')) await deleteSampleBills();
+        await db.migratePhotos(); // photos saved inside bills (before version 4) move to their own store
         setExpenses(await syncBillCodes()); // backfills codes for bills saved before codes existed
         setTrips(await db.getAllTrips());
         setStatements(await db.statementsTable.all());
         setPayments(await db.paymentsTable.all());
-        backfillImageHashes().then((list) => list && setExpenses(list));
+        backfillPhotoExtras(setExpenses).then((list) => list && setExpenses(list));
       } catch (err) {
         setLoadError(err?.message || 'This browser blocked local storage (private mode?).');
       } finally {
@@ -123,12 +135,15 @@ export function StoreProvider({ children }) {
   const saveExpense = useCallback(async (e) => {
     const clean = finalizeExpense(e);
     clean.billCode = assignBillCode(clean, await db.getAllExpenses(), await db.getAllTrips());
-    // Perceptual photo hash for duplicate checks (cleared when the photo is removed or replaced).
-    if (!clean.receiptImage) clean.imageHash = '';
-    else if (!clean.imageHash) clean.imageHash = await imageHash(clean.receiptImage).catch(() => '');
-    await db.putExpense(clean);
-    setExpenses((list) => [clean, ...list.filter((x) => x.id !== clean.id)]);
-    return clean;
+    // A new photo: its duplicate-check hash and list thumbnail. Removed (null): both cleared.
+    // No receiptImage at all: the photo already stored stays as it is.
+    if (typeof clean.receiptImage === 'string' && clean.receiptImage) {
+      if (!clean.imageHash) clean.imageHash = await imageHash(clean.receiptImage).catch(() => '');
+      clean.thumb = await makeThumb(clean.receiptImage);
+    } else if (clean.receiptImage === null || clean.receiptImage === '') clean.imageHash = '';
+    const stored = await db.putExpense(clean);
+    setExpenses((list) => [stored, ...list.filter((x) => x.id !== stored.id)]);
+    return stored;
   }, []);
 
   const removeExpense = useCallback(async (id) => {

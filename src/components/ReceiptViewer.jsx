@@ -184,8 +184,9 @@ export function ReceiptViewer({ src, alt = 'Bill photo', className = '', onExpan
         className={`absolute inset-0 select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy ${zoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
         style={{ touchAction: zoomed ? 'none' : 'pan-y' }}
       >
+        {!src && <div className="absolute inset-0 flex items-center justify-center text-[14px] text-ink-3">Loading the photo…</div>}
         <img
-          src={src}
+          src={src || undefined}
           alt={alt}
           draggable={false}
           className={`pointer-events-none absolute inset-0 size-full origin-top-left object-contain will-change-transform ${gesturing ? '' : 'transition-transform duration-150 ease-out'}`}

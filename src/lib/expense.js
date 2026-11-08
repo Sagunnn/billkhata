@@ -29,6 +29,9 @@ export function blankExpense(region = REGIONS.NEPAL) {
 }
 
 /** Coerces types before saving, and stores the derived IRD status for readable backups. */
+/** Whether a bill has a photo: a new one being saved, or one in the photos store. */
+export const hasPhoto = (e) => Boolean(e?.receiptImage || e?.hasPhoto);
+
 export function finalizeExpense(e) {
   const amount = Number(e.totalAmount);
   const vat = Number(e.vatAmount);

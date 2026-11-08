@@ -1,4 +1,5 @@
 // Cross-Reference Alert Card: shown on the bill form when this bill looks like one already saved.
+import { usePhoto } from './usePhoto.js';
 import { useState } from 'react';
 import { Eye, Trash } from 'lucide-react';
 import { money } from '../lib/format.js';
@@ -11,7 +12,8 @@ export const unresolvedMatches = (matches, bill) => matches.filter((m) => m.earl
 
 const LEVEL_LABEL = { exact: 'Same bill number', ocr: 'Bill number look-alike', items: 'Same item sequence', image: 'Same photo', 'same-day': 'Same shop, total and day' };
 
-function Photo({ src, label, onOpen }) {
+function Photo({ bill, label, onOpen }) {
+  const src = usePhoto(bill) || bill?.thumb || '';
   if (!src) return <span className="text-xs text-slate-400">No photo</span>;
   return (
     <button type="button" onClick={() => onOpen(src, label)} className="block overflow-hidden rounded border border-slate-200 bg-white" aria-label={`View ${label}`}>
@@ -66,8 +68,8 @@ export function CrossReferenceCard({ matches, bill, region, codeForThis, onView,
             ))}
             <tr>
               <td className="px-2 py-1.5 font-semibold text-slate-500">Photo</td>
-              <td className="px-2 py-1.5"><Photo src={bill.receiptImage} label="this bill" onOpen={(s, l) => setZoom({ s, l })} /></td>
-              <td className="px-2 py-1.5"><Photo src={other.receiptImage} label={`bill ${other.billCode || ''}`} onOpen={(s, l) => setZoom({ s, l })} /></td>
+              <td className="px-2 py-1.5"><Photo bill={bill} label="this bill" onOpen={(s, l) => setZoom({ s, l })} /></td>
+              <td className="px-2 py-1.5"><Photo bill={other} label={`bill ${other.billCode || ''}`} onOpen={(s, l) => setZoom({ s, l })} /></td>
             </tr>
           </tbody>
         </table>

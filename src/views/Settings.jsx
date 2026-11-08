@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { hasPhoto } from '../lib/expense.js';
 import {
   CircleCheck, CircleDashed, Database, Download, Eye, EyeOff, FileSpreadsheet, HardDriveUpload, KeyRound, LoaderCircle, Monitor, Moon, Palette, ScanText, ShieldCheck, Smartphone, Sparkles, Sun, Trash, UserRound, Wifi, WifiOff,
 } from 'lucide-react';
@@ -231,7 +232,7 @@ function DataSection() {
   async function restore() {
     const { expenses: list, profile: p } = pending;
     if (mode === 'overwrite') {
-      const photosHere = expenses.filter((e) => e.receiptImage).length;
+      const photosHere = expenses.filter(hasPhoto).length;
       const lose = !pending.photos && photosHere ? ` This backup has no photos, so the ${photosHere} bill photo${photosHere === 1 ? '' : 's'} here will be gone.` : '';
       if (!window.confirm(`Replace all ${expenses.length} bills and ${trips.length} trips in this browser with the ${list.length} bills and ${(pending.trips || []).length} trips from the backup?${lose}`)) return;
       await replaceAll(list);

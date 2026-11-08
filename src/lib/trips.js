@@ -2,25 +2,28 @@
 // people, split by what each person had, then settled in as few transfers as possible.
 // Pure functions only, so all the money maths is unit-tested.
 import { adToBs, todayAD } from './nepaliDate.js';
+import { ALCOHOL, EXPLICIT_VEG, NON_VEG } from './splitter.js';
 
 /* ---------- categories ---------- */
 
-export const TRIP_CATEGORIES = ['veg', 'non-veg', 'drink', 'shared'];
-export const TRIP_CATEGORY_LABELS = { veg: 'Veg', 'non-veg': 'Non-veg', drink: 'Drink', shared: 'Shared' };
+export const TRIP_CATEGORIES = ['veg', 'non-veg', 'soft', 'drink', 'shared'];
+export const TRIP_CATEGORY_LABELS = { veg: 'Veg', 'non-veg': 'Non-veg', soft: 'Soft drink', drink: 'Alcohol', shared: 'Shared' };
 
-// Word-bounded so "drumstick" isn't rum, "ginger" isn't gin, "eggplant" isn't egg, "buffet" isn't buff.
+// Trip things everyone shares: transport, rooms, tickets, water. Food words (non-veg, alcohol, "veg"
+// in the name) are the same lists Split uses (splitter.js), so a dish is sorted the same in both.
 const SHARED = /\b(taxi|cab|pathao|indrive|in ?drive|tootle|uber|bus|micro|jeep|flight|air ?ticket|boat|fuel|petrol|diesel|hotel|room|stay|lodge|homestay|resort|tickets?|entry|entrance|permit|toll|parking|water|mineral|ice|guide|porter|rent(al)?|bike rent)\b|ट्याक्सी|पेट्रोल|होटल|टिकट|पानी/i;
-const NON_VEG = /\b(chicken|chkn|buff|buffalo|mutton|khasi|goat|lamb|pork|bacon|ham|salami|sausages?|beef|fish|prawns?|shrimps?|crab|tuna|duck|eggs?|omelett?e|anda|sekuwa|choila|chhoila|kachila|sukuti|pangra|wings?|drumsticks?|keema|kima|meat|kukhura(?:ko)?|bandel|nonveg|non[- ]veg)\b|कुखुरा|खसी|बफ|माछा|अण्डा|सेकुवा|छोइला|सुकुटी|पाङ्ग्रा|मासु/i;
-const DRINK = /\b(beers?|tuborg|gorkha|barasinghe|arna|carlsberg|budweiser|heineken|nepal ice|whiske?y|vodka|rum|khukuri|khukri|gin|wines?|aila|chhyang|tongba|raksi|cocktails?|mocktails?|shots?|coke|coca[- ]?cola|fanta|sprite|pepsi|mountain dew|red ?bull|soda|lassi|juice|coffee|latte|cappuccino|americano|tea|chiya|milk ?shake|shake|smoothie|drinks?)\b|बियर|रक्सी|चिया|कफी|जुस/i;
-const EXPLICIT_VEG = /\b(veg(?:etable|gie|an|etarian)?|paneer|mushroom|tofu|eggless|soya)\b/i;
+// Tea, coffee, juice, cola: everyone has them, drinker or not. "No drinks" means no alcohol.
+const SOFT = /\b(coke|coca[- ]?cola|fanta|sprite|pepsi|mountain dew|red ?bull|soda|lassi|juice|coffee|latte|cappuccino|americano|espresso|mocha|tea|chiya|milk ?shake|shake|smoothie|mocktails?|virgin|lemonade|cold drinks?|soft drinks?|maaza|frooti)\b|चिया|कफी|जुस|लस्सी/i;
+const NOT_ALCOHOL = /\b(mocktails?|virgin|non[- ]?alcoholic|0\.0|cold drinks?|soft drinks?)\b/i;
 
-/** 'shared' (transport, rooms, tickets, water), 'non-veg', 'drink', else 'veg'. */
+/** 'shared' (transport, rooms, tickets, water), 'non-veg', 'drink' (alcohol), 'soft' (tea, juice, cola), else 'veg'. */
 export function classifyTripItem(name = '') {
   const s = String(name).toLowerCase();
   if (!s.trim()) return 'veg';
   if (SHARED.test(s)) return 'shared';
   if (NON_VEG.test(s) && !EXPLICIT_VEG.test(s)) return 'non-veg';
-  if (DRINK.test(s)) return 'drink';
+  if ((ALCOHOL.test(s) || /\bdrinks?\b/.test(s)) && !NOT_ALCOHOL.test(s)) return 'drink';
+  if (SOFT.test(s)) return 'soft';
   return 'veg';
 }
 
@@ -35,7 +38,7 @@ export function hereMembers(members = []) {
 
 /**
  * Who shares an item by default (only people who are here):
- * non-veg → non-vegetarians; drink → people who take drinks; veg and shared → everyone.
+ * non-veg → non-vegetarians; drink (alcohol) → people who drink; veg, soft drinks and shared → everyone.
  * `vegOnly` puts a veg item on vegetarians only (e.g. a vegetarian's separate meal).
  */
 export function getDefaultAssignedMembers(category, all = [], { vegOnly = false } = {}) {
@@ -97,8 +100,9 @@ export function makeEntry({ id, title = '', paidByMemberId, dateAD = todayAD(), 
 
 /* ---------- shares ---------- */
 
-const KEY = { veg: 'veg', 'non-veg': 'nonVeg', drink: 'drink', shared: 'shared' };
-const empty = () => ({ veg: 0, nonVeg: 0, drink: 0, shared: 0, tax: 0, total: 0 });
+const KEY = { veg: 'veg', 'non-veg': 'nonVeg', soft: 'soft', drink: 'drink', shared: 'shared' };
+const empty = () => ({ veg: 0, nonVeg: 0, soft: 0, drink: 0, shared: 0, tax: 0, total: 0 });
+const itemsOf = (r) => r.veg + r.nonVeg + r.soft + r.drink + r.shared;
 const r2 = (n) => Math.round(n * 100) / 100;
 
 /** Rounds floats to paisa so they add up exactly to `target` (largest remainder). */
@@ -136,18 +140,18 @@ export function entryShares(entry, members) {
   const total = Number(entry.totalAmount) || 0;
   const extra = total - itemsSum;
   if (Math.abs(extra) >= 0.005 && ids.length) {
-    const subs = ids.map((id) => rows[id].veg + rows[id].nonVeg + rows[id].drink + rows[id].shared);
+    const subs = ids.map((id) => itemsOf(rows[id]));
     const base = subs.reduce((s, v) => s + v, 0);
     ids.forEach((id, i) => { rows[id].tax = base > 0 ? (extra * subs[i]) / base : extra / ids.length; });
   }
-  const raw = ids.map((id) => { const r = rows[id]; return r.veg + r.nonVeg + r.drink + r.shared + r.tax; });
+  const raw = ids.map((id) => itemsOf(rows[id]) + rows[id].tax);
   const exact = ids.length ? roundToTarget(raw, total) : [];
   ids.forEach((id, i) => {
     const r = rows[id];
-    r.veg = r2(r.veg); r.nonVeg = r2(r.nonVeg); r.drink = r2(r.drink); r.shared = r2(r.shared);
+    r.veg = r2(r.veg); r.nonVeg = r2(r.nonVeg); r.soft = r2(r.soft); r.drink = r2(r.drink); r.shared = r2(r.shared);
     r.total = exact[i];
     // Rounding pennies land in the tax line so the breakdown always adds up to the share.
-    r.tax = r2(r.total - r.veg - r.nonVeg - r.drink - r.shared);
+    r.tax = r2(r.total - itemsOf(r));
   });
   return { shares: rows, itemsSum: r2(itemsSum), extra: r2(extra), warnings };
 }
@@ -202,7 +206,7 @@ export function calculateTripSettlement(trip) {
       totalPaid,
       totalConsumed,
       netBalance: r2(totalPaid - totalConsumed),
-      breakdown: { veg: r2(a.veg), nonVeg: r2(a.nonVeg), drink: r2(a.drink), shared: r2(a.shared), tax: r2(a.tax) },
+      breakdown: { veg: r2(a.veg), nonVeg: r2(a.nonVeg), soft: r2(a.soft), drink: r2(a.drink), shared: r2(a.shared), tax: r2(a.tax) },
     };
   });
   return { members: rows, transfers: simplifyDebts(rows), total: r2(tripTotal), warnings };

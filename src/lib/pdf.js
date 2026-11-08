@@ -276,16 +276,16 @@ export async function buildTripPdf({ trip, settlement, profile }) {
 
   autoTable(doc, {
     startY: doc.lastAutoTable.finalY + 6,
-    head: [['Person', 'Paid', 'Consumed', 'Veg', 'Non-veg', 'Drinks', 'Shared', 'Tax/SC/disc.', 'Balance']],
+    head: [['Person', 'Paid', 'Consumed', 'Veg', 'Non-veg', 'Soft drinks', 'Alcohol', 'Shared', 'Tax/SC/disc.', 'Balance']],
     body: settlement.members.map((m) => [
       latin(m.name), npr(m.totalPaid), npr(m.totalConsumed), npr(m.breakdown.veg), npr(m.breakdown.nonVeg),
-      npr(m.breakdown.drink), npr(m.breakdown.shared), npr(m.breakdown.tax),
+      npr(m.breakdown.soft || 0), npr(m.breakdown.drink), npr(m.breakdown.shared), npr(m.breakdown.tax),
       `${m.netBalance > 0 ? 'gets ' : m.netBalance < 0 ? 'owes ' : ''}${npr(Math.abs(m.netBalance))}`,
     ]),
     margin: { left: M, right: M },
     styles,
     headStyles: head,
-    columnStyles: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((i) => [i, { halign: 'right' }])),
+    columnStyles: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => [i, { halign: 'right' }])),
   });
 
   autoTable(doc, {

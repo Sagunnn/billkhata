@@ -46,7 +46,8 @@ export function tripShareFile(trip, { expenses = [], photos = true, from = '', n
     const { receiptImage: _r, ...rest } = e;
     return photos && photo ? { ...rest, receiptImage: photo } : rest;
   });
-  const members = trip.members.map(({ isMe: _m, ...m }) => m);
+  // Your own pending QR decisions stay on your phone.
+  const members = trip.members.map(({ isMe: _m, pendingQr: _q, pendingQrFrom: _f, ...m }) => m);
   return {
     kind: SHARE_KIND, v: SHARE_VERSION, type: 'trip', sharedAt: now,
     from: { name: from || me?.name || '', memberId: me?.id || '' },
@@ -104,9 +105,13 @@ const newer = (a, b) => String(a?.updatedAt || '') > String(b?.updatedAt || '');
  * Two copies of a trip into one: for each expense and person the newer copy wins; an expense
  * deleted on either phone (after its last change) stays deleted; payments marked done on either
  * count. Your own `isMe`, name for the trip and ledger links stay as they are here.
- * @returns {{ trip, added: number, updated: number, removed: number }}
+ *
+ * A payment QR you already had for someone is never replaced by a file: anyone can edit one, and
+ * paying a swapped QR sends money to a stranger. The new QR waits on that person as `pendingQr`
+ * (with `pendingQrFrom`, who sent the file) until you accept it on the trip page.
+ * @returns {{ trip, added: number, updated: number, removed: number, qrChanges: { memberId, name }[] }}
  */
-export function mergeTrip(local, incoming) {
+export function mergeTrip(local, incoming, { from = '' } = {}) {
   const deleted = { ...(incoming.deleted || {}) };
   for (const [id, at] of Object.entries(local.deleted || {})) if (!deleted[id] || at > deleted[id]) deleted[id] = at;
   const mine = new Map(local.entries.map((e) => [e.id, e]));
@@ -131,16 +136,26 @@ export function mergeTrip(local, incoming) {
     entries.push(pick);
   }
   const people = new Map(local.members.map((m) => [m.id, m]));
-  for (const m of incoming.members) {
+  const qrChanges = [];
+  for (const raw of incoming.members) {
+    const { pendingQr: _q, pendingQrFrom: _f, ...m } = raw; // only your own phone decides these
     const L = people.get(m.id);
-    if (!L) people.set(m.id, { ...m, isMe: false });
-    else if (newer(m, L)) people.set(m.id, { ...m, isMe: L.isMe });
+    if (!L) { people.set(m.id, { ...m, isMe: false }); continue; }
+    if (!newer(m, L)) continue;
+    const next = { ...m, isMe: L.isMe, ...(L.pendingQr ? { pendingQr: L.pendingQr, pendingQrFrom: L.pendingQrFrom } : {}) };
+    const had = L.paymentQrRaw || '';
+    const sent = m.paymentQrRaw || '';
+    if (had && sent !== had && !L.isMe) {
+      next.paymentQrRaw = had;
+      if (sent) { next.pendingQr = sent; next.pendingQrFrom = from; qrChanges.push({ memberId: m.id, name: m.name }); }
+    }
+    people.set(m.id, next);
   }
   const paidTransfers = { ...(incoming.paidTransfers || {}), ...(local.paidTransfers || {}) };
   for (const [k, v] of Object.entries(incoming.paidTransfers || {})) if (v && !local.paidTransfers?.[k]) paidTransfers[k] = v;
   return {
     trip: { ...local, entries, members: [...people.values()], deleted, paidTransfers },
-    added, updated, removed,
+    added, updated, removed, qrChanges,
   };
 }
 

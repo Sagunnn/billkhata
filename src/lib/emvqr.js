@@ -51,3 +51,15 @@ export function qrKind(text = '') {
   try { if ('eSewa_id' in JSON.parse(text)) return 'esewa'; } catch { /* not JSON */ }
   return text ? 'other' : '';
 }
+
+/**
+ * Who a payment QR pays, as the QR itself says: a NepalQR / Fonepay merchant name (tag 59), or an
+ * eSewa QR's name and ID. '' when it doesn't say.
+ */
+export function qrPayee(text = '') {
+  const t = String(text).trim();
+  if (t.startsWith('{')) {
+    try { const j = JSON.parse(t); return [j.name, j.eSewa_id && `eSewa ${j.eSewa_id}`].filter(Boolean).join(' · '); } catch { return ''; }
+  }
+  try { return parseTLV(t).find((x) => x.tag === '59')?.value.trim() || ''; } catch { return ''; }
+}

@@ -9,11 +9,11 @@ export const TAGS = ['veg', 'non-veg', 'alcohol', 'shared'];
 export const TAG_LABELS = { veg: 'Veg', 'non-veg': 'Non-veg', alcohol: 'Alcohol', shared: 'Shared' };
 
 // Word-bounded so "drumstick" isn't rum, "ginger" isn't gin, "eggplant" isn't egg and "buffet" isn't buff.
-const NON_VEG = /\b(chicken|chkn|buff|buffalo|mutton|khasi|goat|lamb|pork|bacon|ham|salami|sausages?|hot ?dogs?|beef|fish|prawns?|shrimps?|crab|tuna|salmon|seafood|duck|turkey|eggs?|omelett?e|anda|sekuwa|choila|chhoila|kachila|sukuti|wings?|drumsticks?|keema|kima|meat|boneless|kukhura(?:ko)?|bandel|wild ?boar|nonveg|non[- ]veg)\b|कुखुरा|खसी|बंगुर|सुँगुर|बफ|माछा|अण्डा|अन्डा|सेकुवा|छोइला|सुकुटी|मासु|कचिला|भुटन/i;
-const ALCOHOL = /\b(beers?|tuborg|gorkha|barasinghe|arna|carlsberg|budweiser|heineken|nepal ice|everest beer|kingfisher|whiske?y|vodka|rum|khukuri|khukri|gin|wines?|aila|chhyang|chyang|tongba|raksi|cocktails?|shots?|tequila|brandy|scotch|old durbar|8848|signature|black ?label|red ?label|mojito|margarita|pints?|pitcher|hard ?cider)\b|बियर|रक्सी|ऐला|छ्याङ|तोङ्बा|वाइन/i;
+export const NON_VEG = /\b(chicken|chkn|buff|buffalo|mutton|khasi|goat|lamb|pork|bacon|ham|salami|sausages?|hot ?dogs?|beef|fish|prawns?|shrimps?|crab|tuna|salmon|seafood|duck|turkey|eggs?|omelett?e|anda|sekuwa|choila|chhoila|kachila|sukuti|pangra|wings?|drumsticks?|keema|kima|meat|boneless|kukhura(?:ko)?|bandel|wild ?boar|nonveg|non[- ]veg)\b|कुखुरा|खसी|बंगुर|सुँगुर|बफ|माछा|अण्डा|अन्डा|सेकुवा|छोइला|सुकुटी|मासु|कचिला|भुटन/i;
+export const ALCOHOL = /\b(beers?|tuborg|gorkha|barasinghe|arna|carlsberg|budweiser|heineken|nepal ice|everest beer|kingfisher|whiske?y|vodka|rum|khukuri|khukri|gin|wines?|aila|chhyang|chyang|tongba|raksi|cocktails?|shots?|tequila|brandy|scotch|old durbar|8848|signature|black ?label|red ?label|mojito|margarita|pints?|pitcher|hard ?cider)\b|बियर|रक्सी|ऐला|छ्याङ|तोङ्बा|वाइन/i;
 const SHARED = /\b(mineral ?water|water bottle|drinking water|ice ?cubes?|ice bucket|hookah|hukka|table charge|cover charge|packing|packaging|take ?away charge|parcel charge|delivery charge|cigarettes?|tissue)\b/i;
 // "Veg" in the name wins over an ambiguous dish word, e.g. "veg sausage" or "egg-less cake" stays veg.
-const EXPLICIT_VEG = /\b(veg(?:etable|gie|an|etarian)?|paneer|mushroom|tofu|eggless|egg-?free|soya)\b/i;
+export const EXPLICIT_VEG = /\b(veg(?:etable|gie|an|etarian)?|paneer|mushroom|tofu|eggless|egg-?free|soya)\b/i;
 
 /** Tags a menu line as 'veg', 'non-veg', 'alcohol' or 'shared'. Unknown food defaults to 'veg'. */
 export function classifyFoodItem(name = '') {

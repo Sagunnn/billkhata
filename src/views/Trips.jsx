@@ -3,7 +3,7 @@
 // and a settlement with as few transfers as possible. Everything stays on this device.
 import { useMemo, useState } from 'react';
 import {
-  ArrowRight, Beer, Camera, CircleCheck, Drumstick, FileDown, FileUp, Flag, Send, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
+  ArrowRight, Beer, Camera, CupSoda, CircleCheck, Drumstick, FileDown, FileUp, Flag, Send, ImagePlus, Leaf, ListPlus, LoaderCircle, Luggage,
   NotebookPen, Pencil, Plus, QrCode, Receipt, RotateCcw, ScanLine, ScanText, Trash, UserPlus, Users, UsersRound, Zap,
 } from 'lucide-react';
 import { PAYMENT, PAYMENT_METHODS, REGIONS } from '../lib/constants.js';
@@ -11,7 +11,7 @@ import { newId } from '../lib/db.js';
 import { downloadBlob, money } from '../lib/format.js';
 import { getIrdStatus } from '../lib/ird.js';
 import { adToBs, formatAD, formatBS, todayAD } from '../lib/nepaliDate.js';
-import { decodeQrFromImage, qrKind } from '../lib/qr.js';
+import { decodeQrFromImage, qrKind, qrPayee } from '../lib/qr.js';
 import {
   calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTripItem,
   makeTripMember, quickTripEntry, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey, tripStatus,
@@ -30,6 +30,7 @@ import { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 const CAT_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
   'non-veg': ['bg-red-50 text-red-800 ring-red-200', Drumstick],
+  soft: ['bg-sky-50 text-sky-900 ring-sky-200', CupSoda],
   drink: ['bg-amber-50 text-amber-900 ring-amber-200', Beer],
   shared: ['bg-slate-100 text-slate-700 ring-slate-300', UsersRound],
 };
@@ -126,7 +127,7 @@ function MembersCard({ trip, update, myQr }) {
     try {
       const text = await decodeQrFromImage(url);
       if (!text) toast('Couldn’t read a QR in that image. Try a tighter screenshot of just the QR.', 'error');
-      else { setMember(id, { paymentQrRaw: text }); toast(qrKind(text) === 'emv-invalid' ? 'QR read, but its checksum is wrong: it may be misread.' : 'Payment QR saved for this person.', qrKind(text) === 'emv-invalid' ? 'error' : 'success'); }
+      else { setMember(id, { paymentQrRaw: text, pendingQr: undefined, pendingQrFrom: undefined }); toast(qrKind(text) === 'emv-invalid' ? 'QR read, but its checksum is wrong: it may be misread.' : 'Payment QR saved for this person.', qrKind(text) === 'emv-invalid' ? 'error' : 'success'); }
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -164,6 +165,21 @@ function MembersCard({ trip, update, myQr }) {
                 </button>
               )}
             </div>
+            {m.pendingQr && !m.isMe && (
+              <div className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-950 ring-1 ring-inset ring-amber-300" role="alert">
+                <p className="font-semibold">{m.name}’s payment QR changed in a file{m.pendingQrFrom ? ` from ${m.pendingQrFrom}` : ''}</p>
+                <p className="mt-0.5 text-xs">Use the new one only if {m.name || 'they'} told you it changed: a swapped QR sends the money to someone else. Until then, the old one is used.</p>
+                {/* Names only: the new QR isn't shown as a code until it's accepted, so nobody pays it by mistake. */}
+                <ul className="mt-2 space-y-0.5 text-xs">
+                  <li>In use now: pays <b>{qrPayee(m.paymentQrRaw) || 'a name the QR doesn’t show'}</b></li>
+                  <li>New one in the file: pays <b>{qrPayee(m.pendingQr) || 'a name the QR doesn’t show'}</b></li>
+                </ul>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => { setMember(m.id, { pendingQr: undefined, pendingQrFrom: undefined }); toast(`Kept ${m.name}’s old QR.`); }}>Keep the old one</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setMember(m.id, { paymentQrRaw: m.pendingQr, pendingQr: undefined, pendingQrFrom: undefined }); toast(`${m.name}’s new QR is in use.`); }}>Use the new one</Button>
+                </div>
+              </div>
+            )}
             {qrFor === m.id && (
               <div className="mt-2 rounded-lg bg-slate-50 p-3 text-sm">
                 {m.isMe ? (
@@ -178,8 +194,9 @@ function MembersCard({ trip, update, myQr }) {
                       </label>
                       {m.paymentQrRaw && <Button size="md" variant="danger" onClick={() => setMember(m.id, { paymentQrRaw: '' })}>Remove</Button>}
                     </div>
-                    <textarea rows={2} className="input font-mono text-xs" value={m.paymentQrRaw} onChange={(e) => setMember(m.id, { paymentQrRaw: e.target.value.trim() })} placeholder="000201… (NepalQR text) or eSewa QR text" aria-label="Payment QR text" />
+                    <textarea rows={2} className="input font-mono text-xs" value={m.paymentQrRaw} onChange={(e) => setMember(m.id, { paymentQrRaw: e.target.value.trim(), pendingQr: undefined, pendingQrFrom: undefined })} placeholder="000201… (NepalQR text) or eSewa QR text" aria-label="Payment QR text" />
                     {m.paymentQrRaw && <QrBox text={m.paymentQrRaw} label={qrKind(m.paymentQrRaw) === 'emv-invalid' ? 'Checksum wrong: may be misread' : m.name} size={150} />}
+                    {m.paymentQrRaw && qrPayee(m.paymentQrRaw) && <p className="text-xs text-slate-600">This QR pays <b>{qrPayee(m.paymentQrRaw)}</b>.</p>}
                   </div>
                 )}
               </div>
@@ -451,6 +468,8 @@ function TransferQr({ to, amount, myQr }) {
       {qr ? <QrBox text={qr.image ? '' : qr.text} image={qr.image} label={qr.label} size={170} /> : <p className="text-sm text-slate-600">No QR saved for {to.name}. Add one under People.</p>}
       <div className="space-y-2 text-sm">
         <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Pay {to.name}</div>
+        {!to.isMe && qr && qrPayee(qr.text) && <div className="text-xs text-slate-600">The QR pays <b>{qrPayee(qr.text)}</b></div>}
+        {!to.isMe && to.pendingQr && <div className="max-w-[16rem] rounded bg-amber-50 px-2 py-1 text-xs text-amber-950">A different QR for {to.name} came in a file. This is the one you had; check under People.</div>}
         <div className="num text-3xl font-extrabold">{money(amount)}</div>
         <CopyButton value={fixed} label={`Copy ${fixed}`} />
         <p className="text-xs text-slate-500">Scan, then type this amount in the app.</p>
@@ -476,7 +495,7 @@ function Settlement({ trip, settlement, update, myQr, region }) {
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
               paid {money(m.totalPaid, region)} · used {money(m.totalConsumed, region)}
-              {' '}(veg {money(m.breakdown.veg, region)} · non-veg {money(m.breakdown.nonVeg, region)} · drinks {money(m.breakdown.drink, region)} · shared {money(m.breakdown.shared, region)}{Math.abs(m.breakdown.tax) >= 0.01 ? ` · tax/SC ${money(m.breakdown.tax, region)}` : ''})
+              {' '}(veg {money(m.breakdown.veg, region)} · non-veg {money(m.breakdown.nonVeg, region)}{m.breakdown.soft >= 0.01 ? ` · soft drinks ${money(m.breakdown.soft, region)}` : ''} · alcohol {money(m.breakdown.drink, region)} · shared {money(m.breakdown.shared, region)}{Math.abs(m.breakdown.tax) >= 0.01 ? ` · tax/SC ${money(m.breakdown.tax, region)}` : ''})
             </div>
           </li>
         ))}
@@ -714,7 +733,7 @@ export function TripView({ tripId: id }) {
       sellerPan: '',
       invoiceNumber: '',
       vatAmount: null,
-      notes: `Veg ${b.veg} · Non-veg ${b.nonVeg} · Drinks ${b.drink} · Shared ${b.shared} · Tax/SC ${b.tax}`,
+      notes: `Veg ${b.veg} · Non-veg ${b.nonVeg} · Soft drinks ${b.soft || 0} · Alcohol ${b.drink} · Shared ${b.shared} · Tax/SC ${b.tax}`,
       tripShareOf: trip.id,
     });
     toast(existing ? 'Your trip share in the ledger is updated.' : `Logged ${money(mine.totalConsumed, region)} as your trip share.`);

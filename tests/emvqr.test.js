@@ -36,3 +36,12 @@ test('a misread QR (bad CRC) is flagged; eSewa JSON and other text are told apar
   assert.equal(qrKind('https://example.com/pay'), 'other');
   assert.equal(qrKind(''), '');
 });
+
+test('who a payment QR pays, as the QR says', async () => {
+  const { qrPayee } = await import('../src/lib/emvqr.js');
+  assert.equal(qrPayee(staticNepalQr()), 'RAM BAHADUR');
+  assert.equal(qrPayee(SPEC), 'BEST TRANSPORT');
+  assert.equal(qrPayee('{"eSewa_id":"9800000000","name":"Sita Sharma"}'), 'Sita Sharma · eSewa 9800000000');
+  assert.equal(qrPayee('hello'), '');
+  assert.equal(qrPayee(''), '');
+});

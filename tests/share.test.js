@@ -78,3 +78,34 @@ test('split files, and files that aren’t ours', () => {
   assert.throws(() => parseShareFile(JSON.stringify({ kind: 'billkhata-share', v: 9, type: 'trip' })), /newer BillKhata/);
   assert.match(shareFileName('trip', 'Nagarkot Weekend!', new Date(T2)), /^billkhata-trip-nagarkot-weekend-2026-11-01\.json$/);
 });
+
+test('a file never swaps a payment QR you already had: it waits until you accept it', () => {
+  const at = (d) => `2026-11-0${d}T10:00:00.000Z`;
+  const local = {
+    id: 't', entries: [], paidTransfers: {},
+    members: [
+      { id: 'me', name: 'Ram', isMe: true, updatedAt: at(1) },
+      { id: 'h', name: 'Hari', paymentQrRaw: 'HARI-QR', updatedAt: at(1) },
+      { id: 's', name: 'Sita', paymentQrRaw: '', updatedAt: at(1) },
+    ],
+  };
+  const incoming = {
+    id: 't', entries: [],
+    members: [
+      { id: 'me', name: 'Ram', updatedAt: at(1) },
+      { id: 'h', name: 'Hari', paymentQrRaw: 'STRANGER-QR', isVeg: true, updatedAt: at(2) }, // swapped
+      { id: 's', name: 'Sita', paymentQrRaw: 'SITA-QR', updatedAt: at(2) }, // first QR for Sita
+      { id: 'n', name: 'Nabin', paymentQrRaw: 'NABIN-QR', pendingQr: 'X', updatedAt: at(2) }, // new person
+    ],
+  };
+  const out = mergeTrip(local, incoming, { from: 'Bikash' });
+  const by = Object.fromEntries(out.trip.members.map((m) => [m.id, m]));
+  assert.equal(by.h.paymentQrRaw, 'HARI-QR'); // the one you had stays in use
+  assert.deepEqual([by.h.pendingQr, by.h.pendingQrFrom, by.h.isVeg], ['STRANGER-QR', 'Bikash', true]); // other changes still come in
+  assert.equal(by.s.paymentQrRaw, 'SITA-QR'); // nothing to compare with: taken
+  assert.equal(by.n.pendingQr, undefined); // a file's own pending fields are never taken
+  assert.deepEqual(out.qrChanges.map((c) => c.name), ['Hari']);
+  // Sending the trip on: your pending decisions stay on your phone.
+  const file = tripShareFile(out.trip);
+  assert.ok(file.trip.members.every((m) => m.pendingQr === undefined && m.pendingQrFrom === undefined));
+});

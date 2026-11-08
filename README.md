@@ -564,6 +564,21 @@ Bills live only on this device, so the app guards them (`src/lib/storageSafety.j
   not from the app's state, and makes a normal backup file. A page file missing after an update
   reloads the app once (at most once a minute).
 
+## Trip drinks and payment QRs from friends' files
+
+- **Soft drinks are for everyone**: trip items have five types, Veg, Non-veg, **Soft drink** (tea,
+  coffee, juice, lassi, cola, mocktails: everyone here shares them), **Alcohol** (only people with
+  Drinks on) and Shared. "No drinks" means no alcohol, the same as in Split. The trip classifier
+  uses Split's food word lists (`NON_VEG`, `ALCOHOL`, `EXPLICIT_VEG` exported from splitter.js), so
+  a dish is sorted the same in both. Trip bills already saved keep the people they had.
+- **A file never swaps a payment QR**: when a friend's trip file has a different QR for someone you
+  already have one for, the merge keeps yours in use and holds the new one as `pendingQr` (with who
+  sent the file). The merge sheet and toast say so, and the trip's People card asks: "Hari's payment
+  QR changed in a file from Bikash", showing who each QR pays (the name inside a NepalQR / Fonepay
+  code, tag 59, or an eSewa QR's name; `qrPayee` in emvqr.js) but not the new code itself, with
+  **Keep the old one** / **Use the new one**. Settle up shows who the QR pays. A first QR for someone,
+  or a new person, is taken as sent. Pending decisions never leave your phone in a file you send.
+
 ## Friend groups, Not here, Pass the phone and pixel faces
 
 - **Groups** (`src/lib/groups.js`, `src/components/Groups.jsx`): **Your groups** on the Split page.

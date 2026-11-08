@@ -179,16 +179,18 @@ export function ReceiveSheet({ onClose }) {
   }
 
   const local = data?.type === 'trip' ? trips.find((t) => t.id === data.trip.id) : null;
-  const preview = local ? mergeTrip(local, data.trip) : null;
+  const preview = local ? mergeTrip(local, data.trip, { from: data.from?.name || '' }) : null;
+  const news = preview ? preview.added + preview.updated + preview.removed + preview.qrChanges.length : 0;
   const myFirst = (profile.fullName || '').split(' ')[0] || 'Me';
 
   async function doTrip() {
-    if (local && !(preview.added + preview.updated + preview.removed)) { onClose(); return; }
+    if (local && !news) { onClose(); return; }
     setBusy(true);
     try {
       if (local) {
         await saveTrip(preview.trip, { revive: true });
-        toast(`${data.trip.name}: ${preview.added} new, ${preview.updated} updated, ${preview.removed} removed.`);
+        const qr = preview.qrChanges.length;
+        toast(`${data.trip.name}: ${preview.added} new, ${preview.updated} updated, ${preview.removed} removed.${qr ? ` ${qr} payment QR change${qr === 1 ? '' : 's'} to check under People before anyone pays.` : ''}`, qr ? 'error' : 'success');
       } else {
         await saveTrip(tripFromShare(data.trip, { meId, myName: myFirst }), { revive: true });
         toast(`${data.trip.name} added. Add your own expenses and send it back.`);
@@ -228,10 +230,15 @@ export function ReceiveSheet({ onClose }) {
           <li><b>{preview.updated}</b> updated</li>
           <li><b>{preview.removed}</b> removed (deleted on their phone)</li>
         </ul>
+        {preview.qrChanges.length > 0 && (
+          <p className="t-label rounded-[12px] bg-warn-soft px-3 py-2.5 text-ink">
+            <b>Payment QR changed</b> for {preview.qrChanges.map((c) => c.name).join(', ')} in this file. The one you have stays until you check the new one on the trip’s People and accept it. Ask them first: a swapped QR sends money to someone else.
+          </p>
+        )}
         <p className="t-caption text-ink-3">The newer version of each expense is kept. Nothing is counted twice.</p>
       </div>
     );
-    footer = <Button variant="primary" size="lg" icon={Check} className="w-full" disabled={busy} onClick={doTrip}>{preview.added + preview.updated + preview.removed ? 'Merge into my trip' : 'Nothing new: close'}</Button>;
+    footer = <Button variant="primary" size="lg" icon={Check} className="w-full" disabled={busy} onClick={doTrip}>{news ? 'Merge into my trip' : 'Nothing new: close'}</Button>;
   } else if (data.type === 'trip') {
     body = (
       <div className="space-y-3">

@@ -13,7 +13,11 @@ const members = [sagun, asha, bikash, chiran];
 
 test('classifyTripItem', () => {
   for (const n of ['Chicken Sekuwa', 'Buff Choila', 'Pangra Fry', 'Egg Curry', 'Mutton Thakali', 'Sukuti', 'Drumstick']) assert.equal(classifyTripItem(n), 'non-veg', n);
-  for (const n of ['Tuborg', 'Gorkha Beer', 'Khukuri Rum', 'Coke 500ml', 'Masala Tea', 'Lassi', 'Red Bull', 'Hot Coffee', 'Fresh Juice']) assert.equal(classifyTripItem(n), 'drink', n);
+  for (const n of ['Tuborg', 'Gorkha Beer', 'Khukuri Rum', 'Old Durbar', 'Drinks']) assert.equal(classifyTripItem(n), 'drink', n);
+  // Everyone has these, drinker or not.
+  for (const n of ['Coke 500ml', 'Masala Tea', 'Lassi', 'Red Bull', 'Hot Coffee', 'Fresh Juice', 'Virgin Mojito', 'Cold drinks', 'चिया']) assert.equal(classifyTripItem(n), 'soft', n);
+  // Same food lists as Split.
+  for (const n of ['Hot Dog', 'Grilled Salmon', 'Pangra Fry']) assert.equal(classifyTripItem(n), 'non-veg', n);
   for (const n of ['Taxi to Nagarkot', 'Pathao', 'Petrol', 'Hotel room 2 nights', 'Entry ticket', 'Parking', 'Mineral Water']) assert.equal(classifyTripItem(n), 'shared', n);
   for (const n of ['Veg Thakali', 'Paneer Chilli', 'Aloo Sadheko', 'Veg Momo', 'Chowmein', 'Ginger Lemon', 'Eggplant', 'Buffet', '']) assert.equal(classifyTripItem(n), 'veg', n);
 });
@@ -88,7 +92,7 @@ test('4-person multi-payer trip conserves money and settles in at most N−1 tra
   // Breakdown adds up to what each person consumed.
   for (const m of s.members) {
     const b = m.breakdown;
-    assert.ok(Math.abs(b.veg + b.nonVeg + b.drink + b.shared + b.tax - m.totalConsumed) < 0.011, m.name);
+    assert.ok(Math.abs(b.veg + b.nonVeg + b.soft + b.drink + b.shared + b.tax - m.totalConsumed) < 0.011, m.name);
   }
 });
 
@@ -116,4 +120,15 @@ test('ongoing trips, trip day, and entries from a scan or a quick expense', asyn
   assert.deepEqual(taxi.items[0].assignedMemberIds, ['me', 'a', 'b'], 'nobody picked: everyone');
   const s = calculateTripSettlement({ ...trip, entries: [taxi] });
   assert.equal(s.members.find((m) => m.memberId === 'a').netBalance, 1000, 'Aarati paid 1500, her share is 500');
+});
+
+test('soft drinks go to everyone on the trip, alcohol only to drinkers', () => {
+  const members = [{ id: 'a', name: 'Asha', isVeg: true, drinks: false }, { id: 'b', name: 'Bikash', drinks: true }];
+  assert.deepEqual(getDefaultAssignedMembers('soft', members), ['a', 'b']);
+  assert.deepEqual(getDefaultAssignedMembers('drink', members), ['b']);
+  const e = makeEntry({ title: 'Cafe', totalAmount: 600, items: [{ name: 'Masala Tea', amount: 200 }, { name: 'Tuborg', amount: 400 }] }, members);
+  assert.deepEqual(e.items.map((it) => [it.category, it.assignedMemberIds]), [['soft', ['a', 'b']], ['drink', ['b']]]);
+  const s = calculateTripSettlement({ members, entries: [{ ...e, paidByMemberId: 'b' }] });
+  const asha = s.members.find((m) => m.memberId === 'a');
+  assert.deepEqual([asha.breakdown.soft, asha.breakdown.drink, asha.totalConsumed], [100, 0, 100]);
 });

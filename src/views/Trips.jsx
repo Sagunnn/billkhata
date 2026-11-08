@@ -13,7 +13,7 @@ import { getIrdStatus } from '../lib/ird.js';
 import { adToBs, formatAD, formatBS, todayAD } from '../lib/nepaliDate.js';
 import { decodeQrFromImage, qrKind } from '../lib/qr.js';
 import {
-  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, makeEntry, makeTrip, makeTripItem,
+  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTrip, makeTripItem,
   makeTripMember, quickTripEntry, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey, tripStatus,
 } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -23,6 +23,9 @@ import { QrBox, usePaymentQr } from '../components/PaymentQr.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { Badge, Button, Card, CopyButton, EmptyState, Field, Modal, PageHeader, Segmented, StatusBadge, Toggle } from '../components/ui.jsx';
 import { AmountInput } from '../components/MoneySheets.jsx';
+import { StartTripSheet, useGroups } from '../components/Groups.jsx';
+import { tripMembersFromGroup } from '../lib/groups.js';
+import { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 
 const CAT_STYLE = {
   veg: ['bg-emerald-50 text-emerald-800 ring-emerald-200', Leaf],
@@ -40,6 +43,8 @@ function CatChip({ cat }) {
 export function TripsHub() {
   const { trips, profile, saveTrip, openSheet } = useStore();
   const [name, setName] = useState('');
+  const [groups] = useGroups();
+  const [withGroup, setWithGroup] = useState(null);
   const sorted = [...trips].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
 
   async function create(e) {
@@ -56,6 +61,13 @@ export function TripsHub() {
           <input className="input min-w-[200px] flex-1" value={name} onChange={(e) => setName(e.target.value)} placeholder="Trip name, e.g. Nagarkot Weekend" aria-label="Trip name" />
           <Button type="submit" variant="primary" icon={Plus}>Start a trip</Button>
         </form>
+        {groups.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="t-caption text-ink-3">Or start with a group:</span>
+            {groups.map((g) => <button key={g.name} type="button" className="chip tap h-8 text-[13px]" onClick={() => setWithGroup(g)}><Users className="size-3.5" />{g.name} · {g.members.length + 1}</button>)}
+          </div>
+        )}
+        {withGroup && <StartTripSheet group={withGroup} onClose={() => setWithGroup(null)} />}
       </Card>
       <button type="button" onClick={() => openSheet('receive')} className="card flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:border-line-strong">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-navy-soft text-navy"><FileUp className="size-5" /></span>
@@ -102,6 +114,10 @@ function MembersCard({ trip, update, myQr }) {
   const [name, setName] = useState('');
   const [qrFor, setQrFor] = useState('');
   const used = new Set(trip.entries.map((e) => e.paidByMemberId));
+  const [groups] = useGroups();
+  const onTrip = new Set(trip.members.map((m) => m.name.trim().toLowerCase()));
+  const addable = groups.filter((g) => g.members.some((m) => !onTrip.has(m.name.trim().toLowerCase())));
+  const away = trip.members.filter((m) => m.away).length;
   const setMember = (id, patch) => update({ ...trip, members: trip.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
 
   async function qrFromImage(id, file) {
@@ -119,16 +135,25 @@ function MembersCard({ trip, update, myQr }) {
   return (
     <Card className="p-4">
       <h2 className="mb-1 flex items-center gap-2 font-bold"><Users className="size-4" />People ({trip.members.length})</h2>
-      <p className="mb-3 text-xs text-slate-500">Diet and drinks set who shares each item by default. New expenses use the current list.</p>
+      <p className="mb-3 text-xs text-slate-500">Diet and drinks set who shares each item by default. Someone who left early or joins later: mark them <b>Not here</b> and new expenses leave them out until they're back (earlier ones stay as they are).</p>
+      {away > 0 && <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">{away} not here: new expenses are split between the other {trip.members.length - away}.</p>}
       <ul className="space-y-2">
         {trip.members.map((m) => (
           <li key={m.id} className="rounded-lg border border-slate-200 p-2">
             <div className="flex flex-wrap items-center gap-2">
-              <input className="input min-w-[120px] flex-1 py-1.5" value={m.name} onChange={(e) => setMember(m.id, { name: e.target.value })} aria-label="Name" />
+              <AvatarButton person={m} dim={m.away} size={38} onChange={(patch) => setMember(m.id, patch)} />
+              <span className="flex min-w-[120px] flex-1 flex-col">
+                <input className="input py-1.5" value={m.name} onChange={(e) => setMember(m.id, { name: e.target.value })} aria-label="Name" />
+                <GenderButton person={m} onChange={(patch) => setMember(m.id, patch)} className="mt-0.5 self-start" />
+              </span>
               {m.isMe && <span className="rounded-full bg-slate-900 px-2 py-0.5 text-xs font-bold text-white">You</span>}
               <Segmented value={m.isVeg ? 'veg' : 'non-veg'} onChange={(v) => setMember(m.id, { isVeg: v === 'veg' })} options={[{ value: 'veg', label: 'Veg' }, { value: 'non-veg', label: 'Non-veg' }]} />
               <button type="button" aria-pressed={m.drinks} onClick={() => setMember(m.id, { drinks: !m.drinks })} className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold ring-1 ring-inset ${m.drinks ? 'bg-amber-100 text-amber-900 ring-amber-300' : 'bg-white text-slate-500 ring-slate-300'}`}>
                 <Beer className="size-4" />{m.drinks ? 'Drinks' : 'No drinks'}
+              </button>
+              <button type="button" aria-pressed={Boolean(m.away)} onClick={() => setMember(m.id, { away: !m.away })} title={m.away ? 'Not here: new expenses leave them out. Tap when they’re back.' : 'Here: tap if they left or haven’t arrived'}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold ring-1 ring-inset ${m.away ? 'bg-amber-100 text-amber-900 ring-amber-300' : 'bg-white text-slate-500 ring-slate-300'}`}>
+                {m.away ? 'Not here' : 'Here'}
               </button>
               <button type="button" onClick={() => setQrFor(qrFor === m.id ? '' : m.id)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold ring-1 ring-inset ${(m.isMe ? myQr : m.paymentQrRaw) ? 'bg-emerald-50 text-emerald-800 ring-emerald-300' : 'bg-white text-slate-500 ring-slate-300'}`} aria-expanded={qrFor === m.id}>
                 <QrCode className="size-4" />QR
@@ -166,6 +191,16 @@ function MembersCard({ trip, update, myQr }) {
         <input className="input py-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a person" aria-label="New person's name" />
         <Button type="submit" variant="dark" icon={UserPlus}>Add</Button>
       </form>
+      {addable.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="t-caption text-ink-3">Add a group:</span>
+          {addable.map((g) => (
+            <button key={g.name} type="button" className="chip tap h-8 text-[13px]" onClick={() => { const add = tripMembersFromGroup(g, { existing: trip.members }); update({ ...trip, members: [...trip.members, ...add] }); toast(`Added ${add.map((m) => m.name).join(', ')}.`); }}>
+              <Users className="size-3.5" />{g.name}
+            </button>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -179,7 +214,7 @@ function MemberPills({ members, ids, onChange }) {
         const on = ids.includes(m.id);
         return (
           <button key={m.id} type="button" aria-pressed={on} onClick={() => onChange(on ? ids.filter((x) => x !== m.id) : [...ids, m.id])} className={`rounded-full px-3 py-1 text-sm font-semibold ring-1 ring-inset ${on ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-500 ring-slate-300'}`}>
-            {on ? '✓ ' : ''}{m.name || 'Person'}
+            {on ? '✓ ' : ''}{m.name || 'Person'}{m.away ? <span className="font-normal opacity-70"> · not here</span> : null}
           </button>
         );
       })}
@@ -534,7 +569,7 @@ export function TripQuickSheet({ tripId: id, onClose }) {
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [paidBy, setPaidBy] = useState(me?.id || '');
-  const [forIds, setForIds] = useState(members.map((m) => m.id));
+  const [forIds, setForIds] = useState(hereMembers(members).map((m) => m.id));
   const [error, setError] = useState('');
   const [count, setCount] = useState(0);
   if (!trip) return null;
@@ -573,7 +608,7 @@ export function TripQuickSheet({ tripId: id, onClose }) {
         <fieldset>
           <legend className="label">Split between</legend>
           <MemberPills members={members} ids={forIds} onChange={setForIds} />
-          <p className="t-caption mt-1.5 text-ink-3">{forIds.length && forIds.length < members.length ? `${forIds.length} of ${members.length} people` : 'Everyone on the trip'}. Fine-tune it on the trip page.</p>
+          <p className="t-caption mt-1.5 text-ink-3">{forIds.length && forIds.length < members.length ? `${forIds.length} of ${members.length} people${members.some((m) => m.away) ? ' (the rest are not here)' : ''}` : 'Everyone on the trip'}. Fine-tune it on the trip page.</p>
         </fieldset>
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Add</button>
       </form>

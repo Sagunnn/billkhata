@@ -45,6 +45,7 @@ function validateExtras(x) {
     groups: list(x.groups, (g) => named(g) && Array.isArray(g.members)),
     receivedSplits: list(x.receivedSplits, plain),
     deletedTrips,
+    myAvatar: plain(x.myAvatar) ? { gender: ['m', 'f'].includes(x.myAvatar.gender) ? x.myAvatar.gender : '', look: Number(x.myAvatar.look) || 0 } : undefined,
   };
 }
 

@@ -258,9 +258,12 @@ export function parseLineItemsFromText(rawText = '') {
 
 /* ---------- 2. members and auto-ticks ---------- */
 
-export function makeMember({ name = '', diet = 'non-veg', alcohol = false, id, isPayer = false, out = false } = {}) {
-  return { id: id || `m${Date.now().toString(36)}${(itemSeq++).toString(36)}`, name: String(name).trim(), diet: diet === 'veg' ? 'veg' : 'non-veg', alcohol: Boolean(alcohol), isPayer, out: Boolean(out) };
+export function makeMember({ name = '', diet = 'non-veg', alcohol = false, id, isPayer = false, out = false, gender = '', look = 0 } = {}) {
+  return { id: id || `m${Date.now().toString(36)}${(itemSeq++).toString(36)}`, name: String(name).trim(), diet: diet === 'veg' ? 'veg' : 'non-veg', alcohol: Boolean(alcohol), isPayer, out: Boolean(out), ...face(gender, look) };
 }
+
+/** A pixel face's gender and look, when set (see pixelAvatar.js). */
+export const face = (gender, look) => ({ ...(gender === 'm' || gender === 'f' ? { gender } : {}), ...(Number(look) ? { look: Number(look) } : {}) });
 
 /** People taking part. A member with `out: true` stays listed but pays nothing (e.g. the payer treating friends). */
 

@@ -102,18 +102,27 @@ export const savePaymentQr = (q) => write(QR_KEY, q);
 export const loadFriends = () => (Array.isArray(read(FRIENDS_KEY)) ? read(FRIENDS_KEY) : []);
 export function rememberFriends(members) {
   const byName = new Map(loadFriends().map((f) => [f.name.toLowerCase(), f]));
-  members.filter((m) => !m.isPayer && m.name.trim()).forEach((m) => byName.set(m.name.trim().toLowerCase(), { name: m.name.trim(), diet: m.diet, alcohol: m.alcohol }));
+  members.filter((m) => !m.isPayer && m.name.trim()).forEach((m) => byName.set(m.name.trim().toLowerCase(), { name: m.name.trim(), diet: m.diet, alcohol: m.alcohol, gender: m.gender || '', look: m.look || 0 }));
   write(FRIENDS_KEY, [...byName.values()].slice(-60));
 }
 export const forgetFriend = (name) => write(FRIENDS_KEY, loadFriends().filter((f) => f.name.toLowerCase() !== String(name).toLowerCase()));
 
-/** Saved groups: [{ name, members: [{ name, diet, alcohol }] }] */
+/** Saved groups: [{ id, name, members: [{ name, diet, alcohol }] }] (tidied by groups.js). */
 export const loadGroups = () => (Array.isArray(read(GROUPS_KEY)) ? read(GROUPS_KEY) : []);
-export function saveGroup(name, members) {
-  const group = { name: String(name).trim(), members: members.filter((m) => !m.isPayer).map((m) => ({ name: m.name, diet: m.diet, alcohol: m.alcohol })) };
-  write(GROUPS_KEY, [...loadGroups().filter((g) => g.name.toLowerCase() !== group.name.toLowerCase()), group].slice(-20));
+export const saveGroups = (list) => write(GROUPS_KEY, list.slice(-20));
+
+/* ---------- your pixel face (splits and trips) ---------- */
+
+const AVATAR_KEY = 'billkhata_my_avatar';
+/** Your face: { gender: ''|'m'|'f', look }. */
+export function loadMyAvatar() {
+  const v = read(AVATAR_KEY) || {};
+  return { gender: v.gender === 'm' || v.gender === 'f' ? v.gender : '', look: Number(v.look) || 0 };
 }
-export const deleteGroup = (name) => write(GROUPS_KEY, loadGroups().filter((g) => g.name.toLowerCase() !== String(name).toLowerCase()));
+export function saveMyAvatar(v) {
+  write(AVATAR_KEY, { gender: v.gender || '', look: Number(v.look) || 0 });
+  try { window.dispatchEvent(new Event('billkhata-avatar')); } catch { /* not in a browser */ }
+}
 
 /* ---------- deleted trips ---------- */
 
@@ -154,6 +163,7 @@ export function backupExtras() {
     groups: loadGroups(),
     receivedSplits: Array.isArray(read(RECEIVED_KEY)) ? read(RECEIVED_KEY) : [],
     deletedTrips: loadDeletedTrips(),
+    myAvatar: loadMyAvatar(),
   };
 }
 
@@ -177,6 +187,9 @@ export function restoreExtras(x, mode = 'merge') {
     try { window.dispatchEvent(new Event('billkhata-received')); } catch { /* not in a browser */ }
   }
   if (x.paymentQr?.mode && (over || !loadPaymentQr().mode)) savePaymentQr(x.paymentQr);
+  // Your pixel face: from the backup when this device has none yet (or everything is replaced).
+  const mine = loadMyAvatar();
+  if (x.myAvatar && (over || (!mine.gender && !mine.look))) saveMyAvatar(x.myAvatar);
   if (x.deletedTrips) write(DELETED_TRIPS_KEY, over ? x.deletedTrips : { ...x.deletedTrips, ...loadDeletedTrips() });
   if (!over || !x.settings) return null;
   const { apiKeys: _ignored, ...settings } = x.settings;

@@ -25,11 +25,21 @@ export function classifyTripItem(name = '') {
 }
 
 /**
- * Who shares an item by default:
+ * The people on the trip right now: anyone marked "Not here" (left early, joining later) is left
+ * out of new expenses until they're back. Everyone when nobody is marked here.
+ */
+export function hereMembers(members = []) {
+  const here = members.filter((m) => !m.away);
+  return here.length ? here : members;
+}
+
+/**
+ * Who shares an item by default (only people who are here):
  * non-veg → non-vegetarians; drink → people who take drinks; veg and shared → everyone.
  * `vegOnly` puts a veg item on vegetarians only (e.g. a vegetarian's separate meal).
  */
-export function getDefaultAssignedMembers(category, members = [], { vegOnly = false } = {}) {
+export function getDefaultAssignedMembers(category, all = [], { vegOnly = false } = {}) {
+  const members = hereMembers(all);
   if (category === 'non-veg') return members.filter((m) => !m.isVeg).map((m) => m.id);
   if (category === 'drink') return members.filter((m) => m.drinks !== false).map((m) => m.id);
   if (category === 'veg' && vegOnly) return members.filter((m) => m.isVeg).map((m) => m.id);
@@ -41,8 +51,11 @@ export function getDefaultAssignedMembers(category, members = [], { vegOnly = fa
 let seq = 0;
 export const tripId = (p) => `${p}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-export function makeTripMember({ id, name = '', isVeg = false, drinks = true, paymentQrRaw = '', isMe = false } = {}) {
-  return { id: id || tripId('m'), name: String(name).trim(), isVeg: Boolean(isVeg), drinks: drinks !== false, paymentQrRaw: String(paymentQrRaw || ''), isMe: Boolean(isMe) };
+export function makeTripMember({ id, name = '', isVeg = false, drinks = true, paymentQrRaw = '', isMe = false, away = false, gender = '', look = 0 } = {}) {
+  return {
+    id: id || tripId('m'), name: String(name).trim(), isVeg: Boolean(isVeg), drinks: drinks !== false, paymentQrRaw: String(paymentQrRaw || ''), isMe: Boolean(isMe),
+    ...(away ? { away: true } : {}), ...(gender === 'm' || gender === 'f' ? { gender } : {}), ...(Number(look) ? { look: Number(look) } : {}),
+  };
 }
 
 export function makeTrip({ name = 'New trip', profile } = {}) {
@@ -231,7 +244,7 @@ export function entryFromExpense(exp, trip) {
 export function quickTripEntry({ title, amount, paidByMemberId, forIds, dateAD = todayAD() }, members) {
   const name = String(title || '').trim() || 'Expense';
   const category = classifyTripItem(name);
-  const ids = forIds?.length ? forIds : members.map((m) => m.id);
+  const ids = forIds?.length ? forIds : hereMembers(members).map((m) => m.id);
   return makeEntry({
     title: name, paidByMemberId, dateAD, totalAmount: amount, hasBill: false,
     items: [makeTripItem({ name, amount, category, assignedMemberIds: ids }, members)],

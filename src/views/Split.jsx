@@ -3,12 +3,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftRight, Banknote, Beer, Check, ChevronLeft, Crown, ScanLine, ChevronRight, ClipboardPaste, Copy, Divide, Drumstick, HandCoins, ImageUp, Leaf,
   LoaderCircle, Minus, Pencil, Plus, Luggage, QrCode, ReceiptText, RotateCcw, ScanText, ShieldAlert, Split as SplitIcon, Trash, Utensils,
-  UsersRound, Wine, X, Zap, FileUp, Send,
+  Smartphone, Users, UsersRound, Wine, X, Zap, FileUp, Send,
 } from 'lucide-react';
 import { CATEGORIES } from '../lib/constants.js';
 import { money, downloadBlob } from '../lib/format.js';
 import { formatAD, formatBS, shortBS, todayAD } from '../lib/nepaliDate.js';
-import { deleteGroup, forgetFriend, loadFriends, loadGroups, loadPaymentQr, rememberFriends, saveGroup } from '../lib/profile.js';
+import { forgetFriend, loadFriends, loadPaymentQr, rememberFriends } from '../lib/profile.js';
+import { clearPendingGroup, groupMembersFrom, peekPendingGroup, splitMembersFromGroup } from '../lib/groups.js';
+import { GroupSheet, GroupsCard, useGroups } from '../components/Groups.jsx';
+import PassAround from '../components/PassAround.jsx';
+import PixelAvatar, { AvatarButton, GenderButton } from '../components/PixelAvatar.jsx';
 import { payNumberFor } from '../lib/qr.js';
 import {
   autoWeight, clearItemOverrides, clearMemberOverrides, computeSplit, makeItem, makeMember,
@@ -80,6 +84,7 @@ export function SplitHub() {
           <ChevronRight className="size-5 shrink-0 text-ink-3 sm:hidden" />
         </a>
       </div>
+      <GroupsCard onPickSaved={() => document.getElementById('split-pick')?.scrollIntoView({ behavior: 'smooth' })} />
       <button type="button" onClick={() => openSheet('receive')} className="t-label flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-strong py-3 font-medium text-ink-2 hover:bg-sunken">
         <FileUp className="size-4" />Open a file from a friend
       </button>
@@ -416,9 +421,24 @@ function BillStep({ expense, split, update, result, region, readPhoto, reading, 
   );
 }
 
-function PeopleStep({ split, update, onNext, nextLabel }) {
+/** Opens Pass the phone: everyone unticks what they didn't have, one at a time. */
+function PassCard({ onPass, className = '' }) {
+  return (
+    <button type="button" onClick={onPass} className={`flex w-full items-center gap-3 rounded-2xl bg-navy-soft px-4 py-3.5 text-left text-ink hover:brightness-95 ${className}`}>
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-surface text-navy"><Smartphone className="size-5" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold">Pass the phone around</span>
+        <span className="t-caption block text-ink-2">Each person unticks what they didn’t have, then hands it on</span>
+      </span>
+      <ChevronRight className="size-5 shrink-0 text-ink-3" />
+    </button>
+  );
+}
+
+function PeopleStep({ split, update, onNext, nextLabel, onPass }) {
   const [friends, setFriends] = useState(loadFriends);
-  const [groups, setGroups] = useState(loadGroups);
+  const [groups, saveGroups] = useGroups();
+  const [naming, setNaming] = useState(null); // the people, to save as a group
   const byItems = split.mode !== 'equal';
   const hasItems = split.items.length > 0;
   const inSplit = new Set(split.members.map((m) => m.name.trim().toLowerCase()));
@@ -428,6 +448,8 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
     update({ ...base, members: split.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
   };
   const add = (list) => update({ ...split, members: [...split.members, ...list.filter((f) => !inSplit.has(f.name.trim().toLowerCase())).map((f) => makeMember(f))] });
+  const addGroup = (g) => update({ ...split, group: g.name, members: [...split.members, ...splitMembersFromGroup(g, { existing: split.members })] });
+  const notHere = split.members.filter((m) => m.out && !m.isPayer).length;
   const remove = (id) => {
     const { [id]: _p, ...paid } = split.paid || {};
     update({ ...clearMemberOverrides(split, id), members: split.members.filter((m) => m.id !== id), paid });
@@ -474,19 +496,28 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
             <button type="button" onClick={() => setCount(split.members.length + 1)} className="flex size-8 items-center justify-center rounded-full bg-white shadow-sm" aria-label="One more person"><Plus className="size-4" /></button>
           </div>
         </div>
+        {groups.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="t-caption text-ink-3">Add a group:</span>
+            {groups.map((g) => {
+              const all = g.members.every((m) => inSplit.has(m.name.trim().toLowerCase()));
+              return (
+                <button key={g.name} type="button" disabled={all} onClick={() => addGroup(g)} className="chip tap h-8 text-[13px] disabled:opacity-50" title={all ? 'Everyone in this group is already in' : `Add ${g.members.map((m) => m.name).join(', ')}`}>
+                  <Users className="size-3.5" />{g.name} · {g.members.length}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {split.group && split.members.length > 1 && (
+          <p className="t-caption mb-1 rounded-[10px] bg-navy-soft px-3 py-2 text-navy">
+            {notHere ? `${notHere} not here: they pay nothing.` : `Everyone from ${split.group} is in.`} Tap <b>Not here</b> under anyone who wasn’t there.
+          </p>
+        )}
         <ul className="divide-y divide-slate-100">
           {split.members.map((m) => (
             <li key={m.id} className="flex items-center gap-2.5 py-2.5">
-              <button
-                type="button"
-                aria-pressed={!m.out}
-                onClick={() => setMember(m.id, { out: !m.out })}
-                title={m.out ? 'Left out: tap to include' : 'In the split: tap to leave out'}
-                aria-label={`${m.name || 'Person'}: ${m.out ? 'left out, tap to include' : 'in the split, tap to leave out'}`}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${m.out ? 'bg-slate-100 text-slate-400 line-through' : m.isPayer ? 'bg-brand text-white' : 'bg-slate-900 text-white'}`}
-              >
-                {(m.name.trim()[0] || '?').toUpperCase()}
-              </button>
+              <AvatarButton person={m} dim={m.out} size={38} onChange={(patch) => setMember(m.id, patch)} />
               <div className="min-w-0 flex-1">
                 <input
                   className={`w-full truncate rounded bg-transparent text-sm font-semibold outline-none focus:bg-slate-50 focus:px-1 ${m.out ? 'text-slate-400' : 'text-slate-900'}`}
@@ -496,7 +527,15 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
                   enterKeyHint="done"
                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                 />
-                {(m.out || m.isPayer) && <div className="text-xs text-slate-500">{m.out ? 'Left out' : 'Paid the bill'}</div>}
+                <div className="flex flex-wrap items-center gap-x-1.5 text-xs">
+                  {m.isPayer && <span className="text-ink-3">Paid ·</span>}
+                  <button type="button" onClick={() => setMember(m.id, { out: !m.out })} aria-pressed={Boolean(m.out)}
+                    className={`font-medium ${m.out ? 'text-warn' : 'text-ink-3 hover:text-ink'}`}>
+                    {m.isPayer ? (m.out ? 'Not sharing · undo' : 'Not sharing?') : (m.out ? 'Not here · bring back' : 'Not here?')}
+                  </button>
+                  <span className="text-ink-3" aria-hidden="true">·</span>
+                  <GenderButton person={m} onChange={(patch) => setMember(m.id, patch)} />
+                </div>
               </div>
               {byItems && !m.out && (
                 <>
@@ -519,7 +558,8 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-xs text-slate-500">Tap a name to rename, its circle to leave someone out.{byItems ? ' Veg and the beer button decide who shares which items; fine-tune it under Shares.' : ''}</p>
+        <p className="mt-2 text-xs text-slate-500">Tap a name to rename it, a face for a new look. Someone who wasn’t there: tap <b>Not here?</b>, they stay listed and pay nothing.{byItems ? ' Veg and the beer button decide who shares which items; fine-tune it under Shares.' : ''}</p>
+        {byItems && hasItems && split.members.filter((m) => !m.out).length > 1 && onPass && <PassCard onPass={onPass} className="mt-3" />}
         {/* While a name is being typed the pinned bar steps aside for the keyboard: Next is here instead. */}
         {onNext && (
           <div className="show-typing mt-3">
@@ -527,42 +567,30 @@ function PeopleStep({ split, update, onNext, nextLabel }) {
           </div>
         )}
 
-        {(friends.length > 0 || groups.length > 0 || others.length > 0) && (
+        {friends.some((f) => !inSplit.has(f.name.toLowerCase())) && (
           <details className="mt-3 text-sm">
-            <summary className="cursor-pointer font-semibold text-navy">Saved friends & groups</summary>
-            <div className="mt-2 space-y-2">
-              {groups.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {groups.map((g) => (
-                    <span key={g.name} className="inline-flex items-center rounded-full bg-navy/10 text-navy">
-                      <button type="button" className="py-1 pl-3 pr-1 font-semibold" onClick={() => add(g.members)}>{g.name} ({g.members.length})</button>
-                      <button type="button" className="px-2 py-1 text-navy/60" aria-label={`Delete group ${g.name}`} onClick={() => { deleteGroup(g.name); setGroups(loadGroups()); }}>×</button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-1.5">
-                {friends.filter((f) => !inSplit.has(f.name.toLowerCase())).map((f) => (
-                  <span key={f.name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-800">
-                    <button type="button" className="py-1 pl-3 pr-1 font-semibold" onClick={() => add([f])}>+ {f.name}</button>
-                    <button type="button" className="px-2 py-1 text-slate-400" aria-label={`Forget ${f.name}`} onClick={() => { forgetFriend(f.name); setFriends(loadFriends()); }}>×</button>
-                  </span>
-                ))}
-              </div>
-              {others.length > 0 && (
-                <button type="button" className="text-xs font-semibold text-navy underline" onClick={() => { const n = window.prompt('Name this group (e.g. Office lunch)'); if (n?.trim()) { saveGroup(n, split.members); setGroups(loadGroups()); } }}>
-                  Save these people as a group
-                </button>
-              )}
+            <summary className="cursor-pointer font-semibold text-navy">Saved friends</summary>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {friends.filter((f) => !inSplit.has(f.name.toLowerCase())).map((f) => (
+                <span key={f.name} className="inline-flex items-center rounded-full bg-slate-100 text-slate-800">
+                  <button type="button" className="py-1 pl-3 pr-1 font-semibold" onClick={() => add([f])}>+ {f.name}</button>
+                  <button type="button" className="px-2 py-1 text-slate-400" aria-label={`Forget ${f.name}`} onClick={() => { forgetFriend(f.name); setFriends(loadFriends()); }}>×</button>
+                </span>
+              ))}
             </div>
           </details>
         )}
+        {/* People you split with often: save them once, then add them all in one tap next time. */}
+        {others.length > 1 && !split.group && (
+          <button type="button" className="t-label mt-3 inline-flex items-center gap-1.5 font-medium text-brand hover:underline" onClick={() => setNaming({ members: groupMembersFrom(split.members) })}>
+            <Users className="size-4" />Save these people as a group
+          </button>
+        )}
+        {naming && <GroupSheet group={naming} groups={groups} onSave={(list) => { saveGroups(list); update({ ...split, group: list.at(-1)?.name || '' }); }} onClose={() => setNaming(null)} />}
       </Card>
     </div>
   );
 }
-
-const AVATAR = ['bg-brand-soft text-brand', 'bg-leaf-soft text-leaf', 'bg-navy-soft text-navy', 'bg-marigold-soft text-marigold-ink', 'bg-sunken text-ink-2'];
 
 /** A preference that recalculates the shares when tapped: Non-veg ⇄ Veg, Drinks ⇄ No drinks. */
 function PrefPill({ on, onIcon: OnIcon, offIcon: OffIcon, onLabel, offLabel, onTone, offTone, onClick, who }) {
@@ -574,7 +602,7 @@ function PrefPill({ on, onIcon: OnIcon, offIcon: OffIcon, onLabel, offLabel, onT
   );
 }
 
-function SharesStep({ split, result, update, region, payerInfo, goPeople }) {
+function SharesStep({ split, result, update, region, payerInfo, goPeople, onPass }) {
   const [tuning, setTuning] = useState(false);
   const [qrFor, setQrFor] = useState('');
   const [changed, setChanged] = useState(null); // { id, text, before: { id: share } }
@@ -615,14 +643,14 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople }) {
 
       <Card className="rounded-[20px] p-2">
         <ul className="divide-y divide-line">
-          {people.map((r, i) => {
+          {people.map((r) => {
             const m = split.members.find((x) => x.id === r.id) || {};
             const was = changed && r.id === changed.id && Math.abs((changed.before[r.id] ?? r.share) - r.share) >= 0.01 ? changed.before[r.id] : null;
             const paid = split.paid?.[r.id];
             return (
               <li key={r.id} className={`rounded-[14px] p-3 ${changed?.id === r.id && moved ? 'bg-navy-soft' : ''}`}>
                 <div className="flex items-center gap-3">
-                  <span className={`flex size-10 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold ${AVATAR[i % AVATAR.length]}`}>{(r.name.trim()[0] || '?').toUpperCase()}</span>
+                  <PixelAvatar person={split.members.find((m) => m.id === r.id) || r} size={40} />
                   <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{r.name || 'Person'}{r.isPayer ? ' (you)' : ''}</span>
                   <span className="text-right">
                     <span className="num block font-nepali text-[16px] font-semibold text-ink">{money(r.share, region)}</span>
@@ -669,6 +697,7 @@ function SharesStep({ split, result, update, region, payerInfo, goPeople }) {
         </ul>
       </Card>
 
+      {byItems && split.items.length > 0 && people.length > 1 && onPass && <PassCard onPass={onPass} />}
       {byItems && split.items.length > 0 && people.length > 1 && (
         <button type="button" onClick={() => setTuning(true)} className="card flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left hover:border-line-strong">
           <Pencil className="size-5 text-ink-2" />
@@ -727,10 +756,18 @@ export function SplitEditor({ billId }) {
   const toast = useToast();
   const payerInfo = usePaymentQr();
   const expense = expenses.find((e) => e.id === billId);
-  const [split, setSplit] = useState(() => (expense ? { ...newSplitForExpense(expense, profile), ...(expense.split || {}) } : null));
+  // A new split opened after "Split a bill" on a group starts with that group's people.
+  const [split, setSplit] = useState(() => {
+    if (!expense) return null;
+    const base = { ...newSplitForExpense(expense, profile), ...(expense.split || {}) };
+    const group = !expense.split && peekPendingGroup();
+    return group ? { ...base, group: group.name, members: [...base.members, ...splitMembersFromGroup(group, { existing: base.members })] } : base;
+  });
+  useEffect(() => { if (expense && split?.group && !expense.split) { clearPendingGroup(); dirty.current = true; setSplit((sp) => ({ ...sp })); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Coming back to a split that already has people opens on the shares; a new one starts at the bill.
   const [step, setStepState] = useState(() => (expense?.split?.members?.length > 1 ? 2 : expense && !expense.lineItems?.length && !expense.receiptImage ? 1 : 0));
   const [reading, setReading] = useState(false);
+  const [passing, setPassing] = useState(false);
   const dirty = useRef(false);
   const total = Number(expense?.totalAmount) || 0;
   const live = useMemo(() => (split ? { ...split, total } : null), [split, total]);
@@ -813,8 +850,9 @@ export function SplitEditor({ billId }) {
       <div className="mb-4"><Stepper step={step} setStep={setStep} /></div>
 
       {step === 0 && <BillStep expense={expense} split={split} update={update} result={result} region={profile.region} readPhoto={expense.receiptImage ? readPhoto : null} reading={reading} goEqual={() => { update({ ...split, mode: 'equal' }); setStep(1); }} />}
-      {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} />}
-      {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} />}
+      {step === 1 && <PeopleStep split={split} update={update} onNext={next.go} nextLabel={next.label} onPass={() => setPassing(true)} />}
+      {step === 2 && <SharesStep split={live} result={result} update={update} region={profile.region} payerInfo={payerInfo} goPeople={() => setStep(1)} onPass={() => setPassing(true)} />}
+      {passing && <PassAround split={live} update={update} region={profile.region} onClose={() => { setPassing(false); setStep(2); }} />}
 
       {/* Pinned above the bottom bar on phones, inline on desktop. */}
       <div className="hide-typing fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:static md:mt-5 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">

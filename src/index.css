@@ -360,3 +360,8 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
+
+/* Pass the phone: the next person's face pops in. */
+@keyframes pass-pop { from { transform: scale(0.6) rotate(-6deg); opacity: 0; } 60% { transform: scale(1.06) rotate(2deg); opacity: 1; } to { transform: none; } }
+.pass-pop { animation: pass-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@media (prefers-reduced-motion: reduce) { .pass-pop { animation: none; } }

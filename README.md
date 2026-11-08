@@ -352,8 +352,9 @@ digital QR/card spend (entered automatically) and total VAT paid on bills with V
 The editor is three steps, built for phones, with Back / Next pinned above the bottom bar:
 **1. Bill**: the bill (photo, code, total), then its items as a tidy list; tap an item to edit it.
 No items? One tap splits equally. **2. People**: "By what each had" or "Split equally", a − / +
-counter, and one line per person: initial (tap to leave out), name (tap to rename), and in by-items
-mode a Veg/Non-veg pill and a drinks button. Saved friends and groups sit behind one disclosure.
+counter, and one line per person: their pixel face (tap for a new look), name (tap to rename),
+**Not here?** and Male / Female under the name, and in by-items mode a Veg/Non-veg pill and a
+drinks button. Groups are chips at the top ("Add a group"); saved friends sit behind a disclosure.
 **3. Shares**: your share, to collect and how many have paid back, then each person's share with
 their Veg / Non-veg and Drinks pills (tap one and the shares are worked out again; a note says how
 many changed and the old amount is struck through), **Collect रु X** (the QR) and **Mark paid**
@@ -372,7 +373,7 @@ starts on Shares.
   words (sekuwa, choila, sukuti, kukhurako, khasi, buff…; Tuborg, Gorkha, Barasinghe, Khukuri,
   aila, chhyang…; English and Devanagari). Word boundaries keep "drumstick", "ginger", "eggplant"
   and "buffet" out of the wrong bucket. Unknown food is veg.
-- **People** have Veg/Non-veg and Drinks toggles, and **In split / Left out** (a left-out person
+- **People** have Veg/Non-veg and Drinks toggles, and **Not here** (a person not here
   stays listed with Rs. 0, e.g. the payer treating friends). Friends and groups are remembered in
   localStorage. Auto-ticks: veg and shared items to everyone, non-veg to non-veg eaters, alcohol to
   drinkers. Any tick can be changed; an item can switch to **By units (1x, 2x)**.
@@ -528,6 +529,31 @@ version 3), and they're in backups.
   - a digital bill inside a statement's dates that isn't on it → a quiet note.
   Ledger rows show **In bank · screenshot** for bills that matched (`reconcileAll`, worked out once
   in the store and shared with the Money page).
+
+## Friend groups, Not here, Pass the phone and pixel faces
+
+- **Groups** (`src/lib/groups.js`, `src/components/Groups.jsx`): **Your groups** on the Split page.
+  Make a group once (name, people, each with Veg/Non-veg, Drinks and Male/Female); each group card
+  has **Split a bill** (scan one, pick a saved one, or no bill: the split then opens with the
+  group's people, remembered for 30 minutes in sessionStorage) and **Start a trip** (pick who's
+  coming; anyone untapped isn't added). Trips also offer "Or start with a group", and a trip's
+  People card can add a group's missing people. A split's people can be saved as a group. Groups
+  are optional: adding people one by one works as before. Stored in `billkhata_groups`, in backups.
+- **Not here**: on a split, someone who wasn't there stays listed and pays nothing (the payer's
+  version is "Not sharing"). On a trip, a person marked **Not here** (left early, joining later)
+  is left out of new expenses' defaults (`hereMembers` in trips.js) until they're back; expenses
+  already added don't change, and they can still be ticked by hand.
+- **Pass the phone** (`src/components/PassAround.jsx`): in a by-items split, the phone goes round
+  like a party game. "Hand the phone to Hari" → Hari taps **I'm Hari**, sees every item ticked by
+  his veg / drinks choices, unticks what he didn't have (+ for more than one), sees his share, and
+  passes it on. "Hari wasn't here" marks him Not here. At the end: everyone's share, and anything
+  nobody claimed with **Share it** (back to the default ticks). Ticks save as they're made.
+- **Pixel faces** (`src/lib/pixelAvatar.js`, `src/components/PixelAvatar.jsx`): a 12×12 face drawn
+  from the name (the same name looks the same in groups, splits and trips), with hair and face
+  styles by gender: short, spiky, side part, buzz, curly or a cap, with a moustache or beard
+  sometimes; long, bun, bob, ponytail, braids or fringe, with earrings sometimes. Not set: one of
+  the two, from the name. Tap a face for a new look (`look`, saved on the person). Your own face
+  (`billkhata_my_avatar`, in backups) is the same in every split and trip.
 
 ## Sending trips and splits to friends
 

@@ -18,7 +18,7 @@ test('a backup carries settings (never API keys), payment QR, friends, groups an
   profile.saveSettings({ ...profile.DEFAULT_SETTINGS, theme: 'dark', apiKeys: { gemini: 'AIza-secret', openai: '', anthropic: '' } });
   profile.savePaymentQr({ mode: 'esewa', esewaId: '9800000000', name: 'Ram' });
   profile.rememberFriends([{ name: 'Sita', diet: 'veg', alcohol: false }]);
-  profile.saveGroup('Office', [{ name: 'Hari', diet: 'non-veg', alcohol: true }]);
+  profile.saveGroups([{ name: 'Office', members: [{ name: 'Hari', diet: 'non-veg', alcohol: true }] }]);
   profile.rememberDeletedTrip('t1', '2026-11-01T00:00:00Z');
   const file = JSON.parse(JSON.stringify(buildBackup({}, [], [], {}, profile.backupExtras())));
   assert.ok(!JSON.stringify(file).includes('AIza-secret'), 'API keys stay on the device');

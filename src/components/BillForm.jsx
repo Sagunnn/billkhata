@@ -11,7 +11,7 @@ import { useStore } from '../store.jsx';
 import { usePhoto } from './usePhoto.js';
 import { Button, Chip, Field, Notice, Segmented, StageBadge, Toggle } from './ui.jsx';
 import { BILL_AREAS, joinBoxes } from '../lib/ocr/locate.js';
-import { accountsOf, defaultAccountId } from '../lib/money.js';
+import { defaultAccountId, openAccounts } from '../lib/money.js';
 import { CATEGORY_SHORT } from '../lib/categoryIcons.js';
 import { ReceiptViewer } from './ReceiptViewer.jsx';
 import { billStage } from '../lib/expense.js';
@@ -392,7 +392,7 @@ export default function BillForm({ value: e, onChange, errors = {}, region, onPh
   // What the scan read, to mark each field: read from the bill, edited by you, or checked.
   const vat = read?.vatCheck && Math.abs(Number(e.totalAmount) - read.vatCheck.total) <= 1.5 ? read.vatCheck : null;
   const prov = (k, checked = false) => provenance(k, e[k], read, checked);
-  const banks = accountsOf(m).filter((a) => a.kind !== 'cash');
+  const banks = openAccounts(m).filter((a) => a.kind !== 'cash'); // closed accounts aren't offered
   const mainBank = defaultAccountId(m);
   const cats = allCats ? CATEGORIES : [...new Set([e.category, ...CATEGORIES.slice(0, 5)])];
   const vatHint = vat ? `13% of ${money(vat.subtotal)}` : Number(e.vatAmount) > 0 && Number(e.totalAmount) > 0 ? `${money(Number(e.totalAmount) - Number(e.vatAmount))} before VAT` : 'Optional';

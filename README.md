@@ -417,7 +417,15 @@ Laxmi Sunrise…), with one of them the **main** account. From then on:
   be changed into a move. One counted from a statement row keeps the statement's amount and date,
   and its new title shows on the row too; deleting it puts the row back to "not counted yet".
   Adding, deleting and counting a statement row all show **Undo** for a few seconds (only the newest
-  Undo stays). Editing the accounts starts over from now (old entries are kept in the record).
+  Undo stays).
+- **Editing your accounts never starts over** (`editAccounts` in money.js). Renaming keeps
+  everything; a new account starts at the amount given (and says when it was added); typing a
+  different amount than the one shown adds a **Correction** for today (the difference, + or −,
+  listed in History, deletable with Undo); a removed account that has bills or entries is closed
+  (hidden, but its own bills stay on it so no other account jumps), otherwise dropped; a new main
+  account applies from today (`defaults` remembers the earlier one, so older QR bills stay where
+  they were). So fixing an old bill always moves the balance. **Start over from today** is still
+  there, behind a confirmation.
 
 Home shows the total, each account (cash and banks together on phones), and what's been spent since
 you set them. Data from before the redesign (one "Bank & wallets" total) becomes the first bank

@@ -5,7 +5,7 @@ import { ChevronRight, Map, QrCode, ReceiptText, Ticket, Users, X, Zap, BadgeChe
 import { IRD_STATUS, PAYMENT } from '../lib/constants.js';
 import { money } from '../lib/format.js';
 import { checkEligibility, formatCoupon, getIrdStatus, isAutoEnrolled } from '../lib/ird.js';
-import { accountsOf, defaultAccountId } from '../lib/money.js';
+import { accountsOf, potOf } from '../lib/money.js';
 import { addDaysAD, shortBS, todayAD } from '../lib/nepaliDate.js';
 import { useStore } from '../store.jsx';
 import { Badge } from './ui.jsx';
@@ -56,7 +56,8 @@ export function payLabel(e, m) {
   if (e.paymentMethod === PAYMENT.CASH) return 'Cash';
   if (e.paymentMethod === PAYMENT.CBMS) return 'CBMS';
   const accounts = accountsOf(m);
-  const acct = accounts.find((a) => a.id === (e.paidFrom || (accounts.length ? defaultAccountId(m) : '')));
+  // The account it came off: picked on the bill, else the main account on the bill's day.
+  const acct = accounts.length ? accounts.find((a) => a.id === potOf(e, m)) : null;
   return acct && acct.kind !== 'cash' && acct.id !== 'bank' ? acct.name : 'QR / card';
 }
 

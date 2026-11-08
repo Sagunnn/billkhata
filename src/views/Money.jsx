@@ -455,7 +455,7 @@ function freshness(a, { statements, payments, expenses, m, today }) {
   const main = a.id === defaultAccountId(m) ? ' · Main' : '';
   if (shots.length && (!mine.length || shots.at(-1) > mine.at(-1))) return `Screenshots up to ${shots.at(-1) === today ? 'today' : shortBS(shots.at(-1))}${main}`;
   if (mine.length) return `Statement up to ${shortBS(mine.at(-1))}${main}`;
-  return `Set by you ${shortBS(m.since)}${main}`;
+  return `Set by you ${shortBS(a.addedOn || m.since)}${main}`;
 }
 
 const isAtm = (x) => Boolean(x.bank && !x.payment && !x.expense && x.direction === 'out' && /\b(ATM|WDL|WITHDRAWAL|CASH ?WD)\b/i.test(x.bank.description || ''));

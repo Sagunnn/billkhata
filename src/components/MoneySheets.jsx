@@ -8,7 +8,7 @@ import { money as fmt } from '../lib/format.js';
 import { adToBs, formatAD, todayAD } from '../lib/nepaliDate.js';
 import {
   ACCOUNT_SUGGESTIONS, addEntry, cashAccountId, creditsBySource, defaultAccountId, kindForName, moneyNow, potOf,
-  entryId, removeEntry, restoreEntry, setAccounts, sourceOptions, spentBills, updateEntry,
+  editAccounts, entryId, removeEntry, restoreEntry, setAccounts, sourceOptions, spentBills, updateEntry,
 } from '../lib/money.js';
 import { ongoingTrips } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -84,7 +84,7 @@ function useAccountsNow() {
 /* ---------- Set your accounts ---------- */
 
 export function AccountsSheet({ onClose }) {
-  const { money, setMoney } = useStore();
+  const { money, setMoney, expenses } = useStore();
   const toast = useToast();
   const now = useAccountsNow();
   const [rows, setRows] = useState(() => (now.ready
@@ -93,7 +93,8 @@ export function AccountsSheet({ onClose }) {
   const set = (i, patch) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const makeMain = (i) => setRows((r) => r.map((x, j) => ({ ...x, main: j === i })));
   const missing = ACCOUNT_SUGGESTIONS.filter((n) => !rows.some((r) => r.name.toLowerCase() === n.toLowerCase())).slice(0, 4);
-  function save() {
+  /** First time, or on purpose: every account starts at the amount given, from today. */
+  function startOver() {
     setMoney((m) => {
       // Ids are given in order to the named rows, so the main row's id is found by position.
       const named = rows.filter((r) => String(r.name || '').trim());
@@ -101,7 +102,32 @@ export function AccountsSheet({ onClose }) {
       const i = named.findIndex((r) => r.main);
       return i >= 0 && next.accounts[i]?.kind !== 'cash' ? { ...next, defaultAccount: next.accounts[i].id } : next;
     });
-    toast('Accounts set. Bills you save from now on come off the account they were paid from.');
+  }
+  function save() {
+    if (!now.ready) {
+      startOver();
+      toast('Accounts set. Bills you save from now on come off the account they were paid from.');
+      onClose();
+      return;
+    }
+    // Already set: edits never start over. A different amount is a correction for today.
+    const current = Object.fromEntries(now.accounts.map((a) => [a.id, a.balance]));
+    const used = new Set([
+      ...spentBills(expenses, money).map((e) => potOf(e, money)),
+      ...(money.entries || []).flatMap((x) => [x.account, x.pot, x.from, x.to]).filter(Boolean),
+    ]);
+    const { money: next, corrections } = editAccounts(money, rows, { current, used });
+    setMoney(next);
+    const sign = (n) => `${n > 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
+    toast(corrections.length
+      ? `Saved. ${corrections.map((c) => `${c.name} ${sign(c.amount)}`).join(', ')} added as ${corrections.length === 1 ? 'a correction' : 'corrections'} for today.`
+      : 'Accounts saved.');
+    onClose();
+  }
+  function restart() {
+    if (!window.confirm('Start over from today? Every account starts at the amount shown here. Bills and money in from before today stop counting, and money in and moves can no longer be edited.')) return;
+    startOver();
+    toast('Started over from today.');
     onClose();
   }
   return (
@@ -140,7 +166,8 @@ export function AccountsSheet({ onClose }) {
           {missing.map((n) => <button key={n} type="button" className="chip tap" onClick={() => setRows((r) => [...r, { name: n, kind: kindForName(n), start: '' }])}><Plus className="size-4" />{n}</button>)}
           <button type="button" className="chip tap" onClick={() => setRows((r) => [...r, { name: '', kind: 'bank', start: '' }])}><Plus className="size-4" />Other</button>
         </div>
-        <p className="t-caption text-ink-3">Cash bills come off Cash in hand; QR and card bills off the account picked on the bill (the main one unless you choose). {now.ready ? 'Saving starts over from today.' : ''}</p>
+        <p className="t-caption text-ink-3">Cash bills come off Cash in hand; QR and card bills off the account picked on the bill (the main one unless you choose).{now.ready ? ' Change an amount to what you really have and the difference is added as a correction for today; your bills and money in stay as they are.' : ''}</p>
+        {now.ready && <button type="button" onClick={restart} className="t-caption text-ink-3 underline-offset-2 hover:text-ink hover:underline">Start over from today instead</button>}
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
       </form>
     </Modal>
@@ -155,7 +182,7 @@ function useRemoveEntry() {
   const toast = useToast();
   return (entry) => {
     setMoney((m) => removeEntry(m, entry.id));
-    toast(`${fmt(entry.amount)} ${entry.kind === 'move' ? 'move' : entry.kind === 'in' ? 'money in' : 'entry'} deleted${entry.bankKey ? '; its bank row can be added again' : ''}.`, 'success', {
+    toast(`${fmt(Math.abs(entry.amount))} ${entry.kind === 'move' ? 'move' : entry.kind === 'in' ? 'money in' : entry.kind === 'adjust' ? 'correction' : 'entry'} deleted${entry.bankKey ? '; its bank row can be added again' : ''}.`, 'success', {
       action: { label: 'Undo', run: () => setMoney((m) => restoreEntry(m, entry)) },
     });
   };
@@ -405,7 +432,8 @@ export function QuickOutSheet({ onClose, split = false }) {
 /* ---------- History ---------- */
 
 /** What each kind of entry is called in History and on the Money page. */
-export const ENTRY_KIND = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', bill: 'Bill', quick: 'Quick expense' };
+export const ENTRY_KIND = { in: 'Money in', move: 'Moved', out: 'Spent, no bill', adjust: 'Correction', bill: 'Bill', quick: 'Quick expense' };
+const DELETE_ONLY = new Set(['out', 'adjust']); // older no-bill spending and corrections: delete (with Undo), nothing to edit
 
 /** Opens an entry or a bill to fix it; `back` is the sheet to return to after. */
 export function useOpenEntry(back) {
@@ -417,7 +445,7 @@ export function useOpenEntry(back) {
     if (!entry) return;
     if (entry.kind === 'in') openSheet('moneyIn', { entry, back });
     else if (entry.kind === 'move') openSheet('move', { entry, back });
-    else if (window.confirm(`Delete this ${fmt(entry.amount)} entry?`)) remove(entry); // older "Spent, no bill" entries
+    else if (window.confirm(`Delete this ${entry.kind === 'adjust' ? 'correction' : 'entry'} (${fmt(Math.abs(entry.amount))})?`)) remove(entry);
   };
 }
 
@@ -426,13 +454,13 @@ export function EntryRow({ x, name, onOpen }) {
   return (
     <li>
       <button type="button" onClick={() => onOpen(x)} className="tap flex w-full items-center gap-3 py-2.5 text-left hover:bg-sunken/60"
-        aria-label={`${x.kind === 'out' ? 'Delete' : 'Edit'} ${ENTRY_KIND[x.kind].toLowerCase()} ${fmt(x.amount)} on ${formatAD(x.date)}`}>
+        aria-label={`${DELETE_ONLY.has(x.kind) ? 'Delete' : 'Edit'} ${ENTRY_KIND[x.kind].toLowerCase()} ${fmt(Math.abs(x.amount))} on ${formatAD(x.date)}`}>
         <span className="min-w-0 flex-1">
           <span className="t-body block truncate font-semibold text-ink">{x.kind === 'in' ? [x.source, x.note].filter(Boolean).join(': ') : x.note || ENTRY_KIND[x.kind]}</span>
           <span className="t-caption num block truncate text-ink-3">{formatAD(x.date)} · {ENTRY_KIND[x.kind]} · {x.kind === 'move' ? `${name(x.from)} → ${name(x.to)}` : name(x.account || x.pot)}</span>
         </span>
-        <span className={`num shrink-0 font-nepali text-[15px] font-semibold ${x.kind === 'in' ? 'text-leaf' : 'text-ink'}`}>{x.kind === 'in' ? '+ ' : x.kind === 'move' ? '' : '− '}{fmt(x.amount)}</span>
-        {x.kind === 'out' ? <Trash className="size-4 shrink-0 text-ink-3" /> : <Pencil className="size-4 shrink-0 text-ink-3" />}
+        <span className={`num shrink-0 font-nepali text-[15px] font-semibold ${x.kind === 'in' || (x.kind === 'adjust' && x.amount > 0) ? 'text-leaf' : 'text-ink'}`}>{x.kind === 'in' || (x.kind === 'adjust' && x.amount > 0) ? '+ ' : x.kind === 'move' ? '' : '− '}{fmt(Math.abs(x.amount))}</span>
+        {DELETE_ONLY.has(x.kind) ? <Trash className="size-4 shrink-0 text-ink-3" /> : <Pencil className="size-4 shrink-0 text-ink-3" />}
       </button>
     </li>
   );

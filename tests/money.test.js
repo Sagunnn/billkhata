@@ -177,3 +177,51 @@ test('a money entry can be fixed after saving, and put back after Undo', async (
   assert.equal(back.entries.length, 1); // Undo twice still puts it back once
   assert.equal(moneyNow(back).bank, 15000);
 });
+
+test('editing accounts never starts over: corrections, closed accounts, main account from today', async () => {
+  const { editAccounts, setAccounts, potOf, openAccounts } = await import('../src/lib/money.js');
+  const day1 = new Date('2026-11-01T09:00:00');
+  let money = setAccounts(EMPTY_MONEY, [
+    { id: 'cash', name: 'Cash in hand', kind: 'cash', start: 2000 },
+    { name: 'eSewa', kind: 'wallet', start: 5000 },
+    { name: 'Khalti', kind: 'wallet', start: 1000 },
+  ], { defaultAccount: 'esewa', now: day1 });
+  money = addEntry(money, { kind: 'in', amount: 3000, account: 'esewa', source: 'Salary', date: '2026-11-02' }, day1);
+  const qr = (id, amount, day, extra = {}) => ({ id, totalAmount: amount, paymentMethod: 'Digital QR / Card', billDateAD: day, createdAt: `${day}T10:00:00.000Z`, ...extra });
+  const bills = [qr('a', 500, '2026-11-03'), qr('k', 200, '2026-11-03', { paidFrom: 'khalti' })];
+  const shown = moneyNow(money, bills);
+  const bal = Object.fromEntries(shown.accounts.map((a) => [a.id, a.balance]));
+  assert.deepEqual(bal, { cash: 2000, esewa: 7500, khalti: 800 });
+
+  // Rename eSewa, say cash is really 1800, close Khalti (it has a bill), add IME Pay, make IME Pay main.
+  const later = new Date('2026-11-05T09:00:00');
+  const rows = [
+    { id: 'cash', name: 'Cash in hand', kind: 'cash', start: '1800' },
+    { id: 'esewa', name: 'eSewa (personal)', kind: 'wallet', start: '7500' },
+    { name: 'IME Pay', kind: 'wallet', start: '400', main: true },
+  ];
+  const { money: next, corrections } = editAccounts(money, rows, { current: bal, used: new Set(['esewa', 'khalti']), now: later });
+  assert.deepEqual(corrections.map((c) => [c.account, c.amount]), [['cash', -200]]);
+  assert.equal(next.since, money.since); // not started over
+  assert.equal(next.entries.length, 2); // the salary is still there, plus one correction
+  assert.ok(next.entries.some((x) => x.kind === 'in' && x.source === 'Salary'));
+  assert.deepEqual(openAccounts(next).map((a) => a.id), ['cash', 'esewa', 'imepay']);
+  assert.equal(next.accounts.find((a) => a.id === 'khalti').archived, true);
+  // The bill from before the main account changed stays on eSewa; one after goes to IME Pay.
+  assert.equal(potOf(bills[0], next), 'esewa');
+  assert.equal(potOf(qr('b', 50, '2026-11-06'), next), 'imepay');
+  assert.equal(potOf(bills[1], next), 'khalti'); // closed account keeps its own bill
+  const after = Object.fromEntries(moneyNow(next, bills).accounts.map((a) => [a.id, a.balance]));
+  assert.deepEqual(after, { cash: 1800, esewa: 7500, imepay: 400 });
+  // Fixing an old bill still moves the balance (it used to stop counting after an edit).
+  const fixed = moneyNow(next, [{ ...bills[0], totalAmount: 50 }, bills[1]]);
+  assert.equal(fixed.accounts.find((a) => a.id === 'esewa').balance, 7950);
+  // Corrections survive storage and backups.
+  const clean = cleanMoney(JSON.parse(JSON.stringify(next)));
+  assert.equal(clean.entries.find((x) => x.kind === 'adjust').amount, -200);
+  assert.equal(clean.accounts.find((a) => a.id === 'khalti').archived, true);
+  assert.equal(clean.defaults.length, 1);
+  // An account removed that was never used is just dropped.
+  const dropped = editAccounts(next, rows.slice(0, 2).map((r) => ({ ...r, start: r.id === 'cash' ? '1800' : '7500' })), { current: after, used: new Set() }).money;
+  assert.equal(dropped.accounts.some((a) => a.id === 'imepay'), false);
+});

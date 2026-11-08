@@ -9,7 +9,7 @@ import { PAYMENT } from './constants.js';
 import { countsAsSpend } from './expense.js';
 
 export const ACCOUNT_KINDS = { cash: 'Cash', bank: 'Bank', wallet: 'Wallet' };
-export const EMPTY_MONEY = { setAt: '', since: '', accounts: [], defaultAccount: '', entries: [], history: [] };
+export const EMPTY_MONEY = { setAt: '', since: '', accounts: [], defaultAccount: '', defaults: [], entries: [], history: [] };
 /** Wallet apps and banks offered when adding an account. */
 export const ACCOUNT_SUGGESTIONS = ['eSewa', 'Khalti', 'IME Pay', 'Laxmi Sunrise Bank', 'Nabil Bank', 'Global IME Bank', 'NIC Asia Bank'];
 
@@ -35,25 +35,36 @@ export function accountsOf(money = EMPTY_MONEY) {
 
 export const cashAccountId = (money) => accountsOf(money).find((a) => a.kind === 'cash')?.id || 'cash';
 
-/** The main account for QR / card bills: the one you chose, else the first bank or wallet. */
-export function defaultAccountId(money) {
-  const accounts = accountsOf(money);
-  if (money.defaultAccount && accounts.some((a) => a.id === money.defaultAccount)) return money.defaultAccount;
-  return accounts.find((a) => a.kind !== 'cash')?.id || 'bank';
+/** Accounts still in use: a closed one (removed, but with bills or entries) is kept, out of sight. */
+export const openAccounts = (money) => accountsOf(money).filter((a) => !a.archived);
+
+/**
+ * The main account for QR / card bills: the one you chose, else the first bank or wallet. `onDay`
+ * (a bill's date): the main account then, so changing it later doesn't move older bills.
+ */
+export function defaultAccountId(money, onDay = '') {
+  const open = openAccounts(money);
+  const all = accountsOf(money);
+  if (onDay) {
+    const then = (money.defaults || []).filter((d) => d.from > onDay).map((d) => d.was).find((id) => all.some((a) => a.id === id));
+    if (then) return then;
+  }
+  if (money.defaultAccount && open.some((a) => a.id === money.defaultAccount)) return money.defaultAccount;
+  return open.find((a) => a.kind !== 'cash')?.id || 'bank';
 }
 
-/** The account a bill was paid from: the one picked on the bill, else cash or your main account. */
+/** The account a bill was paid from: the one picked on the bill, else cash or the main account on its day. */
 export function potOf(e, money = EMPTY_MONEY) {
   const accounts = accountsOf(money);
   if (e.paidFrom && accounts.some((a) => a.id === e.paidFrom)) return e.paidFrom;
-  return e.paymentMethod === PAYMENT.DIGITAL ? defaultAccountId(money) : cashAccountId(money);
+  return e.paymentMethod === PAYMENT.DIGITAL ? defaultAccountId(money, e.billDateAD || '') : cashAccountId(money);
 }
 
 /** The account a statement or a wallet belongs to, by name ("Laxmi Sunrise" ↔ "Laxmi Sunrise Bank"). */
 export function accountForName(money, name) {
   const n = norm(name);
   if (!n) return null;
-  return accountsOf(money).find((a) => a.kind !== 'cash' && (norm(a.name).includes(n) || n.includes(norm(a.name)))) || null;
+  return openAccounts(money).find((a) => a.kind !== 'cash' && (norm(a.name).includes(n) || n.includes(norm(a.name)))) || null;
 }
 
 /**
@@ -81,7 +92,7 @@ const entryAccount = (x) => x.account || x.pot;
  */
 export function moneyNow(money = EMPTY_MONEY, expenses = []) {
   const ready = Boolean(money.since);
-  const accounts = accountsOf(money).map((a) => ({ ...a, start: num(a.start), spent: 0, credited: 0, moved: 0 }));
+  const accounts = accountsOf(money).map((a) => ({ ...a, start: num(a.start), spent: 0, credited: 0, moved: 0, adjusted: 0 }));
   const byId = new Map(accounts.map((a) => [a.id, a]));
   if (ready) {
     for (const e of spentBills(expenses, money)) {
@@ -93,10 +104,13 @@ export function moneyNow(money = EMPTY_MONEY, expenses = []) {
       if (x.kind === 'in' && byId.has(entryAccount(x))) byId.get(entryAccount(x)).credited += amount;
       else if (x.kind === 'move' && byId.has(x.from) && byId.has(x.to) && x.from !== x.to) { byId.get(x.from).moved -= amount; byId.get(x.to).moved += amount; }
       else if (x.kind === 'out' && byId.has(entryAccount(x))) byId.get(entryAccount(x)).spent += amount; // older "No bill" entries
+      else if (x.kind === 'adjust' && byId.has(entryAccount(x))) byId.get(entryAccount(x)).adjusted += amount; // a correction (+ or −)
     }
   }
   const sum = (list, f) => round2(list.reduce((s, a) => s + f(a), 0));
-  const out = accounts.map(({ moved, ...a }) => ({ ...a, spent: round2(a.spent), credited: round2(a.credited), balance: round2(a.start + a.credited + moved - a.spent) }));
+  // Closed accounts still take their own bills (so others don't jump), but aren't shown or counted.
+  const out = accounts.filter((a) => !a.archived)
+    .map(({ moved, adjusted, ...a }) => ({ ...a, spent: round2(a.spent), credited: round2(a.credited), balance: round2(a.start + a.credited + moved + adjusted - a.spent) }));
   const cashes = out.filter((a) => a.kind === 'cash');
   const banks = out.filter((a) => a.kind !== 'cash');
   return {
@@ -132,9 +146,55 @@ export function setAccounts(money, list, { defaultAccount, now = new Date() } = 
     since: localDay(now),
     accounts,
     defaultAccount: main,
+    defaults: [],
     entries: [],
     history: [...(money.history || []), ...(money.entries || [])].slice(-200),
   };
+}
+
+/**
+ * Changing your accounts after they're set, without starting over: renaming keeps everything; a
+ * new account starts at the amount given; an amount that differs from what the app shows adds a
+ * correction for today (the difference); a removed account that has bills or entries is closed
+ * (kept out of sight, so its bills don't land on another account), otherwise dropped; a new main
+ * account applies from today (older QR bills stay on the main account they had).
+ * @param rows [{ id?, name, kind, start (the amount you have now), main }]
+ * @param current { [accountId]: balance shown now } (moneyNow)
+ * @param used Set of account ids with bills or entries
+ * @returns {{ money, corrections: { account, name, amount }[] }}
+ */
+export function editAccounts(money, rows, { current = {}, used = new Set(), now = new Date() } = {}) {
+  const today = localDay(now);
+  const named = rows.filter((r) => String(r.name || '').trim());
+  const before = accountsOf(money);
+  const seen = new Set(before.map((a) => a.id));
+  const corrections = [];
+  const kept = named.map((r) => {
+    const name = String(r.name).trim().slice(0, 40);
+    const kind = r.kind === 'cash' ? 'cash' : ACCOUNT_KINDS[r.kind] ? r.kind : kindForName(name);
+    const old = r.id && before.find((a) => a.id === r.id);
+    if (old) {
+      const diff = round2(num(r.start) - num(current[old.id]));
+      if (Math.abs(diff) >= 0.01) corrections.push({ account: old.id, name, amount: diff });
+      return { ...old, name, kind, archived: false };
+    }
+    let id = kind === 'cash' ? 'cash' : slug(name);
+    while (seen.has(id)) id = `${id}2`;
+    seen.add(id);
+    return { id, name, kind, start: round2(num(r.start)), addedOn: today };
+  });
+  const keptIds = new Set(kept.map((a) => a.id));
+  const closed = before.filter((a) => !keptIds.has(a.id) && used.has(a.id)).map((a) => ({ ...a, archived: true }));
+  const accounts = [...kept, ...closed];
+  const mainRow = named.findIndex((r) => r.main);
+  const wasMain = defaultAccountId(money);
+  const nextMain = mainRow >= 0 && kept[mainRow]?.kind !== 'cash' ? kept[mainRow].id : (kept.some((a) => a.id === wasMain) ? wasMain : kept.find((a) => a.kind !== 'cash')?.id || '');
+  const defaults = [...(money.defaults || [])];
+  if (wasMain && nextMain !== wasMain) defaults.push({ was: wasMain, from: today }); // bills before today stay on the old main
+  const entries = [...(money.entries || []), ...corrections.map((c, i) => ({
+    id: entryId(new Date(now.getTime() + i)), kind: 'adjust', account: c.account, amount: c.amount, date: today, note: 'Corrected to what you have', createdAt: now.toISOString(),
+  }))];
+  return { money: { ...money, accounts, defaultAccount: nextMain, defaults, entries }, corrections };
 }
 
 /** The two-pot shortcut (cash in hand and one bank total). */
@@ -263,16 +323,19 @@ export function updateEntry(money, id, entry, now = new Date()) {
 /** Reads a stored or backed-up value, dropping anything malformed; two-pot data becomes accounts. */
 export function cleanMoney(v) {
   if (!v || typeof v !== 'object') return { ...EMPTY_MONEY };
-  const entries = Array.isArray(v.entries) ? v.entries.filter((x) => x && typeof x.id === 'string' && num(x.amount) > 0 && ['in', 'out', 'move'].includes(x.kind)) : [];
+  const entries = Array.isArray(v.entries)
+    ? v.entries.filter((x) => x && typeof x.id === 'string' && (x.kind === 'adjust' ? num(x.amount) !== 0 : num(x.amount) > 0 && ['in', 'out', 'move'].includes(x.kind)))
+    : [];
   const accounts = (Array.isArray(v.accounts) && v.accounts.length ? v.accounts : accountsOf({ start: v.start || { cash: 0, bank: 0 } }))
     .filter((a) => a && typeof a.id === 'string' && String(a.name || '').trim())
-    .map((a) => ({ id: a.id, name: String(a.name).slice(0, 40), kind: ACCOUNT_KINDS[a.kind] ? a.kind : 'bank', start: num(a.start) }));
+    .map((a) => ({ id: a.id, name: String(a.name).slice(0, 40), kind: ACCOUNT_KINDS[a.kind] ? a.kind : 'bank', start: num(a.start), ...(a.archived ? { archived: true } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(a.addedOn || '') ? { addedOn: a.addedOn } : {}) }));
   const since = /^\d{4}-\d{2}-\d{2}$/.test(v.since || '') ? v.since : '';
   return {
     setAt: typeof v.setAt === 'string' ? v.setAt : '',
     since,
     accounts: since ? accounts : [],
     defaultAccount: typeof v.defaultAccount === 'string' ? v.defaultAccount : (v.start ? 'bank' : ''),
+    defaults: Array.isArray(v.defaults) ? v.defaults.filter((d) => d && typeof d.was === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.from || '')) : [],
     entries,
     history: Array.isArray(v.history) ? v.history.slice(-200) : [],
   };

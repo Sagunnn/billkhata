@@ -535,9 +535,12 @@ version 3), and they're in backups.
 - **Groups** (`src/lib/groups.js`, `src/components/Groups.jsx`): **Your groups** on the Split page.
   Make a group once (name, people, each with Veg/Non-veg, Drinks and Male/Female); each group card
   has **Split a bill** (scan one, pick a saved one, or no bill: the split then opens with the
-  group's people, remembered for 30 minutes in sessionStorage) and **Start a trip** (pick who's
-  coming; anyone untapped isn't added). Trips also offer "Or start with a group", and a trip's
-  People card can add a group's missing people. A split's people can be saved as a group. Groups
+  group's people, remembered for 30 minutes in sessionStorage) and **Start a trip**. Starting a
+  trip (from a group, "Or start with a group", or the plain Start a trip button) opens one sheet:
+  the trip name and **Coming**, a list with each person's face, Male / Female, Veg / Non-veg,
+  Drinks and × to remove them, then **Add a person** (a name left typed in the box counts too) and
+  quick picks: other groups, saved friends, and anyone removed from the group. A trip's People
+  card can add a group's missing people later. A split's people can be saved as a group. Groups
   are optional: adding people one by one works as before. Stored in `billkhata_groups`, in backups.
 - **Not here**: on a split, someone who wasn't there stays listed and pays nothing (the payer's
   version is "Not sharing"). On a trip, a person marked **Not here** (left early, joining later)

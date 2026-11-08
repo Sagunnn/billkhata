@@ -2,7 +2,7 @@
 // Used on the Split page, in a split's People step and on Trips. Groups are optional: adding people
 // one by one works as before.
 import { useMemo, useState } from 'react';
-import { Beer, Check, Divide, Drumstick, Leaf, Luggage, Pencil, Plus, ScanLine, Trash, UserPlus, Users, Zap } from 'lucide-react';
+import { Beer, Check, Divide, Drumstick, Leaf, Luggage, Pencil, Plus, ScanLine, Trash, UserPlus, Users, X, Zap } from 'lucide-react';
 import { cleanGroup, groupId, removeGroup, setPendingGroup, tripMembersFromGroup, upsertGroup } from '../lib/groups.js';
 import { loadFriends, loadGroups, saveGroups } from '../lib/profile.js';
 import { makeTrip } from '../lib/trips.js';
@@ -23,6 +23,83 @@ const names = (g, n = 4) => {
   return list.length > n ? `${list.slice(0, n).join(', ')} +${list.length - n}` : list.join(', ');
 };
 
+/* ---------- a list of people to edit (a group, or who's on a new trip) ---------- */
+
+const key = (n) => String(n || '').trim().toLowerCase();
+
+/**
+ * People with their face, name, Male / Female, Veg / Non-veg, Drinks and a remove button, then
+ * "Add a person" and quick picks (saved friends, and `more`: e.g. the group's people taken off).
+ * `draft` is the name being typed, kept by the parent so Save can take it too.
+ */
+function PeopleEditor({ members, onChange, draft, setDraft, more = [], groups = [], label }) {
+  const have = new Set(members.map((m) => key(m.name)));
+  const friends = useMemo(() => loadFriends(), []);
+  const picks = [...new Map([...more, ...friends.slice().reverse()].filter((f) => !have.has(key(f.name))).map((f) => [key(f.name), f])).values()].slice(0, 10);
+  const set = (i, patch) => onChange(members.map((m, j) => (j === i ? { ...m, ...patch } : m)));
+  const add = (list) => {
+    const fresh = [];
+    for (const p of list) {
+      const n = String(p.name || '').trim();
+      if (!n || have.has(key(n)) || fresh.some((f) => key(f.name) === key(n))) continue;
+      fresh.push({ ...p, name: n, diet: p.diet || 'non-veg', alcohol: Boolean(p.alcohol) });
+    }
+    if (fresh.length) onChange([...members, ...fresh]);
+  };
+  const addTyped = () => { add([{ name: draft }]); setDraft(''); };
+  return (
+    <div>
+      <p className="label">{label} ({members.length + 1} with you)</p>
+      <ul className="divide-y divide-line rounded-[14px] border border-line">
+        <li className="flex items-center gap-2 py-1.5 pl-2 pr-3">
+          <AvatarButton person={{ isMe: true }} size={36} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium leading-5 text-ink">You</span>
+            <GenderButton person={{ isMe: true }} />
+          </span>
+          <span className="t-caption text-ink-3">always in</span>
+        </li>
+        {members.map((m, i) => (
+          <li key={i} className="flex items-center gap-2 py-1.5 pl-2 pr-1">
+            <AvatarButton person={m} onChange={(patch) => set(i, patch)} size={36} />
+            <span className="min-w-0 flex-1">
+              <input aria-label="Name" className="block w-full bg-transparent text-[15px] font-medium leading-5 text-ink focus:outline-none" value={m.name} maxLength={40} onChange={(e) => set(i, { name: e.target.value })} />
+              <GenderButton person={m} onChange={(patch) => set(i, patch)} />
+            </span>
+            <button type="button" onClick={() => set(i, { diet: m.diet === 'veg' ? 'non-veg' : 'veg' })} aria-label={`${m.name}: ${m.diet === 'veg' ? 'veg' : 'non-veg'}, tap to switch`}
+              className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-1 ring-inset ${m.diet === 'veg' ? 'bg-leaf-soft text-leaf ring-leaf/30' : 'bg-brand-soft text-brand ring-brand/25'}`}>
+              {m.diet === 'veg' ? <Leaf className="size-3.5" /> : <Drumstick className="size-3.5" />}{m.diet === 'veg' ? 'Veg' : 'Non-veg'}
+            </button>
+            <button type="button" aria-pressed={m.alcohol} onClick={() => set(i, { alcohol: !m.alcohol })} aria-label={`${m.name}: ${m.alcohol ? 'drinks' : 'no drinks'}, tap to switch`} title={m.alcohol ? 'Drinks' : 'No drinks'}
+              className={`relative flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${m.alcohol ? 'bg-marigold-soft text-marigold-ink ring-marigold/40' : 'bg-surface text-ink-3 ring-line-strong'}`}>
+              <Beer className="size-4" />
+              {!m.alcohol && <span className="absolute h-0.5 w-5 rotate-45 rounded bg-ink-3/60" />}
+            </button>
+            <button type="button" onClick={() => onChange(members.filter((_, j) => j !== i))} className="tap flex size-8 shrink-0 items-center justify-center rounded-full text-ink-3 hover:text-danger" aria-label={`Remove ${m.name}`}><X className="size-4" /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex gap-2">
+        <input className="input py-2" value={draft} maxLength={40} onChange={(e) => setDraft(e.target.value)} placeholder="Add a person" aria-label="New person's name" enterKeyHint="done"
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (draft.trim()) addTyped(); } }} />
+        <Button type="button" icon={UserPlus} onClick={addTyped} disabled={!draft.trim()}>Add</Button>
+      </div>
+      {(picks.length > 0 || groups.length > 0) && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {groups.filter((g) => g.members.some((m) => !have.has(key(m.name)))).map((g) => (
+            <button key={g.id} type="button" className="chip tap h-8 text-[13px]" onClick={() => add(g.members)}><Users className="size-3.5" />{g.name}</button>
+          ))}
+          {picks.map((f) => (
+            <button key={f.name} type="button" className="chip tap h-8 pl-1 text-[13px]" onClick={() => add([f])}>
+              <PixelAvatar person={f} size={22} rounded="rounded-[6px]" /><Plus className="-mr-1 size-3.5" />{f.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- make or edit a group ---------- */
 
 /** `group`: one to edit; or { members } to start a new one from a split's people. */
@@ -31,22 +108,11 @@ export function GroupSheet({ group, groups, onSave, onClose }) {
   const editing = Boolean(group?.id);
   const [name, setName] = useState(group?.name || '');
   const [members, setMembers] = useState(() => (group?.members || []).map((m) => ({ ...m })));
-  const [person, setPerson] = useState('');
+  const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
-  const inGroup = new Set(members.map((m) => m.name.trim().toLowerCase()));
-  const friends = useMemo(() => loadFriends(), []);
-  const suggest = friends.filter((f) => !inGroup.has(f.name.trim().toLowerCase())).slice(-8).reverse();
-  const set = (i, patch) => setMembers((list) => list.map((m, j) => (j === i ? { ...m, ...patch } : m)));
-  function add(p) {
-    const n = String(p.name || '').trim();
-    if (!n || inGroup.has(n.toLowerCase())) return;
-    setMembers((list) => [...list, { name: n, diet: p.diet || 'non-veg', alcohol: Boolean(p.alcohol) }]);
-    setPerson('');
-    setError('');
-  }
   function save() {
     try {
-      const list = upsertGroup(groups, { id: group?.id, name, members: person.trim() ? [...members, { name: person }] : members });
+      const list = upsertGroup(groups, { id: group?.id, name, members: draft.trim() ? [...members, { name: draft }] : members });
       onSave(list);
       toast(editing ? `${name.trim()} saved.` : `Group “${name.trim()}” made. Use it to split a bill or start a trip.`);
       onClose();
@@ -67,45 +133,11 @@ export function GroupSheet({ group, groups, onSave, onClose }) {
           <Button variant="primary" icon={Check} onClick={save}>{editing ? 'Save' : 'Make group'}</Button>
         </>
       )}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (person.trim()) add({ name: person }); else save(); }}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
         <Field label="Group name" htmlFor="gr-name">
           <input id="gr-name" className="input" value={name} maxLength={40} onChange={(e) => { setName(e.target.value); setError(''); }} placeholder="Office lunch, Trek gang, Flatmates…" autoFocus={!editing} autoComplete="off" />
         </Field>
-        <div>
-          <p className="label">People ({members.length}) <span className="font-normal text-ink-3">· you're always in</span></p>
-          {members.length > 0 && (
-            <ul className="divide-y divide-line rounded-[14px] border border-line">
-              {members.map((m, i) => (
-                <li key={i} className="flex items-center gap-2 py-1.5 pl-2 pr-1">
-                  <AvatarButton person={m} onChange={(patch) => set(i, patch)} size={36} />
-                  <span className="min-w-0 flex-1">
-                    <input aria-label="Name" className="block w-full bg-transparent text-[15px] font-medium leading-5 text-ink focus:outline-none" value={m.name} maxLength={40} onChange={(e) => set(i, { name: e.target.value })} />
-                    <GenderButton person={m} onChange={(patch) => set(i, patch)} />
-                  </span>
-                  <button type="button" onClick={() => set(i, { diet: m.diet === 'veg' ? 'non-veg' : 'veg' })} aria-label={`${m.name}: ${m.diet === 'veg' ? 'veg' : 'non-veg'}, tap to switch`}
-                    className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-1 ring-inset ${m.diet === 'veg' ? 'bg-leaf-soft text-leaf ring-leaf/30' : 'bg-brand-soft text-brand ring-brand/25'}`}>
-                    {m.diet === 'veg' ? <Leaf className="size-3.5" /> : <Drumstick className="size-3.5" />}{m.diet === 'veg' ? 'Veg' : 'Non-veg'}
-                  </button>
-                  <button type="button" aria-pressed={m.alcohol} onClick={() => set(i, { alcohol: !m.alcohol })} aria-label={`${m.name}: ${m.alcohol ? 'drinks' : 'no drinks'}, tap to switch`} title={m.alcohol ? 'Drinks' : 'No drinks'}
-                    className={`relative flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${m.alcohol ? 'bg-marigold-soft text-marigold-ink ring-marigold/40' : 'bg-surface text-ink-3 ring-line-strong'}`}>
-                    <Beer className="size-4" />
-                    {!m.alcohol && <span className="absolute h-0.5 w-5 rotate-45 rounded bg-ink-3/60" />}
-                  </button>
-                  <button type="button" onClick={() => setMembers((list) => list.filter((_, j) => j !== i))} className="tap flex size-8 shrink-0 items-center justify-center rounded-full text-ink-3 hover:text-danger" aria-label={`Remove ${m.name}`}><Trash className="size-4" /></button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-2 flex gap-2">
-            <input className="input py-2" value={person} maxLength={40} onChange={(e) => { setPerson(e.target.value); setError(''); }} placeholder="Add a person" aria-label="New person's name" enterKeyHint="done" />
-            <Button type="button" icon={UserPlus} onClick={() => add({ name: person })} disabled={!person.trim()}>Add</Button>
-          </div>
-          {suggest.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {suggest.map((f) => <button key={f.name} type="button" className="chip tap h-8 text-[13px]" onClick={() => add(f)}><Plus className="size-3.5" />{f.name}</button>)}
-            </div>
-          )}
-        </div>
+        <PeopleEditor label="People" members={members} onChange={(m) => { setMembers(m); setError(''); }} draft={draft} setDraft={(v) => { setDraft(v); setError(''); }} />
         {error && <p className="t-caption text-danger" role="alert">{error}</p>}
         <p className="t-caption text-ink-3">Tap a face for a new look; male or female picks the style. Veg and drinks decide who shares which items. Anyone who isn't there on the day can be marked Not here.</p>
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Save</button>
@@ -140,41 +172,35 @@ export function SplitWithGroupSheet({ group, onPickSaved, onClose }) {
   );
 }
 
-/* ---------- start a trip with a group ---------- */
+/* ---------- start a trip (with a group, or anyone) ---------- */
 
-export function StartTripSheet({ group, onClose }) {
+/** Name the trip and say who's coming: a group's people to start with, anyone added or removed. */
+export function StartTripSheet({ group = null, name: startName = '', onClose }) {
   const { profile, saveTrip } = useStore();
   const toast = useToast();
-  const [name, setName] = useState('');
-  const [coming, setComing] = useState(() => new Set(group.members.map((m) => m.name)));
-  const toggle = (n) => setComing((s) => { const x = new Set(s); if (x.has(n)) x.delete(n); else x.add(n); return x; });
+  const [groups] = useGroups();
+  const [name, setName] = useState(startName);
+  const [people, setPeople] = useState(() => (group?.members || []).map((m) => ({ ...m })));
+  const [draft, setDraft] = useState('');
+  const coming = draft.trim() && !people.some((p) => key(p.name) === key(draft)) ? [...people, { name: draft.trim(), diet: 'non-veg', alcohol: false }] : people;
   async function start() {
-    const trip = makeTrip({ name: name.trim() || `${group.name} trip`, profile });
-    trip.members = [...trip.members, ...tripMembersFromGroup(group, { existing: trip.members, coming })];
+    const trip = makeTrip({ name: name.trim() || (group ? `${group.name} trip` : 'New trip'), profile });
+    trip.members = [...trip.members, ...tripMembersFromGroup({ members: coming }, { existing: trip.members })];
     const t = await saveTrip(trip);
-    toast(`${t.name} started with ${t.members.length} people.`);
+    toast(`${t.name} started with ${t.members.length} ${t.members.length === 1 ? 'person' : 'people'}.`);
     onClose();
     window.location.hash = `#/trip/${encodeURIComponent(t.id)}`;
   }
   return (
-    <Modal open keepFooter size="md" onClose={onClose} title={`Trip with ${group.name}`} subtitle="Who's coming?"
-      footer={<Button variant="primary" size="lg" icon={Luggage} className="w-full" onClick={start}>Start trip with {coming.size + 1} people</Button>}>
+    <Modal open keepFooter size="md" onClose={onClose} title={group ? `Trip with ${group.name}` : 'Start a trip'} subtitle="Who's coming? Add or remove anyone"
+      footer={<Button variant="primary" size="lg" icon={Luggage} className="w-full" onClick={start}>Start trip with {coming.length + 1} {coming.length ? 'people' : 'person'}</Button>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); start(); }}>
         <Field label="Trip name" htmlFor="st-trip">
-          <input id="st-trip" className="input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder={`${group.name} trip, Nagarkot weekend…`} autoComplete="off" />
+          <input id="st-trip" className="input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder={group ? `${group.name} trip, Nagarkot weekend…` : 'Nagarkot weekend, Pokhara trek…'} autoComplete="off" autoFocus={!group && !startName} />
         </Field>
-        <fieldset>
-          <legend className="label">Coming</legend>
-          <div className="flex flex-wrap gap-2">
-            <span className="chip tap chip-on" aria-label="You, always on the trip"><Check className="size-4" />You</span>
-            {group.members.map((m) => (
-              <button key={m.name} type="button" aria-pressed={coming.has(m.name)} className={`chip tap pl-1.5 ${coming.has(m.name) ? '' : 'opacity-60'}`} onClick={() => toggle(m.name)}>
-                <PixelAvatar person={m} size={24} rounded="rounded-[6px]" dim={!coming.has(m.name)} />{m.name}{coming.has(m.name) && <Check className="size-4" />}
-              </button>
-            ))}
-          </div>
-          <p className="t-caption mt-2 text-ink-3">Tap anyone who isn't coming. Someone joining late or leaving early: mark them Not here on the trip page, and new expenses leave them out.</p>
-        </fieldset>
+        <PeopleEditor label="Coming" members={people} onChange={setPeople} draft={draft} setDraft={setDraft}
+          more={group ? group.members : []} groups={groups.filter((g) => !group || groupId(g) !== groupId(group))} />
+        <p className="t-caption text-ink-3">You can still add or remove people on the trip page. Someone joining late or leaving early: mark them Not here there, and new expenses leave them out.</p>
         <button type="submit" className="sr-only" aria-hidden="true" tabIndex={-1}>Start</button>
       </form>
     </Modal>

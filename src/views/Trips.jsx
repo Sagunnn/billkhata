@@ -13,7 +13,7 @@ import { getIrdStatus } from '../lib/ird.js';
 import { adToBs, formatAD, formatBS, todayAD } from '../lib/nepaliDate.js';
 import { decodeQrFromImage, qrKind } from '../lib/qr.js';
 import {
-  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTrip, makeTripItem,
+  calculateTripSettlement, classifyTripItem, entryFromExpense, entryShares, getDefaultAssignedMembers, hereMembers, makeEntry, makeTripItem,
   makeTripMember, quickTripEntry, TRIP_CATEGORIES, TRIP_CATEGORY_LABELS, transferKey, tripStatus,
 } from '../lib/trips.js';
 import { useStore } from '../store.jsx';
@@ -41,16 +41,16 @@ function CatChip({ cat }) {
 /* ---------------- list ---------------- */
 
 export function TripsHub() {
-  const { trips, profile, saveTrip, openSheet } = useStore();
+  const { trips, profile, openSheet } = useStore();
   const [name, setName] = useState('');
   const [groups] = useGroups();
   const [withGroup, setWithGroup] = useState(null);
   const sorted = [...trips].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
 
-  async function create(e) {
+  // Starting a trip asks who's coming first (a group to start from, or anyone added by name).
+  function create(e) {
     e.preventDefault();
-    const t = await saveTrip(makeTrip({ name: name || 'New trip', profile }));
-    window.location.hash = `#/trip/${encodeURIComponent(t.id)}`;
+    setWithGroup({ group: null, name });
   }
 
   return (
@@ -64,10 +64,10 @@ export function TripsHub() {
         {groups.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="t-caption text-ink-3">Or start with a group:</span>
-            {groups.map((g) => <button key={g.name} type="button" className="chip tap h-8 text-[13px]" onClick={() => setWithGroup(g)}><Users className="size-3.5" />{g.name} · {g.members.length + 1}</button>)}
+            {groups.map((g) => <button key={g.name} type="button" className="chip tap h-8 text-[13px]" onClick={() => setWithGroup({ group: g, name })}><Users className="size-3.5" />{g.name} · {g.members.length + 1}</button>)}
           </div>
         )}
-        {withGroup && <StartTripSheet group={withGroup} onClose={() => setWithGroup(null)} />}
+        {withGroup && <StartTripSheet group={withGroup.group} name={withGroup.name} onClose={() => setWithGroup(null)} />}
       </Card>
       <button type="button" onClick={() => openSheet('receive')} className="card flex w-full items-center gap-3 rounded-2xl p-4 text-left hover:border-line-strong">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-navy-soft text-navy"><FileUp className="size-5" /></span>
